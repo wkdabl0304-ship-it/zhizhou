@@ -29,12 +29,12 @@
 
 ## 部署与启动
 
-计划由管理员通过 Docker Compose 统一部署，员工通过浏览器访问。当前已有前端基础工程和后端目录骨架，尚未形成完整的业务应用，也未提供 Docker Compose 部署配置。
+计划由管理员通过 Docker Compose 统一部署，员工通过浏览器访问。当前已有前端基础工程、后端目录骨架，以及使用 DeepSeek 和 PostgreSQL 保存对话状态的智能体示例，尚未形成完整的业务应用。[开发 Compose 配置](docker-compose-dev.yml)目前仅提供 PostgreSQL，尚未包含前后端服务或完整生产部署。
 
 模块开发说明见：
 
 - [前端开发说明](frontend/README.md)：环境要求、开发启动、构建与测试。
-- [后端开发说明](backend/README.md)：后端开发命令与目录职责。
+- [后端开发说明](backend/README.md)：后端开发命令、数据库与智能体示例配置、目录职责。
 
 ## 许可证
 
