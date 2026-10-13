@@ -10,19 +10,14 @@ from app.config.settings import LoggingSettings
 class NamespaceLevelFilter(logging.Filter):
     """也约束已自行设置级别的 logger，避免第三方 DEBUG 日志淹没输出。"""
 
-    def __init__(self, app_level: str, third_party_level: str, access_enabled: bool) -> None:
+    def __init__(self, app_level: str, third_party_level: str) -> None:
         super().__init__()
         levels = logging.getLevelNamesMapping() # 获取日志级别到数字的映射
         self.app_level = levels[app_level]
         self.third_party_level = levels[third_party_level]
-        self.access_enabled = access_enabled
 
     # 根据命名空间选择不同的过滤级别
     def filter(self, record: logging.LogRecord) -> bool:
-        if not self.access_enabled and (
-            record.name == "uvicorn.access" or record.name.startswith("uvicorn.access.")
-        ):
-            return False
         application = any(
             record.name == name or record.name.startswith(f"{name}.")
             for name in ("app", "uvicorn")
@@ -47,7 +42,6 @@ def build_logging_config(settings: LoggingSettings) -> dict[str, Any]:
                 "()": "app.config.logging.NamespaceLevelFilter",
                 "app_level": settings.level,
                 "third_party_level": settings.third_party_level,
-                "access_enabled": settings.access_enabled,
             },
         },
         "handlers": {
@@ -70,7 +64,7 @@ def build_logging_config(settings: LoggingSettings) -> dict[str, Any]:
             "uvicorn.access": {
                 "handlers": [],
                 "level": settings.level,
-                "propagate": True,
+                "propagate": settings.access_enabled,
             },
         },
     }
