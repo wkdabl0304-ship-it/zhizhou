@@ -45,8 +45,16 @@ docker compose -f docker-compose-dev.yml up -d postgres
 
 ```powershell
 uv sync
-uv run uvicorn app.main:app --reload
+uv run python -m app --reload
 ```
+
+统一启动入口会先加载日志配置，再启动 Uvicorn，默认监听 `127.0.0.1:8000`。可以通过参数修改地址和端口：
+
+```powershell
+uv run python -m app --reload --host 0.0.0.0 --port 8080
+```
+
+`--reload` 仅用于开发。原命令 `uv run uvicorn app.main:app --reload` 仍可使用，日志会在应用生命周期开始时统一；该兼容方式最早几条 Uvicorn 日志仍使用默认样式。
 
 打开 [Swagger UI](http://127.0.0.1:8000/docs)，调用 `POST /chat`。请求示例：
 
@@ -82,21 +90,56 @@ uv run python -m app.agents
 
 命令行和 HTTP 共用配置、数据库管理和 Agent 实现。导入模块不会加载配置、连接数据库或发起模型调用。
 
+## 统一日志
+
+项目统一使用 Python 标准库 `logging`。配置位于 `app/config/logging.py`，环境读取与校验位于 `app/config/settings.py`；Web 启动入口、应用生命周期和智能体命令行入口显式初始化，导入模块不配置全局日志。
+
+以下配置项均可选，读取仓库根目录 `.env`，系统环境变量优先。未配置时使用默认值；修改后需重启启动入口。
+
+| 环境变量 | 默认值 | 用途 |
+| --- | --- | --- |
+| `LOG_LEVEL` | `INFO` | 应用与 Uvicorn 日志级别 |
+| `LOG_THIRD_PARTY_LEVEL` | `WARNING` | 第三方库日志级别 |
+| `LOG_ACCESS_ENABLED` | `true` | 是否输出 Uvicorn HTTP 访问日志 |
+
+级别支持 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`，忽略大小写；访问日志开关支持 `true/false` 和 `1/0`，忽略大小写。显式空值或非法值使启动失败，并指出配置项。日志配置加载不依赖模型密钥或数据库配置，因此业务初始化失败也能记录异常。
+
+日志采用统一文本格式，包含本地时间、级别、模块名和消息，输出到 `stderr`；命令行最终回复仍输出到 `stdout`。重复初始化不会叠加 handler，应用、Uvicorn 和第三方日志均经统一控制台 handler 输出。
+
+```text
+2026-10-13 15:30:02 INFO app.main 应用启动完成
+2026-10-13 15:30:04 INFO app.agents.agent 对话完成 thread_id='conversation-001' duration_ms=1820.00
+```
+
+应用记录启动完成、启动失败和资源关闭。Agent 记录对话成功或失败、对话标识和耗时，计时包含等待对话锁的排队时间；失败附带异常堆栈，HTTP 层只转换错误响应，不重复记录。默认不主动记录聊天正文、模型回复、密钥或数据库连接串。本阶段不提供请求 ID、日志文件或第三方日志库。
+
+各模块使用标准 logger，只记录自身事件，不添加 handler 或重新初始化日志：
+
+```python
+import logging
+
+logger = logging.getLogger(__name__)
+logger.info("业务事件")
+```
+
+集中配置会保留第三方 logger 的启用状态，并统一控制应用、Uvicorn 与第三方日志的输出级别。容器部署时由运行环境收集控制台日志。
+
 ## 测试
 
 ```powershell
 uv run pytest -q
 ```
 
-默认测试使用模型及数据库替身和内存 checkpoint，无需真实密钥或 PostgreSQL。覆盖配置校验与优先级、特殊字符连接参数、资源释放、接口校验与错误响应、导入无外部副作用，以及真实 LangChain 图的多轮对话、记录隔离和天气工具调用。
+默认测试使用模型及数据库替身和内存 checkpoint，无需真实密钥或 PostgreSQL。覆盖配置校验与优先级、特殊字符连接参数、资源释放、接口校验与错误响应、导入无外部副作用，以及真实 LangChain 图的多轮对话、记录隔离和天气工具调用。日志测试额外覆盖级别、访问日志开关、重复初始化、Uvicorn 子进程配置、启动参数以及对话日志的耗时与异常；全局日志配置在独立子进程中验证，保留其他测试的日志捕获能力。
 
 真实服务验证可通过 `/docs` 依次测试：同一 `thread_id` 告知姓名并追问姓名、更换标识确认无之前的历史、重启服务后使用原标识继续对话。测试模型的实际回复不应作为固定文本断言。
 
 ## 目录职责
 
+- `app/__main__.py`：统一 Web 启动入口，处理地址、端口、reload 参数并向 Uvicorn 传递日志配置。
 - `app/main.py`：FastAPI 应用、启动/退出资源管理和最小聊天路由。
 - `app/agents/`：Agent 专属实现；`models.py` 创建模型，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
-- `app/config/`：通用配置加载与校验。
+- `app/config/`：通用配置加载与校验，以及标准 logging 集中配置。
 - `app/db/`：数据库资源管理，当前包含 PostgreSQL checkpoint 连接和初始化。
 - `app/schemas/`：聊天请求和响应的数据结构。
 - `app/api/`、`app/models/`、`app/repositories/`、`app/services/`、`app/utils/`：分别预留给接口模块、业务数据库模型、数据访问、业务服务和通用辅助函数，当前仍为包占位。

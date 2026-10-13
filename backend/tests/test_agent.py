@@ -1,4 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
+import importlib
+import logging
 from threading import Lock
 from time import sleep
 from unittest.mock import Mock
@@ -105,3 +107,49 @@ def test_real_agent_graph_continues_history_and_isolates_threads():
 def test_real_agent_graph_invokes_weather_tool():
     agent = ChatAgent(build_agent(StubChatModel(), [get_weather], InMemorySaver()))
     assert agent.chat("天气", "weather") == "上海今天晴天，温度 25°C"
+
+
+@pytest.mark.parametrize("failure", [False, True])
+def test_chat_logs_context_duration_and_failure_without_chat_body(
+    monkeypatch, caplog, failure
+):
+    module = importlib.import_module("app.agents.agent")
+    monkeypatch.setattr(module, "perf_counter", Mock(side_effect=[10.0, 10.25]))
+    graph = Mock()
+    if failure:
+        graph.invoke.side_effect = RuntimeError("provider failed")
+    else:
+        graph.invoke.return_value = {"messages": [AIMessage(content="private-reply")]}
+    with caplog.at_level(logging.INFO, logger=module.__name__):
+        if failure:
+            with pytest.raises(RuntimeError, match="provider failed"):
+                ChatAgent(graph).chat("private-message", "thread")
+        else:
+            assert ChatAgent(graph).chat("private-message", "thread") == "private-reply"
+    records = [record for record in caplog.records if record.name == module.__name__]
+    assert len(records) == 1
+    assert records[0].thread_id == "thread"
+    assert records[0].duration_ms == 250
+    assert records[0].levelno == (logging.ERROR if failure else logging.INFO)
+    assert bool(records[0].exc_info) is failure
+    assert "private-message" not in caplog.text
+    assert "private-reply" not in caplog.text
+
+
+def test_duration_includes_waiting_for_lock(monkeypatch, caplog):
+    module = importlib.import_module("app.agents.agent")
+    clock = [10.0]
+    monkeypatch.setattr(module, "perf_counter", lambda: clock[0])
+
+    class QueuedLock:
+        def __enter__(self):
+            clock[0] += 2
+
+        def __exit__(self, *args):
+            pass
+
+    agent = ChatAgent(Mock(invoke=Mock(return_value={"messages": [AIMessage(content="ok")]})))
+    agent._lock = QueuedLock()
+    with caplog.at_level(logging.INFO, logger=module.__name__):
+        agent.chat("hello", "thread")
+    assert caplog.records[-1].duration_ms == 2000

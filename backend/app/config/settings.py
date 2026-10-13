@@ -19,11 +19,44 @@ class Settings:
     model_base_url: str = "https://api.deepseek.com"
 
 
-def load_settings(env_path: Path | None = None) -> Settings:
-    """读取 backend/.env；系统环境变量优先，不修改进程环境。"""
+@dataclass(frozen=True)
+class LoggingSettings:
+    level: str = "INFO"
+    third_party_level: str = "WARNING"
+    access_enabled: bool = True
+
+
+def _read_environment(env_path: Path | None = None) -> dict[str, str | None]:
+    """读取仓库根目录 .env；系统环境变量优先，不修改进程环境。"""
     if env_path is None:
         env_path = Path(__file__).resolve().parents[3] / ".env"
-    values = {**dotenv_values(env_path), **os.environ}
+    return {**dotenv_values(env_path), **os.environ}
+
+
+def load_logging_settings(env_path: Path | None = None) -> LoggingSettings:
+    """独立加载日志配置，不依赖模型或数据库配置。"""
+    values = _read_environment(env_path)
+    levels = {"DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"}
+
+    def level(name: str, default: str) -> str:
+        value = (values.get(name, default) or "").strip().upper()
+        if value not in levels:
+            raise ValueError(f"{name} 必须是 DEBUG、INFO、WARNING、ERROR、CRITICAL 之一")
+        return value
+
+    enabled = (values.get("LOG_ACCESS_ENABLED", "true") or "").strip().lower()
+    if enabled not in {"true", "false", "1", "0"}:
+        raise ValueError("LOG_ACCESS_ENABLED 必须是 true、false、1 或 0")
+    return LoggingSettings(
+        level=level("LOG_LEVEL", "INFO"),
+        third_party_level=level("LOG_THIRD_PARTY_LEVEL", "WARNING"),
+        access_enabled=enabled in {"true", "1"},
+    )
+
+
+def load_settings(env_path: Path | None = None) -> Settings:
+    """显式加载业务配置，沿用统一的环境读取规则。"""
+    values = _read_environment(env_path)
     required = (
         "DEEPSEEK_API_KEY",
         "POSTGRES_USER",
