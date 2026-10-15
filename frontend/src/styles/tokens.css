@@ -1,0 +1,76 @@
+/* 知舟设计变量：根元素同时为页面与 Portal 提供主题，语义变量避免业务组件绑定具体色值。 */
+:root {
+  color-scheme: light;
+  --font-sans: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --font-mono: 'Cascadia Code', Consolas, monospace;
+  --bg: #ffffff;
+  --sidebar-bg: #f7f8f8;
+  --surface: #ffffff;
+  --surface-soft: #f5f6f6;
+  --surface-hover: #edeeee;
+  --surface-active: #e6eeee;
+  --text: #262b2a;
+  --text-secondary: #646d6a;
+  --text-muted: #68746e;
+  --border: #e8ebea;
+  --border-strong: #d4dbd8;
+  --brand: #0f766e;
+  --brand-hover: #0b625b;
+  --brand-soft: #e9f3f0;
+  --brand-contrast: #ffffff;
+  --action: #293b35;
+  --action-contrast: #ffffff;
+  --danger: #b43f36;
+  --danger-soft: #fff4f2;
+  --overlay: rgb(19 31 27 / 35%);
+  --shadow-soft: 0 2px 10px rgb(22 42 33 / 3%);
+  --shadow-composer: 0 4px 22px rgb(22 42 33 / 5%);
+  --shadow-popover: 0 8px 30px rgb(22 42 33 / 12%);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 24px;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --sidebar-width: 260px;
+  --content-width: 800px;
+  --z-header: 10;
+  --z-overlay: 40;
+  --z-drawer: 50;
+  --z-menu: 60;
+  --z-tooltip: 70;
+  --duration-fast: 140ms;
+}
+
+/* 深色保留与浅色一致的布局及语义，品牌色提高亮度以保持小字号文字对比度。 */
+:root[data-theme='dark'] {
+  color-scheme: dark;
+  --bg: #1c201f;
+  --sidebar-bg: #171b19;
+  --surface: #252a27;
+  --surface-soft: #282e2a;
+  --surface-hover: #303833;
+  --surface-active: #2b3c35;
+  --text: #e6eae7;
+  --text-secondary: #b0bab4;
+  --text-muted: #98a59d;
+  --border: #303933;
+  --border-strong: #46544b;
+  --brand: #5eead4;
+  --brand-hover: #85f2e0;
+  --brand-soft: #243e35;
+  --brand-contrast: #15332b;
+  --action: #dbe8df;
+  --action-contrast: #203028;
+  --danger: #ffaaa0;
+  --danger-soft: #392a27;
+  --overlay: rgb(0 0 0 / 55%);
+  --shadow-soft: 0 2px 10px rgb(0 0 0 / 8%);
+  --shadow-composer: 0 4px 22px rgb(0 0 0 / 12%);
+  --shadow-popover: 0 8px 30px rgb(0 0 0 / 30%);
+}

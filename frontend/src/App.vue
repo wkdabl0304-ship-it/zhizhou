@@ -1,16 +1,11 @@
-<!-- 根组件：保留初始示例页面，用于确认 Vue 工程可以挂载；业务对话界面尚未接入。 -->
+<!-- 应用根组件：恢复主题，提供统一提示延迟，并通过路由装配聊天与开发预览页面。 -->
 <script setup lang="ts">
-// 当前页面没有交互状态；后续页面逻辑可在此使用 Composition API 声明。
+import { TooltipProvider } from 'reka-ui'
+import { useThemeStore } from '@/stores/theme'
+
+useThemeStore().initialize()
 </script>
 
 <template>
-  <h1>You did it!</h1>
-  <p>
-    Visit <a href="https://vuejs.org/" target="_blank" rel="noopener">vuejs.org</a> to read the
-    documentation
-  </p>
+  <TooltipProvider :delay-duration="350"><RouterView /></TooltipProvider>
 </template>
-
-<style scoped>
-/* scoped 将未来添加的样式限制在当前组件，当前保留默认页面外观。 */
-</style>
