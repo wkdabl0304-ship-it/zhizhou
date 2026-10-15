@@ -1,7 +1,8 @@
-<!-- 青蓝水墨首页主视觉：沿用已选方案的大字、山海画面和缓慢水墨动效，正文由其他组件承载。 -->
+<!-- 青蓝水墨首页主视觉：组合已选现代宋体标题、山海画面和缓慢水墨动效，正文由其他组件承载。 -->
 <script setup lang="ts">
 import { ArrowDownRight } from '@lucide/vue'
 import riverArtwork from '@/assets/brand/indigo-ink.png'
+import WelcomeHeading from './WelcomeHeading.vue'
 withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
 </script>
 <template>
@@ -11,7 +12,10 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
     </div>
     <div class="river-hero-copy">
       <div class="river-eyebrow">知有边界，想象无界</div>
-      <h2 class="river-heading">心有山海，<br />自有<span>知舟。</span></h2>
+      <!-- 正式首页默认使用已选现代宋体；插槽只用于开发页保留其他排版的比较。 -->
+      <slot name="heading">
+        <WelcomeHeading />
+      </slot>
       <p class="river-description">让知识流动，让想法抵达。</p>
     </div>
     <span class="river-seal" aria-hidden="true">山海</span>
@@ -36,16 +40,6 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   color: var(--text-secondary);
   font-size: 11px;
   letter-spacing: 3px;
-}
-.river-heading {
-  margin: 18px 0 16px;
-  font-size: clamp(46px, 4.8vw, 67px);
-  line-height: 1.17;
-  letter-spacing: -3px;
-  font-weight: 500;
-}
-.river-heading span {
-  color: var(--brand);
 }
 .river-description {
   display: inline-block;
@@ -126,10 +120,6 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   .river-hero {
     min-height: 330px;
     padding: 24px 20px 0;
-  }
-  .river-heading {
-    font-size: 48px;
-    margin-top: 22px;
   }
   .river-eyebrow {
     font-size: 10px;

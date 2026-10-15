@@ -23,6 +23,11 @@ const router = createRouter({
             name: 'brand-preview',
             component: () => import('@/views/BrandPreview.vue'),
           },
+          {
+            path: '/dev/headings',
+            name: 'heading-preview',
+            component: () => import('@/views/HeadingPreview.vue'),
+          },
         ]
       : []),
     {

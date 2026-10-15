@@ -7,7 +7,9 @@ import BrandLogo from '@/components/BrandLogo.vue'
 import ChatComposer from './ChatComposer.vue'
 import RiverWelcomeHero from './RiverWelcomeHero.vue'
 const model = defineModel<string>({ default: '' })
-withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
+withDefaults(defineProps<{ motion?: boolean; tooltipPortalTarget?: HTMLElement }>(), {
+  motion: true,
+})
 defineEmits<{ send: [text: string] }>()
 const composer = ref<InstanceType<typeof ChatComposer>>()
 /** 填入建议但不发送；DOM 同步后将焦点送回输入区，供用户继续编辑。 */
@@ -24,12 +26,19 @@ defineExpose({ focus })
 </script>
 <template>
   <section class="welcome" aria-label="开启新对话">
-    <RiverWelcomeHero :motion="motion" />
+    <RiverWelcomeHero :motion="motion">
+      <template v-if="$slots.heading" #heading><slot name="heading" /></template>
+    </RiverWelcomeHero>
     <div class="welcome-controls">
       <div class="welcome-composer-label">
         <BrandLogo :size="20" /><span>把你的想法，交给知舟</span>
       </div>
-      <ChatComposer ref="composer" v-model="model" @send="$emit('send', $event)" />
+      <ChatComposer
+        ref="composer"
+        v-model="model"
+        :tooltip-portal-target="tooltipPortalTarget"
+        @send="$emit('send', $event)"
+      />
       <div class="suggestions">
         <button
           v-for="suggestion in suggestions"

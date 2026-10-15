@@ -5,6 +5,7 @@ import { createPinia } from 'pinia'
 import { defineComponent } from 'vue'
 import { TooltipProvider } from 'reka-ui'
 import ChatView from '@/views/ChatView.vue'
+import WelcomeHeading from '@/components/chat/WelcomeHeading.vue'
 
 const wrappers: VueWrapper[] = []
 // jsdom 没有真实视口断点；桌面替身只提供组件实际使用的媒体查询监听接口。
@@ -40,6 +41,8 @@ describe('聊天工作空间', () => {
   // 首页输入实例会在发送时被替换，必须将焦点送到新对话页的输入框。
   it('建议只填入草稿，发送后创建对话并保持输入焦点', async () => {
     const wrapper = renderWorkspace()
+    // 正式首页必须使用已选现代宋体组件，防止只更新开发预览而遗漏实际入口。
+    expect(wrapper.findComponent(WelcomeHeading).exists()).toBe(true)
     await wrapper.get('.suggestion').trigger('click')
     expect(wrapper.findAll('article')).toHaveLength(0)
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('入职清单')
