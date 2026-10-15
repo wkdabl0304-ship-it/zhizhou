@@ -1,4 +1,4 @@
-<!-- 知舟正式标志：复用已选青蓝舟形 SVG，独立导入避免将未选品牌素材带入生产包。 -->
+<!-- 知舟品牌标志：通过青蓝舟形 SVG 与主题语义变量，统一侧栏、首页与消息头像。 -->
 <script setup lang="ts">
 import riverMark from '@/assets/brand/mark-river.svg?raw'
 withDefaults(defineProps<{ size?: number; decorative?: boolean }>(), { size: 32, decorative: true })

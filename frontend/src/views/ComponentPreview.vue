@@ -59,12 +59,7 @@ function record(text: string): void {
     </header>
     <div class="preview-eyebrow">ZHIZHOU · DESIGN FOUNDATION</div>
     <h1>组件与交互预览</h1>
-    <p class="preview-intro">
-      开发专用 · 所有示例都使用演示数据。通过外观菜单检查明暗主题。<RouterLink to="/dev/brand"
-        >探索三种水墨品牌方案 →</RouterLink
-      >
-      · <RouterLink to="/dev/headings">比较青蓝首页标题 →</RouterLink>
-    </p>
+    <p class="preview-intro">开发专用 · 所有示例都使用演示数据。通过外观菜单检查明暗主题。</p>
     <section>
       <h2>基础操作</h2>
       <div class="preview-row">

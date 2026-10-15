@@ -7,10 +7,7 @@ import WelcomeHeading from './WelcomeHeading.vue'
   <section class="river-hero" aria-label="青蓝水墨主视觉">
     <div class="river-hero-copy">
       <div class="river-eyebrow">知有边界，想象无界</div>
-      <!-- 正式首页默认使用已选现代宋体；插槽只用于开发页保留其他排版的比较。 -->
-      <slot name="heading">
-        <WelcomeHeading />
-      </slot>
+      <WelcomeHeading />
       <p class="river-description">让知识流动，让想法抵达。</p>
     </div>
     <span class="river-seal" aria-hidden="true">山海</span>

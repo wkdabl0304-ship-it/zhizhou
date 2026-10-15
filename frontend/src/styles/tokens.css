@@ -1,7 +1,5 @@
 /* 知舟设计变量：根元素同时为页面与 Portal 提供主题，语义变量避免业务组件绑定具体色值。 */
-/* 独立预览可在局部主题边界复用同一组变量，无需写入根主题或复制配色。 */
-:root,
-.theme-scope {
+:root {
   color-scheme: light;
   --font-sans: 'Inter', 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
   --font-mono: 'Cascadia Code', Consolas, monospace;
@@ -51,8 +49,7 @@
 }
 
 /* 深色保留与浅色一致的布局及语义，品牌色提高亮度以保持小字号文字对比度。 */
-:root[data-theme='dark'],
-.theme-scope[data-theme='dark'] {
+:root[data-theme='dark'] {
   color-scheme: dark;
   --bg: #10232d;
   --sidebar-bg: #0c1b23;

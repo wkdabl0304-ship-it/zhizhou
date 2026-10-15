@@ -41,7 +41,7 @@ describe('聊天工作空间', () => {
   // 首页输入实例会在发送时被替换，必须将焦点送到新对话页的输入框。
   it('建议只填入草稿，发送后创建对话并保持输入焦点', async () => {
     const wrapper = renderWorkspace()
-    // 正式首页必须使用已选现代宋体组件，防止只更新开发预览而遗漏实际入口。
+    // 首页使用独立的现代宋体组件，正文与输入区继续使用公共无衬线字体。
     expect(wrapper.findComponent(WelcomeHeading).exists()).toBe(true)
     // 装饰跟随首页生命周期，进入正文后应释放背景，保持阅读区稳定。
     expect(wrapper.find('.river-backdrop').exists()).toBe(true)

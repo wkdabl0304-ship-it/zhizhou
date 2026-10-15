@@ -1,4 +1,4 @@
-<!-- 首页组合：青蓝水墨主视觉、真实输入区和建议问题；不依赖聊天 store，可在独立设计预览中复用。 -->
+<!-- 首页组合：青蓝水墨标题区、真实输入区和建议问题；通过事件交出用户输入，不直接依赖聊天 store。 -->
 <script setup lang="ts">
 import { nextTick, ref } from 'vue'
 import { ArrowUpRight } from '@lucide/vue'
@@ -7,7 +7,6 @@ import BrandLogo from '@/components/BrandLogo.vue'
 import ChatComposer from './ChatComposer.vue'
 import RiverWelcomeHero from './RiverWelcomeHero.vue'
 const model = defineModel<string>({ default: '' })
-defineProps<{ tooltipPortalTarget?: HTMLElement }>()
 defineEmits<{ send: [text: string] }>()
 const composer = ref<InstanceType<typeof ChatComposer>>()
 /** 填入建议但不发送；DOM 同步后将焦点送回输入区，供用户继续编辑。 */
@@ -24,19 +23,12 @@ defineExpose({ focus })
 </script>
 <template>
   <section class="welcome" aria-label="开启新对话">
-    <RiverWelcomeHero>
-      <template v-if="$slots.heading" #heading><slot name="heading" /></template>
-    </RiverWelcomeHero>
+    <RiverWelcomeHero />
     <div class="welcome-controls">
       <div class="welcome-composer-label">
         <BrandLogo :size="20" /><span>把你的想法，交给知舟</span>
       </div>
-      <ChatComposer
-        ref="composer"
-        v-model="model"
-        :tooltip-portal-target="tooltipPortalTarget"
-        @send="$emit('send', $event)"
-      />
+      <ChatComposer ref="composer" v-model="model" @send="$emit('send', $event)" />
       <div class="suggestions">
         <button
           v-for="suggestion in suggestions"
