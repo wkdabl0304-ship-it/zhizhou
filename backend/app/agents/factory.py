@@ -1,4 +1,7 @@
-"""组装 Agent，不创建模型或数据库资源。"""
+"""将模型、工具、提示词和状态保存器组合成可运行的 LangChain Agent。
+
+依赖由启动入口传入，可在测试中替换模型和存储，本模块不管理外部连接。
+"""
 
 from collections.abc import Sequence
 
@@ -15,6 +18,12 @@ def build_agent(
     tools: Sequence[BaseTool],
     checkpointer: BaseCheckpointSaver,
 ):
+    """根据注入依赖返回支持 invoke 的 Agent 图。
+
+    model 负责生成和工具选择，tools 定义可调用能力，checkpointer
+    负责按 thread_id 保存消息。调用方须在整个图执行期间保持存储可用。
+    统一系统提示词从 prompts 模块读取；组装本身不会发起模型请求。
+    """
     return create_agent(
         model=model,
         tools=list(tools),

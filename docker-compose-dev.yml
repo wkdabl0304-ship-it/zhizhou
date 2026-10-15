@@ -1,3 +1,4 @@
+# 本地开发基础设施：当前仅启动 PostgreSQL，后端和前端分别在宿主机运行。
 name: zhizhou
 
 services:
@@ -7,14 +8,17 @@ services:
     restart: unless-stopped
 
     environment:
+      # 由 Compose 读取根目录 .env；保持与后端实际连接使用的配置一致。
       POSTGRES_USER: ${POSTGRES_USER}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: ${POSTGRES_DB}
 
     ports:
+      # 左侧是宿主机端口，右侧是容器端口；当前固定映射，不自动使用 POSTGRES_PORT。
       - "5432:5432"
 
     volumes:
+      # 命名卷保存数据库文件，重建容器时继续保留 checkpoint 对话记录。
       - postgres_data:/var/lib/postgresql/data
 
 volumes:

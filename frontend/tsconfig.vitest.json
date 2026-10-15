@@ -1,3 +1,4 @@
+// 单元测试类型检查：继承应用配置，再切换到 Node 与 jsdom 的测试环境类型。
 {
   "extends": "./tsconfig.app.json",
 
@@ -6,6 +7,7 @@
   "include": ["src/**/__tests__/*", "env.d.ts"],
   "exclude": [],
 
+  // include 负责测试入口；入口引用的应用代码会通过模块解析被一并检查。
   "compilerOptions": {
     // Vitest runs in a different environment than the application code.
     // Adjust lib and types accordingly.

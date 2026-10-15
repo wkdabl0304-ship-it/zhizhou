@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- 浏览器静态入口：提供基础元信息、Vue 挂载容器和 ES 模块启动脚本。 -->
 <html lang="">
   <head>
     <meta charset="UTF-8">
@@ -7,7 +8,9 @@
     <title>Vite App</title>
   </head>
   <body>
+    <!-- main.ts 将创建的 Vue 应用挂载到此节点。 -->
     <div id="app"></div>
+    <!-- 模块源码在开发时由 Vite 提供，生产构建时替换为打包后的资源地址。 -->
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

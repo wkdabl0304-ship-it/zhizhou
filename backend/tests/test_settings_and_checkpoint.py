@@ -1,3 +1,8 @@
+"""验证业务配置读取、敏感配置隐藏以及 PostgreSQL 资源生命周期。
+
+临时环境文件和保存器替身代替真实凭据、数据库连接及迁移。
+"""
+
 from contextlib import contextmanager
 from dataclasses import replace
 
@@ -18,6 +23,7 @@ ENV_VALUES = {
 
 @pytest.fixture
 def env_file(tmp_path, monkeypatch):
+    """清除业务环境覆盖值并写入临时完整配置，供各配置测试独立使用。"""
     for key in ENV_VALUES:
         monkeypatch.delenv(key, raising=False)
     path = tmp_path / ".env"
@@ -29,6 +35,7 @@ def env_file(tmp_path, monkeypatch):
 
 
 def test_file_settings_and_environment_priority(env_file, monkeypatch):
+    """检查文件配置、默认模型参数、敏感字段隐藏和环境变量优先级。"""
     import os
 
     before = dict(os.environ)
@@ -53,6 +60,7 @@ def test_file_settings_and_environment_priority(env_file, monkeypatch):
 def test_required_settings_reject_blank_environment_override(
     env_file, monkeypatch, key, value
 ):
+    """确认空白系统环境即使覆盖有效文件值也会被校验拒绝。"""
     monkeypatch.setenv(key, value)
     with pytest.raises(ValueError, match=key):
         load_settings(env_file)
@@ -60,6 +68,7 @@ def test_required_settings_reject_blank_environment_override(
 
 @pytest.mark.parametrize("port", ["not-a-number", "0", "65536"])
 def test_invalid_port_does_not_disclose_value(env_file, monkeypatch, port):
+    """验证非整数或越界数据库端口报错，且不直接回显无效原始输入。"""
     monkeypatch.setenv("POSTGRES_PORT", port)
     with pytest.raises(ValueError, match="POSTGRES_PORT") as error:
         load_settings(env_file)
@@ -68,12 +77,14 @@ def test_invalid_port_does_not_disclose_value(env_file, monkeypatch, port):
 
 
 def test_missing_file_can_use_environment_only(tmp_path, monkeypatch):
+    """验证没有 .env 文件时，只通过系统环境仍可加载业务配置。"""
     for key, value in ENV_VALUES.items():
         monkeypatch.setenv(key, value)
     assert load_settings(tmp_path / "missing.env").postgres_db == "zhizhou"
 
 
 def test_missing_settings_are_named(tmp_path, monkeypatch):
+    """验证缺少配置时一次列出必需键名，方便完整补齐。"""
     for key in ENV_VALUES:
         monkeypatch.delenv(key, raising=False)
     with pytest.raises(ValueError) as error:
@@ -83,10 +94,12 @@ def test_missing_settings_are_named(tmp_path, monkeypatch):
 
 @pytest.fixture
 def settings():
+    """提供数据库测试用的配置对象，所有凭据仅为无网络用途的测试值。"""
     return Settings("key", "postgres", "password", "zhizhou", 5432)
 
 
 def test_connection_parameters_preserve_special_characters(settings):
+    """检查用户名、库名和密码中的特殊字符经驱动转义后仍可原样解析。"""
     password = " p@ss:/?#='\\ word "
     settings = replace(
         settings, postgres_password=password, postgres_user="user name", postgres_db="db'name"
@@ -102,12 +115,14 @@ def test_connection_parameters_preserve_special_characters(settings):
 def test_checkpointer_initializes_and_closes_even_on_failure(
     settings, monkeypatch, failure
 ):
+    """分别模拟正常使用、迁移失败和上下文内部失败，检查生命周期顺序。"""
     from app.db import checkpoint
 
     events = []
 
     class Saver:
         def setup(self):
+            """记录初始化事件，并根据测试参数模拟迁移失败。"""
             events.append("setup")
             if failure == "setup":
                 raise RuntimeError("setup failed")
@@ -116,6 +131,7 @@ def test_checkpointer_initializes_and_closes_even_on_failure(
 
     @contextmanager
     def connection(conninfo):
+        """检查连接参数，提供保存器替身，并保证 finally 记录关闭事件。"""
         assert conninfo_to_dict(conninfo)["dbname"] == "zhizhou"
         events.append("open")
         try:
@@ -126,6 +142,7 @@ def test_checkpointer_initializes_and_closes_even_on_failure(
     monkeypatch.setattr(checkpoint.PostgresSaver, "from_conn_string", connection)
 
     def use_connection():
+        """执行受测资源上下文，并按参数模拟业务使用期间的异常。"""
         with open_checkpointer(settings) as actual:
             assert actual is saver
             events.append("body")

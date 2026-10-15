@@ -43,4 +43,4 @@ pnpm dev
 - `vite.config.ts`：构建与开发服务器配置，`@` 别名指向 `src/`。
 - `vitest.config.ts`：单元测试配置。
 
-提交依赖清单和 `pnpm-lock.yaml`；`node_modules/`、`dist/`、覆盖率输出和本地缓存按本目录 `.gitignore` 排除。
+提交依赖清单和 `pnpm-lock.yaml`；`node_modules/`、`dist/`、覆盖率输出和本地缓存按[根目录 `.gitignore`](../.gitignore) 的前端规则排除。

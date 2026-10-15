@@ -1,4 +1,7 @@
-"""PostgreSQL checkpoint 的连接、初始化与资源释放。"""
+"""管理 PostgreSQL checkpoint 的连接参数、表初始化和连接生命周期。
+
+此模块提供持久化基础设施；对话消息与 thread_id 的处理仍由 Agent 负责。
+"""
 
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -10,7 +13,11 @@ from app.config.settings import Settings
 
 
 def build_conninfo(settings: Settings) -> str:
-    """使用驱动转义连接参数，避免特殊字符破坏数据库地址。"""
+    """将 settings 转为 psycopg 连接字符串，但不发起数据库连接。
+
+    使用驱动转义用户名、密码等参数，支持空格、引号和地址特殊字符。
+    连接超时为 10 秒；返回值包含凭据，调用方不应将其写入日志。
+    """
     return make_conninfo(
         host=settings.postgres_host,
         port=settings.postgres_port,
@@ -23,6 +30,12 @@ def build_conninfo(settings: Settings) -> str:
 
 @contextmanager
 def open_checkpointer(settings: Settings) -> Iterator[PostgresSaver]:
+    """在上下文中提供已完成表初始化的 PostgreSQL 状态保存器。
+
+    进入时根据 settings 连接数据库并执行可重复的 setup 迁移；yield
+    出的保存器必须在 with 范围内使用。正常退出或发生异常都会关闭连接。
+    连接或迁移失败会向调用方抛出，不降级为没有记忆的临时 Agent。
+    """
     with PostgresSaver.from_conn_string(build_conninfo(settings)) as checkpointer:
         checkpointer.setup()
         yield checkpointer

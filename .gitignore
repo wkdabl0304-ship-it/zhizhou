@@ -1,3 +1,4 @@
+# ==================== 通用规则 ====================
 # 本地 IDE 状态
 .idea/
 
@@ -6,9 +7,67 @@
 Thumbs.db
 Desktop.ini
 
-# 仓库根目录的本地环境配置
-/.env
-/.env.*
-!/.env.example
-!/.env.sample
-!/.env.template
+# 本地环境配置（所有目录），保留安全示例
+.env
+.env.*
+!.env.example
+!.env.sample
+!.env.template
+
+# 日志文件（所有目录）
+*.log
+
+# ==================== 后端规则 ====================
+# 虚拟环境与 Python 缓存
+/backend/**/.venv/
+/backend/**/__pycache__/
+/backend/**/*.py[cod]
+
+# 测试、检查与覆盖率产物
+/backend/**/.pytest_cache/
+/backend/**/.ruff_cache/
+/backend/**/.coverage
+/backend/**/htmlcov/
+
+# 构建与包元数据
+/backend/**/dist/
+/backend/**/*.egg-info/
+
+# ==================== 前端规则 ====================
+# Logs：日志目录与包管理器调试日志
+/frontend/**/logs
+/frontend/**/npm-debug.log*
+/frontend/**/yarn-debug.log*
+/frontend/**/yarn-error.log*
+/frontend/**/pnpm-debug.log*
+/frontend/**/lerna-debug.log*
+
+# 依赖、构建与本地配置
+/frontend/**/node_modules/
+/frontend/**/dist/
+/frontend/**/dist-ssr/
+/frontend/**/coverage/
+/frontend/**/*.local
+
+# Editor directories and files：保留推荐扩展配置
+/frontend/**/.vscode/*
+!/frontend/**/.vscode/extensions.json
+/frontend/**/*.suo
+/frontend/**/*.ntvs*
+/frontend/**/*.njsproj
+/frontend/**/*.sln
+/frontend/**/*.sw?
+
+# TypeScript 与 ESLint 缓存
+/frontend/**/*.tsbuildinfo
+/frontend/**/.eslintcache
+
+# Cypress
+/frontend/cypress/videos/
+/frontend/cypress/screenshots/
+
+# Vitest
+/frontend/**/__screenshots__/
+
+# Vite
+/frontend/**/*.timestamp-*-*.mjs

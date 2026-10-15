@@ -1,4 +1,5 @@
 // TSConfig for modules that run in Node.js environment via either transpilation or type-stripping.
+// Node 工具配置的类型检查边界，包含 Vite、测试和代码检查器配置，不包含浏览器页面。
 {
   "extends": "@tsconfig/node24/tsconfig.json",
   "include": [
@@ -18,6 +19,7 @@
     // Include Node.js types and avoid accidentally including other `@types/*` packages.
     "types": ["node"],
 
+    // 此项目只检查类型，构建输出由 Vite 等工具负责。
     // Disable emitting output during `vue-tsc --build`, which is used for type-checking only.
     "noEmit": true,
 

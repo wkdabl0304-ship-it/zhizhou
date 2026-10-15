@@ -1,3 +1,4 @@
+# 后端项目与打包配置：uv 根据此文件同步依赖，uv_build 负责构建 app 包。
 [project]
 name = "backend"
 version = "0.1.0"
@@ -6,6 +7,7 @@ readme = "README.md"
 authors = [
     { name = "wkdabl0304-ship-it", email = "wkdabl0304@gmail.com" }
 ]
+# 同时与 .python-version 保持一致，项目源码使用现代 Python 类型参数语法。
 requires-python = ">=3.14"
 dependencies = [
     "fastapi>=0.143.0",
@@ -19,6 +21,7 @@ dependencies = [
 ]
 
 [dependency-groups]
+# 测试依赖不属于运行时功能，开发环境通过 uv 默认安装此分组。
 dev = [
     "httpx>=0.28.1",
     "pytest>=8.4.0",
@@ -29,5 +32,6 @@ requires = ["uv_build>=0.13.0,<0.14.0"]
 build-backend = "uv_build"
 
 [tool.uv.build-backend]
+# 源码采用 backend/app 平铺布局，不使用 src/app；必须显式指定包位置。
 module-name = "app"
 module-root = ""

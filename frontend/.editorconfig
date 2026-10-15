@@ -1,3 +1,4 @@
+# 前端源码的编辑器约定：统一编码、两空格缩进、文件末尾换行和 LF 行尾。
 [*.{js,jsx,mjs,cjs,ts,tsx,mts,cts,vue,css,scss,sass,less,styl}]
 charset = utf-8
 indent_size = 2

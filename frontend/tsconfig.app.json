@@ -1,13 +1,16 @@
+// 浏览器应用类型检查：继承 Vue DOM 规则，包含组件源码并排除独立测试文件。
 {
   "extends": "@vue/tsconfig/tsconfig.dom.json",
   "include": ["env.d.ts", "src/**/*", "src/**/*.vue"],
   "exclude": ["src/**/__tests__/*"],
   "compilerOptions": {
+    // 索引访问结果可能不存在，使用前需要在 TypeScript 中处理 undefined。
     // Extra safety for array and object lookups, but may have false positives.
     "noUncheckedIndexedAccess": true,
 
     // Path mapping for cleaner imports.
     "paths": {
+      // 与 Vite 的 @ 别名保持一致，使编译器和运行时解析到相同源码。
       "@/*": ["./src/*"]
     },
 

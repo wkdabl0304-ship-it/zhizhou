@@ -65,18 +65,64 @@ uv run python -m app --reload --host 0.0.0.0 --port 8080
 }
 ```
 
-响应包含最终助手回复和原对话标识：
+成功响应使用统一格式，`data` 包含最终助手回复和原对话标识：
 
 ```json
 {
-  "reply": "模型回复文本",
-  "thread_id": "conversation-001"
+  "code": 0,
+  "message": "成功",
+  "data": {
+    "reply": "模型回复文本",
+    "thread_id": "conversation-001"
+  }
 }
 ```
 
-`message` 和 `thread_id` 均为必填字符串，空字符串或仅包含空白的字段返回 `422`。相同 `thread_id` 继续已有对话，不同标识隔离历史；服务重启后仍可继续持久化的对话。Agent 执行失败返回通用 `500` 错误，具体异常记录在服务端。
+请求中的 `message` 和 `thread_id` 均为必填字符串，空字符串、仅包含空白的字段或非法 JSON 返回 HTTP `422` 和统一错误响应。相同 `thread_id` 继续已有对话，不同标识隔离历史；服务重启后仍可继续持久化的对话。Agent 系统失败返回 HTTP `500`，具体异常记录在服务端。
 
 接口为非流式同步调用，FastAPI 在线程池中执行。当前 MVP 通过进程内锁串行执行完整 Agent 调用（不同对话也会排队），请使用单进程运行。尚未提供用户认证、对话所有权校验或生产并发方案；对话标识仅用于区分历史记录。
+
+## 统一响应与错误管理
+
+普通 JSON 业务接口统一返回 `code / message / data`，其中 `code` 是整数。成功响应由 `app/schemas/response.py` 的 `success(data)` 构建；路由声明 `ApiResponse[具体数据模型]`，使 OpenAPI 保留成功数据类型。错误由 `app/api/exception_handlers.py` 集中处理，不在每个接口编写兜底 `try/except`。
+
+| 情况 | HTTP 状态 | 响应规则 |
+| --- | --- | --- |
+| 成功 | 200 | `code=0`，`data` 为业务数据 |
+| 明确的业务失败 | 200 | 使用已定义的业务码，`data=null` |
+| 参数或协议错误 | 保留对应 4xx | 使用请求错误码，`data=null` |
+| 已知系统失败 | 500 | 使用对应系统错误码，`data=null` |
+| 其他明确的 HTTP 服务错误 | 保留对应 5xx | 使用通用系统错误码，`data=null` |
+| 未知异常或响应模型校验失败 | 500 | 使用通用系统错误码，`data=null` |
+
+HTTP `200` 包含成功和业务失败，调用方必须以 `code === 0` 判断业务成功。所有失败响应只有安全的错误解释，不回传原始请求内容、内部校验详情或异常堆栈。业务失败示例：
+
+```json
+{
+  "code": 20000,
+  "message": "业务处理失败",
+  "data": null
+}
+```
+
+错误码名称、数字及默认解释的唯一维护位置是[错误码目录](app/errors/codes.py)。业务码使用 `20000–29999`，新增真实功能时在该目录业务分组中添加唯一条目，再从业务逻辑抛出 `BusinessError`：
+
+```python
+from app.errors.codes import ErrorCode
+from app.errors.exceptions import BusinessError
+
+raise BusinessError(ErrorCode.BUSINESS_ERROR)
+```
+
+代码通过目录名称引用错误，不散落码值或自定义客户端解释。`BusinessError` 只接受已定义的业务码；`ServiceError` 接受已定义的系统码。异常定义不依赖 FastAPI，供 Agent、业务模块和命令行共用。当前只提供通用业务异常入口，尚未新增额度、权限等具体业务限制。
+
+异常对象的 `error_code` 属性保存 `ErrorCode` 目录成员，可通过 `exc.error_code.code` 和 `exc.error_code.message` 读取数字码与解释；被包装的底层异常通过 `exc.__cause__` 查看。
+
+参数校验统一使用 HTTP `422`；框架级 `404`、`405` 也返回统一格式，必要的 `Allow`、`WWW-Authenticate`、`Retry-After` 等响应头保留。其他 4xx 使用通用请求错误码。普通 `ValueError` 不会被当作业务失败：Agent 的模型调用失败、空回复等转为已知系统异常并保留原始异常链。
+
+业务异常记录 `WARNING`，不输出堆栈；已知系统异常记录 `ERROR` 和堆栈。应用异常携带内部“已记录”标识，避免跨层重复记录。未知异常由全局处理器返回安全响应，Starlette 重抛后由 Uvicorn 记录原始堆栈。应用启动失败仍终止启动，不转换为业务响应。
+
+该约定用于普通 JSON 业务接口；`/docs`、`/openapi.json`、文件下载和未来流式接口保持各自协议，不通过中间件读取并重写响应体。接口文档展示统一模型，并提供 HTTP `200` 下成功和业务失败的示例。
 
 ## 命令行智能体示例
 
@@ -88,7 +134,7 @@ uv run python -m app.agents
 
 编辑 `app/agents/__main__.py` 中的 `MESSAGE` 和 `THREAD_ID` 后即可运行并打印回复。当前默认使用 `conversation-002` 和“刚刚说什么了”；重复运行沿用同一段对话状态，也可与 HTTP 接口共用对话记录。原命令 `uv run python -m app.agents.agent` 仍可使用。
 
-命令行和 HTTP 共用配置、数据库管理和 Agent 实现。导入模块不会加载配置、连接数据库或发起模型调用。
+命令行和 HTTP 共用配置、数据库管理和 Agent 实现。命令行成功时输出纯文本回复，预期的业务或系统失败以退出码 `1` 结束，已记录的异常不会再次由解释器打印堆栈。导入模块不会加载配置、连接数据库或发起模型调用。
 
 ## 统一日志
 
@@ -111,7 +157,7 @@ uv run python -m app.agents
 2026-10-13 15:30:04 INFO app.agents.agent 对话完成 thread_id='conversation-001' duration_ms=1820.00
 ```
 
-应用记录启动完成、启动失败和资源关闭。Agent 记录对话成功或失败、对话标识和耗时，计时包含等待对话锁的排队时间；失败附带异常堆栈，HTTP 层只转换错误响应，不重复记录。默认不主动记录聊天正文、模型回复、密钥或数据库连接串。本阶段不提供请求 ID、日志文件或第三方日志库。
+应用记录启动完成、启动失败和资源关闭。Agent 记录对话成功或失败、对话标识和耗时，计时包含等待对话锁的排队时间；业务失败无堆栈，系统失败保留堆栈。已知应用异常按“已记录”标识避免重复输出，未知异常由 Uvicorn 记录。默认不主动记录聊天正文、模型回复、密钥或数据库连接串。本阶段不提供请求 ID、日志文件或第三方日志库。
 
 各模块使用标准 logger，只记录自身事件，不添加 handler 或重新初始化日志：
 
@@ -132,6 +178,8 @@ uv run pytest -q
 
 默认测试使用模型及数据库替身和内存 checkpoint，无需真实密钥或 PostgreSQL。覆盖配置校验与优先级、特殊字符连接参数、资源释放、接口校验与错误响应、导入无外部副作用，以及真实 LangChain 图的多轮对话、记录隔离和天气工具调用。日志测试额外覆盖级别、访问日志开关、重复初始化、Uvicorn 子进程配置、启动参数以及对话日志的耗时与异常；全局日志配置在独立子进程中验证，保留其他测试的日志捕获能力。
 
+错误处理测试覆盖码值唯一性、业务码类型与范围、成功数据类型、业务失败 HTTP `200`、参数与协议错误、响应头保留、未知异常与响应模型校验失败，以及 CLI 退出码和异常日志不重复。另用短暂启动的本地 Uvicorn 服务验证兜底响应和实际堆栈输出，测试完成即关闭服务；该测试也不依赖模型或数据库。
+
 真实服务验证可通过 `/docs` 依次测试：同一 `thread_id` 告知姓名并追问姓名、更换标识确认无之前的历史、重启服务后使用原标识继续对话。测试模型的实际回复不应作为固定文本断言。
 
 ## 目录职责
@@ -141,8 +189,10 @@ uv run pytest -q
 - `app/agents/`：Agent 专属实现；`models.py` 创建模型，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
 - `app/config/`：通用配置加载与校验，以及标准 logging 集中配置。
 - `app/db/`：数据库资源管理，当前包含 PostgreSQL checkpoint 连接和初始化。
-- `app/schemas/`：聊天请求和响应的数据结构。
-- `app/api/`、`app/models/`、`app/repositories/`、`app/services/`、`app/utils/`：分别预留给接口模块、业务数据库模型、数据访问、业务服务和通用辅助函数，当前仍为包占位。
+- `app/errors/`：错误码与默认解释、应用异常类型和异常日志责任。
+- `app/schemas/`：聊天请求、聊天数据模型及通用响应模型和构建函数。
+- `app/api/`：统一异常处理器和错误响应文档定义。
+- `app/models/`、`app/repositories/`、`app/services/`、`app/utils/`：分别预留给业务数据库模型、数据访问、业务服务和通用辅助函数，当前仍为包占位。
 - `tests/`：配置、数据库生命周期、Agent 和聊天接口测试。
 
 后续开发外部服务接入时，再按需添加 `app/integrations/`。
