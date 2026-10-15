@@ -5,6 +5,7 @@ import { Check, Copy, TriangleAlert } from '@lucide/vue'
 import type { ChatMessage } from '@/types/chat'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiTooltip from '@/components/ui/UiTooltip.vue'
+import BrandLogo from '@/components/BrandLogo.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
@@ -32,7 +33,7 @@ async function copy(): Promise<void> {
     :aria-label="message.role === 'user' ? '你的消息' : '知舟的回复'"
   >
     <div v-if="message.role === 'assistant'" class="assistant-heading">
-      <span class="assistant-mark" aria-hidden="true">知</span><span>知舟</span
+      <BrandLogo :size="25" /><span>知舟</span
       ><span v-if="message.demo" class="demo-label">演示回复</span>
     </div>
     <div v-if="message.status === 'pending'" class="message-pending" role="status">
@@ -123,17 +124,6 @@ async function copy(): Promise<void> {
   margin-bottom: 17px;
   font-size: 13px;
   font-weight: 500;
-}
-.assistant-mark {
-  display: grid;
-  place-items: center;
-  width: 25px;
-  height: 26px;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px 8px 8px 2px;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-size: 13px;
 }
 .demo-label {
   margin-left: 2px;

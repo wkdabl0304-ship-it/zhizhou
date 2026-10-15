@@ -4,6 +4,7 @@ import { computed } from 'vue'
 import { ArrowUpRight, PanelLeft, SquarePen } from '@lucide/vue'
 import type { Conversation } from '@/types/chat'
 import ThemeMenu from '@/components/ThemeMenu.vue'
+import BrandLogo from '@/components/BrandLogo.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiTooltip from '@/components/ui/UiTooltip.vue'
 import ConversationItem from './ConversationItem.vue'
@@ -24,8 +25,9 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   <div class="chat-sidebar" :class="{ 'is-compact': compact }">
     <div class="sidebar-heading">
       <div class="brand" :class="{ 'brand--compact': compact }">
-        <span class="brand-mark" aria-hidden="true">知</span
-        ><span v-if="!compact" class="brand-name">知舟<span class="brand-en">ZHIZHOU</span></span>
+        <BrandLogo :size="compact ? 34 : 39" /><span v-if="!compact" class="brand-name"
+          >知舟<span class="brand-en">ZHIZHOU</span></span
+        >
       </div>
       <UiTooltip v-if="!drawer && !compact" text="收起侧栏" :content-props="{ side: 'right' }"
         ><UiIconButton label="收起侧栏" @click="$emit('toggle')"
@@ -65,7 +67,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
         >组件预览<ArrowUpRight :size="14"
       /></RouterLink>
       <div v-if="!compact" class="sidebar-profile">
-        <span class="profile-avatar">舟</span>
+        <span class="profile-avatar"><BrandLogo :size="22" /></span>
         <div><span>知舟工作空间</span><small>让工作，始于一句话</small></div>
         <span class="profile-status" aria-label="演示模式">DEMO</span>
       </div>
@@ -80,14 +82,14 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   height: 100%;
   min-height: 0;
   flex-direction: column;
-  padding: 22px 14px 12px;
+  padding: 28px 18px 14px;
   background: var(--sidebar-bg);
 }
 .sidebar-heading {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 26px;
+  margin-bottom: 36px;
   padding-inline: 8px 0;
 }
 .brand {
@@ -95,29 +97,18 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   align-items: center;
   gap: 10px;
 }
-.brand-mark {
-  display: grid;
-  place-items: center;
-  width: 33px;
-  height: 35px;
-  border: 1px solid var(--brand);
-  border-radius: 11px 11px 11px 3px;
-  color: var(--brand);
-  font-size: 19px;
-  font-weight: 500;
-}
 .brand-name {
   display: flex;
   flex-direction: column;
-  font-size: 18px;
+  font-size: 22px;
   line-height: 1.3;
   font-weight: 500;
-  letter-spacing: 1px;
+  letter-spacing: 4px;
 }
 .brand-en {
   margin-top: 3px;
-  font-size: 8px;
-  letter-spacing: 2px;
+  font-size: 9px;
+  letter-spacing: 3px;
   color: var(--text-muted);
   font-weight: 400;
 }
@@ -129,9 +120,8 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   min-height: 42px;
   padding: 10px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: 10px;
-  background: var(--surface);
-  box-shadow: var(--shadow-soft);
+  border-radius: 30px;
+  background: transparent;
   color: var(--text);
   font-size: 13px;
   font-weight: 500;
@@ -152,7 +142,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  margin-top: 30px;
+  margin-top: 34px;
   scrollbar-width: thin;
 }
 .sidebar-section-label {

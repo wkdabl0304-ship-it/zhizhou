@@ -1,2 +1,2 @@
-<!-- 知舟站点标识：以文字图形与船帆意象提供轻量、可缩放的品牌入口。 -->
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 40 40"><rect width="40" height="40" rx="12" fill="#0f766e"/><path d="M20 8v20H9L20 8Zm3 5 8 15h-8V13ZM8 31h24l-4 3H13l-5-3Z" fill="#fff"/></svg>
+<!-- 青蓝水墨站点标识：深靛底色上使用正式舟形与青色航迹，保证浏览器小图标的明暗辨识度。 -->
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 72 72" fill="none"><rect width="72" height="72" rx="16" fill="#142C3E"/><g transform="translate(4 4)"><path fill="#EEF3F3" d="M35 5C15 15 7 27 16 37c4 4 10 5 17 3-10-4-8-13 2-35Z"/><path fill="#79D0D4" d="M39 12c-3 11-4 17-1 22 3 4 8 5 15 3-8-6-11-14-14-25Z"/><path fill="#EEF3F3" d="M5 43c16 7 34 6 54-7-8 15-27 24-44 16L5 43Z"/><path stroke="#79D0D4" stroke-width="3" stroke-linecap="round" d="M20 59c11 1 22-3 29-8"/></g></svg>

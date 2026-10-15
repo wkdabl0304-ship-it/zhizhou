@@ -1,4 +1,4 @@
-<!-- 提示包装：使用 Reka 管理焦点、悬停和定位；根状态、内容属性与插槽保持可组合。 -->
+<!-- 提示包装：使用 Reka 管理焦点、悬停和定位；允许指定 Portal 容器以支持局部主题。 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 import {
@@ -10,9 +10,16 @@ import {
   type TooltipRootProps,
   type TooltipRootEmits,
   type TooltipContentProps,
+  type TooltipPortalProps,
 } from 'reka-ui'
 
-const props = defineProps<TooltipRootProps & { text: string; contentProps?: TooltipContentProps }>()
+const props = defineProps<
+  TooltipRootProps & {
+    text: string
+    contentProps?: TooltipContentProps
+    portalProps?: TooltipPortalProps
+  }
+>()
 const emit = defineEmits<TooltipRootEmits>()
 // 只向 Root 转发其自身属性，避免文本等包装层参数污染 DOM。
 const rootProps = computed(() => ({
@@ -30,7 +37,7 @@ const forwarded = useForwardPropsEmits(rootProps, emit)
 <template>
   <TooltipRoot v-bind="forwarded">
     <TooltipTrigger as-child><slot /></TooltipTrigger>
-    <TooltipPortal>
+    <TooltipPortal v-bind="portalProps">
       <TooltipContent class="ui-tooltip" :side-offset="8" v-bind="contentProps"
         ><slot name="content">{{ text }}</slot></TooltipContent
       >

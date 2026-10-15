@@ -18,6 +18,11 @@ const router = createRouter({
             name: 'components',
             component: () => import('@/views/ComponentPreview.vue'),
           },
+          {
+            path: '/dev/brand',
+            name: 'brand-preview',
+            component: () => import('@/views/BrandPreview.vue'),
+          },
         ]
       : []),
     {

@@ -7,7 +7,8 @@ import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiTooltip from '@/components/ui/UiTooltip.vue'
 
 const model = defineModel<string>({ default: '' })
-const props = defineProps<{ disabled?: boolean }>()
+// 默认提示仍挂载 body；品牌原型可指定局部容器，使提示继承局部主题而不修改全局变量。
+const props = defineProps<{ disabled?: boolean; tooltipPortalTarget?: HTMLElement }>()
 const emit = defineEmits<{ send: [text: string] }>()
 const input = ref<InstanceType<typeof UiAutoTextarea>>()
 const composing = ref(false)
@@ -64,7 +65,7 @@ defineExpose({ focus })
       <span class="composer-mode"><Sparkles :size="15" /><span>一起探索，慢慢理清</span></span>
       <div class="composer-send">
         <span class="composer-key-hint"><CornerDownLeft :size="12" />发送</span
-        ><UiTooltip text="发送消息"
+        ><UiTooltip text="发送消息" :portal-props="{ to: tooltipPortalTarget }"
           ><UiIconButton type="submit" class="send-button" label="发送消息" :disabled="!canSend"
             ><ArrowUp :size="19" /></UiIconButton
         ></UiTooltip>
@@ -77,7 +78,7 @@ defineExpose({ focus })
 .chat-composer {
   padding: 19px 18px 12px;
   border: 1px solid var(--border-strong);
-  border-radius: var(--radius-xl);
+  border-radius: 20px;
   background: var(--surface);
   box-shadow: var(--shadow-composer);
   transition: border-color var(--duration-fast);
