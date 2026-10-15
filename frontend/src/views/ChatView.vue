@@ -7,6 +7,7 @@ import { useMediaQuery } from '@/composables/useMediaQuery'
 import { useMotionPreference } from '@/composables/useMotionPreference'
 import ChatSidebar from '@/components/chat/ChatSidebar.vue'
 import ChatWelcome from '@/components/chat/ChatWelcome.vue'
+import RiverBackdrop from '@/components/chat/RiverBackdrop.vue'
 import ChatComposer from '@/components/chat/ChatComposer.vue'
 import MessageList from '@/components/chat/MessageList.vue'
 import UiDrawer from '@/components/ui/UiDrawer.vue'
@@ -63,7 +64,8 @@ async function restoreFocus(event: Event): Promise<void> {
         @toggle="collapsed = !collapsed"
       />
     </aside>
-    <main class="chat-main">
+    <main class="chat-main" :class="{ 'is-home': !chat.activeConversation }">
+      <RiverBackdrop v-if="!chat.activeConversation" :motion="enabled" />
       <header class="chat-header">
         <div class="header-start">
           <UiDrawer
@@ -95,7 +97,7 @@ async function restoreFocus(event: Event): Promise<void> {
         </div>
       </header>
       <div v-if="!chat.activeConversation" class="home-scroll">
-        <ChatWelcome ref="composer" v-model="draft" :motion="enabled" @send="send" />
+        <ChatWelcome ref="composer" v-model="draft" @send="send" />
       </div>
       <template v-else
         ><section class="conversation-scroll" aria-label="对话内容">
@@ -131,6 +133,8 @@ async function restoreFocus(event: Event): Promise<void> {
   background: var(--sidebar-bg);
 }
 .chat-main {
+  position: relative;
+  isolation: isolate;
   display: flex;
   min-width: 0;
   min-height: 0;
@@ -146,6 +150,9 @@ async function restoreFocus(event: Event): Promise<void> {
   min-height: 64px;
   padding: 14px 30px;
   background: var(--bg);
+}
+.is-home .chat-header {
+  background: transparent;
 }
 .header-start,
 .header-end {

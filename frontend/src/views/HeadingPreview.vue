@@ -6,6 +6,7 @@ import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui'
 import BrandLogo from '@/components/BrandLogo.vue'
 import HeadingStudy from '@/components/brand/HeadingStudy.vue'
 import ChatWelcome from '@/components/chat/ChatWelcome.vue'
+import RiverBackdrop from '@/components/chat/RiverBackdrop.vue'
 
 const options = [
   {
@@ -132,16 +133,12 @@ function resetPreview(): void {
             <div class="study-sidebar-foot"><BrandLogo :size="22" /><span>让知识流动</span></div>
           </aside>
           <main class="study-main">
+            <RiverBackdrop :motion="false" />
             <div class="study-app-header">
               <span>此刻，思考启程</span><small>KNOWLEDGE IN FLOW</small>
             </div>
             <div class="study-home">
-              <ChatWelcome
-                v-model="draft"
-                :motion="false"
-                :tooltip-portal-target="surface"
-                @send="previewSend"
-              >
+              <ChatWelcome v-model="draft" :tooltip-portal-target="surface" @send="previewSend">
                 <template #heading><HeadingStudy :variant="variant" /></template>
               </ChatWelcome>
             </div>
@@ -335,6 +332,8 @@ function resetPreview(): void {
   font-size: 11px;
 }
 .study-main {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   min-width: 0;

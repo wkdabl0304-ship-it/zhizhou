@@ -1,15 +1,10 @@
-<!-- 青蓝水墨首页主视觉：组合已选现代宋体标题、山海画面和缓慢水墨动效，正文由其他组件承载。 -->
+<!-- 首页标题区：组合已选现代宋体与山海标记；全幅水墨由主区域的 RiverBackdrop 独立承载。 -->
 <script setup lang="ts">
 import { ArrowDownRight } from '@lucide/vue'
-import riverArtwork from '@/assets/brand/indigo-ink.png'
 import WelcomeHeading from './WelcomeHeading.vue'
-withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
 </script>
 <template>
-  <section class="river-hero" :data-motion="motion ? 'on' : 'off'" aria-label="青蓝水墨主视觉">
-    <div class="river-ink-reveal" aria-hidden="true">
-      <img class="river-ink-art" :src="riverArtwork" alt="" fetchpriority="high" />
-    </div>
+  <section class="river-hero" aria-label="青蓝水墨主视觉">
     <div class="river-hero-copy">
       <div class="river-eyebrow">知有边界，想象无界</div>
       <!-- 正式首页默认使用已选现代宋体；插槽只用于开发页保留其他排版的比较。 -->
@@ -29,7 +24,6 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   position: relative;
   min-height: 365px;
   padding: 30px 24px 0;
-  isolation: isolate;
 }
 .river-hero-copy {
   position: relative;
@@ -49,21 +43,6 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   color: var(--text-secondary);
   font-size: 12px;
   letter-spacing: 0.8px;
-}
-.river-ink-reveal {
-  position: absolute;
-  z-index: -1;
-  inset: 70px -18px -110px;
-  opacity: 0.72;
-  pointer-events: none;
-}
-.river-ink-art {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  object-position: center 65%;
-  filter: var(--hero-art-filter);
 }
 .river-seal {
   position: absolute;
@@ -88,29 +67,6 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   font-size: 8px;
   letter-spacing: 2px;
 }
-/* 只在允许动态效果时播放，默认样式始终显示完整画面；页面隐藏由外层统一暂停。 */
-.river-hero[data-motion='on'] .river-ink-reveal {
-  animation: river-reveal 1.1s cubic-bezier(0.22, 0.7, 0.22, 1) both;
-}
-.river-hero[data-motion='on'] .river-ink-art {
-  animation: river-drift 16s ease-in-out infinite alternate;
-}
-@keyframes river-reveal {
-  from {
-    clip-path: inset(0 0 0 100%);
-  }
-  to {
-    clip-path: inset(0);
-  }
-}
-@keyframes river-drift {
-  from {
-    transform: translate3d(-5px, 2px, 0) scale(1);
-  }
-  to {
-    transform: translate3d(7px, -5px, 0) scale(1.025);
-  }
-}
 @media (min-width: 1440px) {
   .river-hero {
     min-height: 410px;
@@ -124,10 +80,6 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   .river-eyebrow {
     font-size: 10px;
     letter-spacing: 2px;
-  }
-  .river-ink-reveal {
-    inset: 85px -100px -65px;
-    opacity: 0.6;
   }
   .river-seal {
     right: 20px;

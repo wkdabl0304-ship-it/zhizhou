@@ -43,12 +43,15 @@ describe('聊天工作空间', () => {
     const wrapper = renderWorkspace()
     // 正式首页必须使用已选现代宋体组件，防止只更新开发预览而遗漏实际入口。
     expect(wrapper.findComponent(WelcomeHeading).exists()).toBe(true)
+    // 装饰跟随首页生命周期，进入正文后应释放背景，保持阅读区稳定。
+    expect(wrapper.find('.river-backdrop').exists()).toBe(true)
     await wrapper.get('.suggestion').trigger('click')
     expect(wrapper.findAll('article')).toHaveLength(0)
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('入职清单')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(wrapper.findAll('article')).toHaveLength(2)
+    expect(wrapper.find('.river-backdrop').exists()).toBe(false)
     expect(document.activeElement).toBe(wrapper.get('textarea').element)
     expect(wrapper.text()).toContain('固定演示回复')
   })
