@@ -13,10 +13,12 @@ from contextlib import contextmanager
 from unittest.mock import Mock
 
 import pytest
+from fastapi import Request
 from fastapi.testclient import TestClient
 from langchain_core.messages import AIMessage
 
 from app.config.settings import LoggingSettings
+from app.api.dependencies import get_chat_agent
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import BusinessError
 
@@ -74,7 +76,7 @@ def test_chat_and_lifespan(runtime, caplog):
     with caplog.at_level(logging.INFO, logger="app.main"), TestClient(main.app) as client:
         assert events == ["open", "build"]
         for thread in ["conversation-001", "conversation-001", "other"]:
-            response = client.post("/chat", json={"message": "你好", "thread_id": thread})
+            response = client.post("/api/chat", json={"message": "你好", "thread_id": thread})
             assert response.status_code == 200
             assert response.json() == {
                 "code": 0, "message": "成功", "data": {"reply": "你好", "thread_id": thread},
@@ -104,7 +106,7 @@ def test_invalid_request_does_not_invoke_agent(runtime, body):
     """验证各类非法字段返回统一 422，并在进入 Agent 之前被拒绝。"""
     graph, _ = runtime
     with TestClient(main.app) as client:
-        response = client.post("/chat", json=body)
+        response = client.post("/api/chat", json=body)
         assert response.status_code == 422
         assert response.json() == {"code": 42200, "message": "请求参数校验失败", "data": None}
     graph.invoke.assert_not_called()
@@ -115,7 +117,7 @@ def test_model_error_returns_generic_error_and_logs_details(runtime, caplog):
     graph, _ = runtime
     graph.invoke.side_effect = RuntimeError("private-provider-error")
     with TestClient(main.app) as client, caplog.at_level(logging.ERROR):
-        response = client.post("/chat", json={"message": "hi", "thread_id": "a"})
+        response = client.post("/api/chat", json={"message": "hi", "thread_id": "a"})
     assert response.status_code == 500
     assert response.json() == {"code": 50001, "message": "对话执行失败，请稍后重试", "data": None}
     assert "private-provider-error" not in response.text
@@ -132,7 +134,7 @@ def test_business_error_from_agent_is_http_200_with_catalog_message(runtime, cap
     error = BusinessError(ErrorCode.BUSINESS_ERROR)
     graph.invoke.side_effect = error
     with caplog.at_level(logging.WARNING), TestClient(main.app) as client:
-        response = client.post("/chat", json={"message": "private-request", "thread_id": "a"})
+        response = client.post("/api/chat", json={"message": "private-request", "thread_id": "a"})
     assert response.status_code == 200
     assert response.json() == {"code": 20000, "message": "业务处理失败", "data": None}
     records = [record for record in caplog.records if record.name.startswith("app.")]
@@ -146,7 +148,7 @@ def test_invalid_json_is_uniform_422_and_not_sent_to_agent(runtime):
     """验证无法解析的 JSON 返回统一 422，且不泄露输入或调用模型。"""
     graph, _ = runtime
     with TestClient(main.app) as client:
-        response = client.post("/chat", content='{"private-input":', headers={"Content-Type": "application/json"})
+        response = client.post("/api/chat", content='{"private-input":', headers={"Content-Type": "application/json"})
     assert response.status_code == 422
     assert response.json() == {"code": 42200, "message": "请求参数校验失败", "data": None}
     assert "private-input" not in response.text
@@ -158,7 +160,10 @@ def test_openapi_documents_typed_envelope_business_failure_and_uniform_errors(ru
     with TestClient(main.app) as client:
         schema = client.get("/openapi.json").json()
     assert "openapi" in schema and "code" not in schema
-    responses = schema["paths"]["/chat"]["post"]["responses"]
+    assert "/chat" not in schema["paths"]
+    assert "/api/api/chat" not in schema["paths"]
+    assert schema["paths"]["/api/chat"]["post"]["tags"] == ["聊天"]
+    responses = schema["paths"]["/api/chat"]["post"]["responses"]
     content = responses["200"]["content"]["application/json"]
     assert "code=0" in responses["200"]["description"]
     assert content["examples"]["business_error"]["value"]["code"] == 20000
@@ -171,6 +176,68 @@ def test_openapi_documents_typed_envelope_business_failure_and_uniform_errors(ru
         assert set(error_schema["properties"]) == {"code", "message", "data"}
         assert error_schema["properties"]["data"]["type"] == "null"
     assert "HTTPValidationError" not in schema["components"]["schemas"]
+
+
+@pytest.mark.parametrize("method,path,status,code", [
+    ("POST", "/chat", 404, 40400),
+    ("GET", "/api/chat", 405, 40500),
+])
+def test_chat_migration_rejects_old_path_and_wrong_method(runtime, method, path, status, code):
+    """确认旧路径已移除，新路径只接受 POST，并继续使用统一协议错误响应。"""
+    graph, _ = runtime
+    with TestClient(main.app) as client:
+        response = client.request(method, path, json={"message": "你好", "thread_id": "a"})
+    assert response.status_code == status
+    assert response.json()["code"] == code
+    assert response.json()["data"] is None
+    if status == 405:
+        assert "POST" in response.headers["allow"]
+    graph.invoke.assert_not_called()
+
+
+def test_chat_dependency_reuses_initialized_agent(runtime, monkeypatch):
+    """观察真实请求的依赖解析，确认多轮调用复用已初始化的 Agent 和连接。"""
+    graph, events = runtime
+    observed = []
+
+    def observe_agent(request: Request):
+        """委托真实依赖并记录其结果，用于检查请求间是否复用同一资源。"""
+        agent = get_chat_agent(request)
+        observed.append(agent)
+        return agent
+
+    monkeypatch.setitem(main.app.dependency_overrides, get_chat_agent, observe_agent)
+    with TestClient(main.app) as client:
+        initialized_agent = main.app.state.chat_agent
+        for message in ("第一轮", "第二轮"):
+            response = client.post("/api/chat", json={"message": message, "thread_id": "a"})
+            assert response.status_code == 200
+        assert observed == [initialized_agent, initialized_agent]
+        assert events == ["open", "build"]
+    assert graph.invoke.call_count == 2
+    assert events == ["open", "build", "close"]
+
+
+def test_chat_dependency_can_be_overridden(runtime, monkeypatch):
+    """验证接口通过公共依赖取得 Agent，测试替身可替换它而不执行原图。"""
+    graph, _ = runtime
+    replacement = Mock()
+    replacement.chat.return_value = "依赖替身回复"
+
+    def override_agent():
+        """为请求返回独立的 Agent 替身，不读取或重建应用资源。"""
+        return replacement
+
+    monkeypatch.setitem(main.app.dependency_overrides, get_chat_agent, override_agent)
+    with TestClient(main.app) as client:
+        response = client.post("/api/chat", json={"message": "你好", "thread_id": "override"})
+    assert response.status_code == 200
+    assert response.json() == {
+        "code": 0, "message": "成功",
+        "data": {"reply": "依赖替身回复", "thread_id": "override"},
+    }
+    replacement.chat.assert_called_once_with("你好", "override")
+    graph.invoke.assert_not_called()
 
 
 def test_configuration_error_aborts_startup(monkeypatch, caplog):
@@ -233,6 +300,7 @@ with patch('dotenv.dotenv_values', forbidden), \\
     for name in (
         'app.config.settings', 'app.config.logging', 'app.db.checkpoint', 'app.agents.models',
         'app.errors.codes', 'app.errors.exceptions', 'app.schemas.response', 'app.api.exception_handlers',
+        'app.api.dependencies', 'app.api.routes.chat', 'app.api.router',
         'app.agents.factory', 'app.agents.agent', 'app.agents.__main__', 'app.main', 'app.__main__'
     ):
         importlib.import_module(name)

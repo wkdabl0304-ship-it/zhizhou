@@ -1,26 +1,24 @@
-"""定义知舟 FastAPI 应用、生命周期和聊天接口。
+"""定义知舟 FastAPI 应用、生命周期和 API 路由装配。
 
 Web 进程由包入口启动；本模块负责启动时组装资源、退出时释放资源，
-并将 HTTP 请求交给 Agent。错误响应统一交由 API 异常处理器转换。
+通过总路由挂载业务接口。具体 HTTP 请求处理与异常转换由 API 层负责。
 """
 
 import logging
 from collections.abc import AsyncIterator
 from contextlib import ExitStack, asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 
 from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
 from app.agents.models import create_model
 from app.agents.tools.weather import get_weather
 from app.api.exception_handlers import ERROR_RESPONSES, register_exception_handlers
+from app.api.router import api_router
 from app.config.logging import configure_logging
 from app.config.settings import load_logging_settings, load_settings
 from app.db.checkpoint import open_checkpointer
-from app.errors.codes import ErrorCode
-from app.schemas.chat import ChatRequest, ChatResponse
-from app.schemas.response import ApiResponse, failure, success
 
 logger = logging.getLogger(__name__)
 
@@ -63,37 +61,5 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(title="知舟聊天 API", lifespan=lifespan, responses=ERROR_RESPONSES) # responses 让 Swagger 显示错误响应
 # 注册异常类型到响应的映射，后续路由不需要各自处理相同异常。
 register_exception_handlers(app)
-
-
-@app.post(
-    "/chat",
-    response_model=ApiResponse[ChatResponse],
-    responses={
-        200: {
-            "description": "HTTP 200 包含成功和业务失败；code=0 表示业务成功，非零业务码表示业务失败。",
-            "content": {
-                "application/json": {
-                    "examples": {
-                        "success": {
-                            "value": success(
-                                ChatResponse(reply="你好", thread_id="conversation-001")
-                            ).model_dump(mode="json"),
-                        },
-                        "business_error": {
-                            "value": failure(ErrorCode.BUSINESS_ERROR).model_dump(mode="json"),
-                        },
-                    },
-                },
-            },
-        },
-    },
-)
-def chat(body: ChatRequest, request: Request) -> ApiResponse[ChatResponse]:
-    """发送一轮消息，并在成功时返回统一格式的助手回复。
-
-    body 由 Pydantic 校验；thread_id 用来读取和续写同一段历史。
-    request 用于取得应用启动时创建的 Agent。业务异常和系统异常继续
-    向外传播，分别由全局处理器转换为约定的 HTTP 状态与数字 code。
-    """
-    reply = request.app.state.chat_agent.chat(body.message, body.thread_id)
-    return success(ChatResponse(reply=reply, thread_id=body.thread_id))
+# /api 前缀与业务子路由均在总路由中管理，应用入口只装配一次。
+app.include_router(api_router)

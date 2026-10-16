@@ -29,7 +29,7 @@
 
 ## 部署与启动
 
-计划由管理员通过 Docker Compose 统一部署，员工通过浏览器访问。当前前端可独立启动并体验静态聊天原型；后端已有分层的智能体模块及最小 `POST /chat` 接口，使用 DeepSeek 和 PostgreSQL 保存对话状态，支持多轮对话。前端尚未调用该接口，也不会恢复后端历史记录。[开发 Compose 配置](docker-compose-dev.yml)目前仅提供 PostgreSQL，尚未包含前后端服务或完整生产部署。
+计划由管理员通过 Docker Compose 统一部署，员工通过浏览器访问。当前前端可独立启动并体验静态聊天原型；后端已有分层的智能体模块及最小 `POST /api/chat` 接口，API 通过分级路由统一管理，使用 DeepSeek 和 PostgreSQL 保存对话状态，支持多轮对话。前端尚未调用该接口，也不会恢复后端历史记录。[开发 Compose 配置](docker-compose-dev.yml)目前仅提供 PostgreSQL，尚未包含前后端服务或完整生产部署。
 
 模块开发说明见：
 

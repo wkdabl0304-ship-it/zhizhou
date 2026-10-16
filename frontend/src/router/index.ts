@@ -16,14 +16,14 @@ const router = createRouter({
           {
             path: '/dev/ui',
             name: 'components',
-            component: () => import('@/views/ComponentPreview.vue'),
+            component: () => import('@/views/ComponentPreview.vue'), // 懒加载
           },
         ]
       : []),
     {
       path: '/:pathMatch(.*)*',
       name: 'not-found',
-      component: () => import('@/views/NotFoundView.vue'),
+      component: () => import('@/views/NotFoundView.vue'), // 懒加载
     },
   ],
 })
