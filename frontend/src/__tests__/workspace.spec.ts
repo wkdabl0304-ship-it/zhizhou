@@ -8,8 +8,16 @@ import ChatView from '@/views/ChatView.vue'
 import WelcomeHeading from '@/components/chat/WelcomeHeading.vue'
 
 const wrappers: VueWrapper[] = []
+const fetchMock = vi.fn<typeof fetch>()
 // jsdom 没有真实视口断点；桌面替身只提供组件实际使用的媒体查询监听接口。
 beforeEach(() => {
+  fetchMock.mockReset()
+  // 回显实际 thread_id，验证页面经过真实 API 适配层更新消息，替身不连接模型。
+  fetchMock.mockImplementation(async (_url, init) => {
+    const { thread_id } = JSON.parse(init!.body as string) as { thread_id: string }
+    return new Response(JSON.stringify({ code: 0, data: { reply: '来自后端的回复', thread_id } }))
+  })
+  vi.stubGlobal('fetch', fetchMock)
   vi.stubGlobal('matchMedia', () => ({
     matches: false,
     addEventListener: vi.fn<() => void>(),
@@ -53,12 +61,17 @@ describe('聊天工作空间', () => {
     expect(wrapper.findAll('article')).toHaveLength(2)
     expect(wrapper.find('.river-backdrop').exists()).toBe(false)
     expect(document.activeElement).toBe(wrapper.get('textarea').element)
-    expect(wrapper.text()).toContain('固定演示回复')
+    expect(wrapper.text()).toContain('来自后端的回复')
+    expect(wrapper.text()).not.toContain('演示回复')
   })
 
   // 草稿不跨会话携带，防止切换后误发；会话正文仍由各自数据恢复。
   it('切换会话与新建时清除草稿', async () => {
     const wrapper = renderWorkspace()
+    await wrapper.get('textarea').setValue('第一段对话')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    await wrapper.get('.new-chat-button').trigger('click')
     await wrapper.get('textarea').setValue('未发送的内容')
     await wrapper.get('.conversation-item').trigger('click')
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('')
@@ -66,5 +79,33 @@ describe('聊天工作空间', () => {
     await wrapper.get('.new-chat-button').trigger('click')
     expect(wrapper.findAll('article')).toHaveLength(0)
     expect(wrapper.find('.welcome').exists()).toBe(true)
+  })
+
+  // 慢响应时输入区仍可编辑草稿，但再次 Enter 不应清空草稿或产生并发请求。
+  it('等待期间阻止重复提交，失败后可继续发送', async () => {
+    let rejectReply!: (reason: Error) => void
+    fetchMock.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectReply = reject
+        }),
+    )
+    const wrapper = renderWorkspace()
+    await wrapper.get('textarea').setValue('测试慢请求')
+    await wrapper.get('form').trigger('submit')
+    expect(wrapper.get('[role="status"]').text()).toContain('正在整理思路')
+    expect(document.activeElement).toBe(wrapper.get('textarea').element)
+    await wrapper.get('textarea').setValue('下一条草稿')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('下一条草稿')
+    rejectReply(new TypeError('Failed to fetch'))
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toContain('暂时无法获取回复')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+    expect(wrapper.text()).toContain('来自后端的回复')
   })
 })

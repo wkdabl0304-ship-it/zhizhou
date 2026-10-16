@@ -32,9 +32,9 @@ function navigate(id?: string): void {
   draft.value = ''
   drawerOpen.value = false
 }
-/** 发送仍使用本地固定回复，视图切换后聚焦新的输入实例。 */
+/** 启动异步请求后及时聚焦新的输入实例，完成时不干扰用户已切换的会话。 */
 async function send(text: string): Promise<void> {
-  chat.send(text)
+  void chat.send(text)
   await nextTick()
   composer.value?.focus()
 }
@@ -89,7 +89,7 @@ async function restoreFocus(event: Event): Promise<void> {
         </div>
         <div class="header-end">
           <span class="header-edition">KNOWLEDGE IN FLOW</span
-          ><span class="prototype-badge"><span />交互原型</span
+          ><span class="prototype-badge"><span />知舟 AI</span
           ><UiTooltip v-if="chat.activeConversation" text="新建对话"
             ><UiIconButton label="新建对话" @click="navigate()"
               ><SquarePen :size="18" /></UiIconButton
@@ -97,7 +97,7 @@ async function restoreFocus(event: Event): Promise<void> {
         </div>
       </header>
       <div v-if="!chat.activeConversation" class="home-scroll">
-        <ChatWelcome ref="composer" v-model="draft" @send="send" />
+        <ChatWelcome ref="composer" v-model="draft" :sending="chat.isSending" @send="send" />
       </div>
       <template v-else
         ><section class="conversation-scroll" aria-label="对话内容">
@@ -108,8 +108,8 @@ async function restoreFocus(event: Event): Promise<void> {
         </section>
         <footer class="conversation-footer">
           <div class="composer-container">
-            <ChatComposer ref="composer" v-model="draft" @send="send" />
-            <p class="composer-disclaimer">当前为静态演示，回复不由 AI 生成。刷新后会话将重置。</p>
+            <ChatComposer ref="composer" v-model="draft" :sending="chat.isSending" @send="send" />
+            <p class="composer-disclaimer">AI 回复仅供参考，请核实重要信息。</p>
           </div>
         </footer></template
       >

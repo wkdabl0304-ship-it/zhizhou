@@ -17,7 +17,7 @@ const props = defineProps<{
 }>()
 defineEmits<{ select: [id: string]; new: []; toggle: [] }>()
 const isDev = import.meta.env.DEV
-// 根据演示会话自身分组，新增会话自动进入“今天”。
+// 根据本页会话自身分组，新增会话自动进入“今天”。
 const groups = computed(() => [...new Set(props.conversations.map((item) => item.group))])
 </script>
 

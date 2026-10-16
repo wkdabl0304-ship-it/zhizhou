@@ -7,11 +7,14 @@ import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiTooltip from '@/components/ui/UiTooltip.vue'
 
 const model = defineModel<string>({ default: '' })
-const props = defineProps<{ disabled?: boolean }>()
+const props = defineProps<{ disabled?: boolean; sending?: boolean }>()
 const emit = defineEmits<{ send: [text: string] }>()
 const input = ref<InstanceType<typeof UiAutoTextarea>>()
 const composing = ref(false)
-const canSend = computed(() => !props.disabled && !composing.value && Boolean(model.value.trim()))
+// 等待回复时允许继续编辑草稿，但阻止再次提交，避免同一 thread_id 并发续写历史。
+const canSend = computed(
+  () => !props.disabled && !props.sending && !composing.value && Boolean(model.value.trim()),
+)
 
 /** 同步交出当前内容；业务层接收后由该输入区清空草稿。 */
 function submit(): void {
@@ -48,6 +51,7 @@ defineExpose({ focus })
     class="chat-composer"
     :class="{ 'is-disabled': disabled }"
     aria-label="发送消息"
+    :aria-busy="sending"
     @submit.prevent="submit"
   >
     <UiAutoTextarea

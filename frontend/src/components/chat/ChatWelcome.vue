@@ -7,6 +7,7 @@ import BrandLogo from '@/components/BrandLogo.vue'
 import ChatComposer from './ChatComposer.vue'
 import RiverWelcomeHero from './RiverWelcomeHero.vue'
 const model = defineModel<string>({ default: '' })
+defineProps<{ sending?: boolean }>()
 defineEmits<{ send: [text: string] }>()
 const composer = ref<InstanceType<typeof ChatComposer>>()
 /** 填入建议但不发送；DOM 同步后将焦点送回输入区，供用户继续编辑。 */
@@ -28,7 +29,12 @@ defineExpose({ focus })
       <div class="welcome-composer-label">
         <BrandLogo :size="20" /><span>把你的想法，交给知舟</span>
       </div>
-      <ChatComposer ref="composer" v-model="model" @send="$emit('send', $event)" />
+      <ChatComposer
+        ref="composer"
+        v-model="model"
+        :sending="sending"
+        @send="$emit('send', $event)"
+      />
       <div class="suggestions">
         <button
           v-for="suggestion in suggestions"
@@ -41,9 +47,7 @@ defineExpose({ focus })
           ><ArrowUpRight :size="15" />
         </button>
       </div>
-      <div class="welcome-foot">
-        <span>让工作，始于一句话。</span><span>静态演示 · 不连接 AI 服务</span>
-      </div>
+      <div class="welcome-foot"><span>让工作，始于一句话。</span><span>AI 回复仅供参考</span></div>
     </div>
   </section>
 </template>

@@ -1,4 +1,4 @@
-<!-- 消息展示：按明确的文本块渲染段落、列表和代码，不执行 HTML；支持预览等待与失败状态。 -->
+<!-- 消息展示：按文本块渲染段落、列表和代码，不执行 HTML；支持真实请求及预览的等待和失败状态。 -->
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Check, Copy, TriangleAlert } from '@lucide/vue'
