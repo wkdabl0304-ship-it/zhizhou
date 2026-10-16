@@ -226,10 +226,14 @@ async function restoreFocus(event: Event): Promise<void> {
   font-size: 11px;
   color: var(--text-muted);
 }
-.chat-shell[data-visible='false'] :deep(*) {
+.chat-shell[data-visible='false'] :deep(*),
+.chat-shell[data-visible='false'] :deep(*::before),
+.chat-shell[data-visible='false'] :deep(*::after) {
   animation-play-state: paused !important;
 }
-.chat-shell[data-motion='off'] :deep(*) {
+.chat-shell[data-motion='off'] :deep(*),
+.chat-shell[data-motion='off'] :deep(*::before),
+.chat-shell[data-motion='off'] :deep(*::after) {
   animation: none !important;
   transition: none !important;
 }
