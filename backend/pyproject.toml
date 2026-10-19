@@ -13,6 +13,7 @@ dependencies = [
     "anyio>=4.0",
     "fastapi>=0.143.0",
     "langchain>=1.4.4",
+    "langchain-deepseek>=1.1.1",
     "langchain-openai>=1.7.0",
     "langgraph-checkpoint-postgres>=3.1.2",
     "pathlib>=1.0.1",

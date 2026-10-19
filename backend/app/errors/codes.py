@@ -22,6 +22,7 @@ class ErrorCode(Enum):
     # 系统失败：HTTP 5xx。
     INTERNAL_ERROR = (50000, "服务器内部错误，请稍后重试")
     CHAT_FAILED = (50001, "对话执行失败，请稍后重试")
+    TOOL_FAILED = (50002, "工具执行失败")
 
     @property
     def code(self) -> int:

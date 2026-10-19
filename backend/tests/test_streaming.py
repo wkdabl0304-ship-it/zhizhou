@@ -106,6 +106,8 @@ def test_real_uvicorn_delivers_incrementally_and_cancels_disconnected_request():
             """按输入模拟成功、半途失败或长期生成；取消时执行异步资源清理。"""
             text = inputs["messages"][0].content
             try:
+                if text == "success":
+                    yield "messages", (AIMessageChunk(content="", id="reply", additional_kwargs={"reasoning_content": "公开思考"}), {"langgraph_node": "model"})
                 yield "messages", (AIMessageChunk(content="你好\n", id="reply"), {"langgraph_node": "model"})
                 if text == "failure":
                     raise RuntimeError("private-provider-error")
@@ -157,6 +159,8 @@ def test_real_uvicorn_delivers_incrementally_and_cancels_disconnected_request():
                     assert response.headers["cache-control"] == "no-cache"
                     assert response.headers["x-accel-buffering"] == "no"
                     assert (await read_event(lines))[0] == "start"
+                    event, payload = await read_event(lines)
+                    assert event == "reasoning_delta" and payload["data"]["text"] == "公开思考"
                     event, payload = await read_event(lines)
                     assert event == "delta" and payload["data"]["text"] == "你好\n"
                     assert not finished.is_set()

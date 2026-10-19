@@ -1,4 +1,4 @@
-"""异步执行 Agent 对话，输出助手文本并按会话隔离完整轮次。
+"""异步执行 Agent 对话，输出正文、思考和工具过程并按会话隔离完整轮次。
 
 Web 与命令行共用本模块；图负责 checkpoint，HTTP 协议由 API 层编码。
 锁仅协调同一事件循环中的单个 Agent 实例，不提供多进程互斥。
@@ -13,12 +13,16 @@ from time import perf_counter
 from typing import Any
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
+from app.agents.events import ToolEventHandler, reasoning_text
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import AppError, ServiceError, log_app_error
-from app.schemas.chat import ChatDelta, ChatResponse
+from app.schemas.chat import (
+    ChatAgentEvent, ChatDelta, ChatReasoningDelta, ChatResponse,
+    ChatToolCall, ChatToolEnd, ChatToolError, ChatToolStart,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +36,7 @@ class _ConversationLock:
 
 
 class ChatAgent:
-    """包装异步 Agent 图，提供文本增量和最终回复，不暴露内部工具消息。"""
+    """包装异步 Agent 图，提供结构化过程事件及最终回复，不返回历史快照。"""
 
     def __init__(self, agent: Runnable[dict[str, Any], dict[str, Any]]) -> None:
         """保存图并初始化会话锁表；实例须在一个事件循环内使用。"""
@@ -56,8 +60,8 @@ class ChatAgent:
             if entry.users == 0:
                 del self._locks[thread_id]
 
-    async def astream(self, message: str, thread_id: str) -> AsyncIterator[ChatDelta | ChatResponse]:
-        """发送一轮消息，yield 文本增量，持久化完成后 yield 最终回复。
+    async def astream(self, message: str, thread_id: str) -> AsyncIterator[ChatAgentEvent]:
+        """发送一轮消息，yield 正文与过程事件，持久化完成后 yield 最终回复。
 
         同会话排队，不同会话并发；计时包含排队时间。调用方提前结束时
         必须关闭迭代器，才能立即释放图与会话锁。取消不转换为业务失败，
@@ -70,11 +74,17 @@ class ChatAgent:
                 final_message = None
                 final_id = ""
                 current_id = str(uuid4())
+                # 工具节点也可能在实际执行前拒绝未知名称或非法参数，需要补充结果而不重复回调。
+                tool_names: dict[str, str] = {}
+                finished_tools: set[str] = set()
                 # 使用稳定的 v1 多模式格式；sync 只要求每步落库后推进，数据库 I/O 仍是异步。
                 stream = self._agent.astream(
                     {"messages": [HumanMessage(content=message)]},
-                    config={"configurable": {"thread_id": thread_id}},
-                    stream_mode=["messages", "updates"],
+                    config={
+                        "configurable": {"thread_id": thread_id},
+                        "callbacks": [ToolEventHandler(thread_id)], # 回调监听器
+                    },
+                    stream_mode=["messages", "updates", "custom"],
                     version="v1",
                     durability="sync", # 保存时等待持久化完成，再继续
                 )
@@ -82,18 +92,42 @@ class ChatAgent:
                     async for mode, payload in stream:
                         if mode == "messages":
                             chunk, metadata = payload
-                            # text 仅提取文本块；reasoning、工具参数和 ToolMessage 均不外发。
+                            # 过程与正文分别输出，避免思考块污染最终回答；工具结果由真实回调发送。
                             if isinstance(chunk, AIMessage) and metadata.get("langgraph_node") == "model":
                                 current_id = chunk.id or current_id
+                                for text in reasoning_text(chunk):
+                                    yield ChatReasoningDelta(thread_id=thread_id, message_id=current_id, text=text)
                                 if chunk.text:
                                     yield ChatDelta(thread_id=thread_id, message_id=current_id, text=str(chunk.text))
                         elif mode == "updates":
                             for update in payload.values():
                                 if isinstance(update, dict) and update.get("messages"):
+                                    for item in update["messages"]:
+                                        if isinstance(item, ToolMessage) and item.status == "error" and item.tool_call_id not in finished_tools:
+                                            finished_tools.add(item.tool_call_id)
+                                            yield ChatToolError(
+                                                thread_id=thread_id, tool_call_id=item.tool_call_id,
+                                                name=item.name or tool_names.get(item.tool_call_id, "tool"),
+                                                message=ErrorCode.TOOL_FAILED.message,
+                                            )
                                     final_message = update["messages"][-1]
                                     final_id = final_message.id or current_id
+                                    if isinstance(final_message, AIMessage):
+                                        for call in final_message.tool_calls:
+                                            tool_names[call["id"]] = call["name"]
+                                            yield ChatToolCall(
+                                                thread_id=thread_id, message_id=final_id,
+                                                tool_call_id=call["id"], name=call["name"],
+                                                arguments=call["args"],
+                                            )
                                     # 下个模型步骤拥有独立标识；不能把工具前的文字合并进最终回答。
                                     current_id = str(uuid4())
+                        elif mode == "custom" and isinstance(payload, (ChatToolStart, ChatToolEnd, ChatToolError)):
+                            # custom 也可用于工具自定义进度，此处只转发本会话的已知协议模型。
+                            if payload.thread_id == thread_id:
+                                if isinstance(payload, (ChatToolEnd, ChatToolError)):
+                                    finished_tools.add(payload.tool_call_id)
+                                yield payload
                 if (
                     not isinstance(final_message, AIMessage)
                     or final_message.tool_calls

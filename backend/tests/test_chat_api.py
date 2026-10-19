@@ -17,7 +17,10 @@ import pytest
 from fastapi import Request
 from fastapi.testclient import TestClient
 from app.agents.agent import ChatAgent
-from chat_fakes import GraphStub
+from app.agents.factory import build_agent
+from app.agents.tools.weather import get_weather
+from chat_fakes import GraphStub, StubChatModel
+from langgraph.checkpoint.memory import InMemorySaver
 
 from app.config.settings import LoggingSettings
 from app.api.dependencies import get_chat_agent
@@ -184,12 +187,40 @@ def test_openapi_documents_sse_and_uniform_pre_stream_errors(runtime):
     assert set(responses["200"]["content"]) == {"text/event-stream"}
     content = responses["200"]["content"]["text/event-stream"]
     assert "event: done" in content["examples"]["success"]["value"]
+    for name in ("reasoning_delta", "tool_call", "tool_start", "tool_end"):
+        assert f"event: {name}" in content["examples"]["success"]["value"]
+    assert "event: tool_error" in content["examples"]["tool_error"]["value"]
     assert "event: error" in content["examples"]["error"]["value"]
     for status in ("404", "405", "422", "500"):
         reference = responses[status]["content"]["application/json"]["schema"]["$ref"]
         error_schema = schema["components"]["schemas"][reference.split("/")[-1]]
         assert set(error_schema["properties"]) == {"code", "message", "data"}
     assert "HTTPValidationError" not in schema["components"]["schemas"]
+
+
+def test_api_streams_real_tool_execution_as_process_events(runtime, monkeypatch):
+    """真实图的工具请求、开始及结果经 SSE 路由正确编码，不误判为 done。"""
+    agent = ChatAgent(build_agent(StubChatModel(), [get_weather], InMemorySaver()))
+
+    def override_agent():
+        """给请求注入真实图和内存保存器，生命周期仍由 runtime 隔离外部资源。"""
+        return agent
+
+    monkeypatch.setitem(main.app.dependency_overrides, get_chat_agent, override_agent)
+    with TestClient(main.app) as client:
+        response = client.post("/api/chat", json={"message": "天气", "thread_id": "a"})
+    events = parse_events(response)
+    names = [event["event"] for event in events]
+    assert names[:4] == ["start", "tool_call", "tool_start", "tool_end"]
+    assert names[-1] == "done" and names.count("done") == 1
+    call, started, ended = [events[index]["payload"]["data"] for index in (1, 2, 3)]
+    assert call["tool_call_id"] == started["tool_call_id"] == ended["tool_call_id"] == "weather-1"
+    assert call["arguments"] == started["arguments"] == {"city": "上海"}
+    assert ended["output"] == "上海今天晴天，温度 25°C"
+    for event in events:
+        assert event["payload"]["code"] == 0
+        assert event["payload"]["data"]["thread_id"] == "a"
+        assert "event" not in event["payload"]["data"]
 
 
 @pytest.mark.parametrize("method,path,status,code", [
@@ -308,7 +339,7 @@ def forbidden(*args, **kwargs):
 
 with patch('dotenv.dotenv_values', forbidden), \\
      patch('dotenv.load_dotenv', forbidden), \\
-     patch('langchain_openai.ChatOpenAI.__init__', forbidden), \\
+     patch('app.agents.models.DeepSeekChatModel.__init__', forbidden), \\
      patch('langgraph.checkpoint.postgres.aio.AsyncPostgresSaver.from_conn_string', forbidden), \\
      patch('logging.config.dictConfig', forbidden), \\
      patch('uvicorn.run', forbidden):

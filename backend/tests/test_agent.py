@@ -20,7 +20,7 @@ from app.agents.factory import build_agent
 from app.agents.tools.weather import get_weather
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import BusinessError, ServiceError
-from app.schemas.chat import ChatDelta, ChatResponse
+from app.schemas.chat import ChatDelta, ChatReasoningDelta, ChatResponse, ChatToolCall
 from chat_fakes import GraphStub, StubChatModel
 
 
@@ -36,10 +36,10 @@ def test_chat_passes_message_thread_and_stream_options():
         assert len(graph.calls) == 1
         inputs, options = graph.calls[0]
         assert inputs["messages"] == [HumanMessage(content="你好")]
-        assert options == {
-            "config": {"configurable": {"thread_id": "thread-1"}},
-            "stream_mode": ["messages", "updates"], "version": "v1", "durability": "sync",
-        }
+        assert options["config"]["configurable"] == {"thread_id": "thread-1"}
+        assert len(options["config"]["callbacks"]) == 1
+        assert options["stream_mode"] == ["messages", "updates", "custom"]
+        assert options["version"] == "v1" and options["durability"] == "sync"
         assert graph.closed and agent._locks == {}
     asyncio.run(scenario())
 
@@ -62,8 +62,8 @@ def test_missing_final_reply_is_an_error(messages):
     asyncio.run(scenario())
 
 
-def test_filters_private_blocks_and_preserves_final_message_identity():
-    """只转发助手文本，过滤思考和工具结果，最终回复不混入工具前的说明。"""
+def test_separates_reasoning_and_tools_from_reply_and_preserves_message_identity():
+    """思考与工具请求独立成事件，工具参数碎片不当作正文，最终回复不混入工具前的说明。"""
     async def stream(*args, **kwargs):
         """模拟工具前说明、思考块、工具参数、工具结果及最终回复。"""
         yield "messages", (AIMessageChunk(content="先查询", id="before"), {"langgraph_node": "model"})
@@ -75,12 +75,14 @@ def test_filters_private_blocks_and_preserves_final_message_identity():
         yield "updates", {"model": {"messages": [AIMessage(content="最终", id="final")]}}
 
     async def scenario():
-        """检查对外数据及最终消息归属，保证隐藏数据不会进入增量。"""
+        """检查过程事件及最终消息归属，保证思考、参数与工具结果不混入正文。"""
         events = [event async for event in ChatAgent(Mock(astream=stream)).astream("天气", "a")]
         assert [event.text for event in events if isinstance(event, ChatDelta)] == ["先查询", "最终"]
         assert events[-1].reply == "最终"
         assert events[-1].message_id == "final"
-        assert "private" not in str(events)
+        assert [event.text for event in events if isinstance(event, ChatReasoningDelta)] == ["private-thinking"]
+        assert [event.tool_call_id for event in events if isinstance(event, ChatToolCall)] == ["call"]
+        assert "private-args" not in str(events) and "private-result" not in str(events)
     asyncio.run(scenario())
 
 
