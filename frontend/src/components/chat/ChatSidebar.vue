@@ -24,11 +24,19 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
 <template>
   <div class="chat-sidebar" :class="{ 'is-compact': compact }">
     <div class="sidebar-heading">
-      <div class="brand" :class="{ 'brand--compact': compact }">
+      <!-- 品牌图标和文字共用首页入口，由父页面统一清理草稿并关闭窄屏抽屉。 -->
+      <button
+        type="button"
+        class="brand"
+        :class="{ 'brand--compact': compact }"
+        aria-label="返回首页"
+        title="返回首页"
+        @click="$emit('new')"
+      >
         <BrandLogo :size="compact ? 34 : 39" /><span v-if="!compact" class="brand-name"
           >知舟<span class="brand-en">ZHIZHOU</span></span
         >
-      </div>
+      </button>
       <UiTooltip v-if="!drawer && !compact" text="收起侧栏" :content-props="{ side: 'right' }"
         ><UiIconButton label="收起侧栏" @click="$emit('toggle')"
           ><PanelLeft :size="18" /></UiIconButton
@@ -96,6 +104,15 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   display: flex;
   align-items: center;
   gap: 10px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+}
+.brand:hover {
+  color: var(--brand);
 }
 .brand-name {
   display: flex;
