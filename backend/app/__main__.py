@@ -37,6 +37,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         host=args.host,
         port=args.port,
         reload=args.reload,
+        loop="app.config.event_loop:create_event_loop",
         log_config=build_logging_config(settings),
         access_log=settings.access_enabled,
     )

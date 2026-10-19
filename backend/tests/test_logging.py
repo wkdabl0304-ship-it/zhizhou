@@ -180,6 +180,7 @@ def test_web_entry_passes_logging_config_and_arguments(monkeypatch, argv, expect
     run.assert_called_once_with(
         "app.main:app", **expected,
         log_config=build_logging_config(settings), access_log=False,
+        loop="app.config.event_loop:create_event_loop",
     )
 
 

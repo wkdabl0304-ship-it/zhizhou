@@ -3,10 +3,10 @@
 此模块提供持久化基础设施；对话消息与 thread_id 的处理仍由 Agent 负责。
 """
 
-from collections.abc import Iterator
-from contextlib import contextmanager
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
 
-from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.conninfo import make_conninfo
 
 from app.config.settings import Settings
@@ -28,14 +28,14 @@ def build_conninfo(settings: Settings) -> str:
     )
 
 
-@contextmanager
-def open_checkpointer(settings: Settings) -> Iterator[PostgresSaver]:
+@asynccontextmanager
+async def open_checkpointer(settings: Settings) -> AsyncIterator[AsyncPostgresSaver]:
     """在上下文中提供已完成表初始化的 PostgreSQL 状态保存器。
 
     进入时根据 settings 连接数据库并执行可重复的 setup 迁移；yield
-    出的保存器必须在 with 范围内使用。正常退出或发生异常都会关闭连接。
+    出的保存器必须在 async with 范围内使用。正常退出或发生异常都会关闭连接。
     连接或迁移失败会向调用方抛出，不降级为没有记忆的临时 Agent。
     """
-    with PostgresSaver.from_conn_string(build_conninfo(settings)) as checkpointer:
-        checkpointer.setup()
+    async with AsyncPostgresSaver.from_conn_string(build_conninfo(settings)) as checkpointer:
+        await checkpointer.setup()
         yield checkpointer

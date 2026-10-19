@@ -10,6 +10,7 @@ authors = [
 # 同时与 .python-version 保持一致，项目源码使用现代 Python 类型参数语法。
 requires-python = ">=3.14"
 dependencies = [
+    "anyio>=4.0",
     "fastapi>=0.143.0",
     "langchain>=1.4.4",
     "langchain-openai>=1.7.0",

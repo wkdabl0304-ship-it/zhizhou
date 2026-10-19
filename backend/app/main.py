@@ -6,7 +6,7 @@ Web 进程由包入口启动；本模块负责启动时组装资源、退出时�
 
 import logging
 from collections.abc import AsyncIterator
-from contextlib import ExitStack, asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 
@@ -37,12 +37,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         Exception: 配置、模型或数据库初始化失败时记录原始异常并终止启动。
     """
     configure_logging(load_logging_settings()) # 这里再次配置日志是为了兼容用 uvicorn 启动项目
-    # ExitStack 管理资源，确保资源被正确释放
-    with ExitStack() as resources:
+    # 异步资源栈确保组装失败与正常退出都能等待连接关闭。
+    async with AsyncExitStack() as resources:
         try:
             settings = load_settings()
             model = create_model(settings)
-            checkpointer = resources.enter_context(open_checkpointer(settings))
+            checkpointer = await resources.enter_async_context(open_checkpointer(settings))
             app.state.chat_agent = ChatAgent(build_agent(model, [get_weather], checkpointer))
         except Exception:
             logger.exception("应用启动失败")
@@ -54,7 +54,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         finally:
             # 先撤销对外暴露的对象，再关闭其依赖，防止继续使用已关闭连接。
             del app.state.chat_agent
-            resources.close()
+            await resources.aclose()
             logger.info("应用资源已关闭")
 
 

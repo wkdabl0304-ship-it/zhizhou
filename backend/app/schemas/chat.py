@@ -1,7 +1,4 @@
-"""聊天接口的输入和业务数据模型，不包含通用响应外壳。
-
-Pydantic 在请求进入路由前执行校验；最终回复嵌入 ApiResponse.data。
-"""
+"""聊天请求及 SSE 事件的数据模型，由 API 层添加通用响应外壳。"""
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -25,8 +22,21 @@ class ChatRequest(BaseModel):
         return value
 
 
-class ChatResponse(BaseModel):
-    """成功时返回的业务数据：最终助手文本及原始对话标识。"""
+class ChatStart(BaseModel):
+    """请求已接受；thread_id 对应排队或执行中的会话。"""
+
+    thread_id: str
+
+
+class ChatDelta(ChatStart):
+    """助手的一段可见文本；message_id 区分工具调用前后的模型消息。"""
+
+    message_id: str
+    text: str
+
+
+class ChatResponse(ChatStart):
+    """本轮最终助手消息；reply 是权威完整回答，可能不同于所有增量的拼接。"""
 
     reply: str
-    thread_id: str
+    message_id: str

@@ -1,19 +1,18 @@
-"""验证 Agent 对话执行、历史隔离、工具调用、串行化与异常日志。
+"""验证异步 Agent 的增量、持久化、会话并发、取消清理及异常日志。
 
-使用内存 checkpoint、本地模型与调用替身，不请求真实模型或数据库。
+使用异步事件控制时序及本地模型执行真实图，不依赖真实模型或数据库。
 """
 
-from concurrent.futures import ThreadPoolExecutor
+import asyncio
 import importlib
 import logging
-from threading import Lock
-from time import sleep
+from contextlib import aclosing
 from unittest.mock import Mock
+from typing import Any
 
 import pytest
-from langchain_core.language_models import BaseChatModel
-from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
-from langchain_core.outputs import ChatGeneration, ChatResult
+from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
+from langchain_core.outputs import ChatGenerationChunk
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.agent import ChatAgent
@@ -21,183 +20,308 @@ from app.agents.factory import build_agent
 from app.agents.tools.weather import get_weather
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import BusinessError, ServiceError
+from app.schemas.chat import ChatDelta, ChatResponse
+from chat_fakes import GraphStub, StubChatModel
 
 
-def test_chat_passes_message_and_thread_and_returns_only_final_text():
-    """验证消息与对话标识正确传入图，且仅返回最终助手的纯文本。"""
-    graph = Mock()
-    graph.invoke.return_value = {"messages": [
-        HumanMessage(content="你好"),
-        AIMessage(content=[{"type": "text", "text": "回复"}]),
-    ]}
-    assert ChatAgent(graph).chat("你好", "thread-1") == "回复"
-    args, kwargs = graph.invoke.call_args
-    assert len(args[0]["messages"]) == 1
-    assert isinstance(args[0]["messages"][0], HumanMessage)
-    assert args[0]["messages"][0].content == "你好"
-    assert kwargs["config"] == {"configurable": {"thread_id": "thread-1"}}
+def test_chat_passes_message_thread_and_stream_options():
+    """确认图只执行一次，收到原始输入和持久化设置，增量与最终文本一致。"""
+    async def scenario():
+        """消费整轮并检查稳定消息标识、换行和中文的无损传递。"""
+        graph = GraphStub("你好\n世界")
+        agent = ChatAgent(graph)
+        events = [event async for event in agent.astream("你好", "thread-1")]
+        assert "".join(event.text for event in events if isinstance(event, ChatDelta)) == graph.reply
+        assert events[-1] == ChatResponse(reply=graph.reply, thread_id="thread-1", message_id="reply-1")
+        assert len(graph.calls) == 1
+        inputs, options = graph.calls[0]
+        assert inputs["messages"] == [HumanMessage(content="你好")]
+        assert options == {
+            "config": {"configurable": {"thread_id": "thread-1"}},
+            "stream_mode": ["messages", "updates"], "version": "v1", "durability": "sync",
+        }
+        assert graph.closed and agent._locks == {}
+    asyncio.run(scenario())
 
 
-@pytest.mark.parametrize("messages", [[], [HumanMessage(content="你好")], [AIMessage(content="")]])
+@pytest.mark.parametrize("messages", [[], [HumanMessage(content="你好")], [AIMessage(content="")], [AIMessage(content=" \n")]])
 def test_missing_final_reply_is_an_error(messages):
-    """对空历史、非助手结尾和空回复分别验证系统异常分类及原始异常链。"""
-    graph = Mock()
-    graph.invoke.return_value = {"messages": messages}
-    with pytest.raises(ServiceError) as error:
-        ChatAgent(graph).chat("你好", "thread-1")
-    assert error.value.error_code is ErrorCode.CHAT_FAILED
-    assert isinstance(error.value.__cause__, ValueError)
+    """没有有效最终助手文本时抛出安全系统异常，保留原始原因并回收会话锁。"""
+    async def stream(*args, **kwargs):
+        """模拟图结束时没有有效助手输出的各类状态。"""
+        yield "updates", {"model": {"messages": messages}}
+
+    async def scenario():
+        """验证异常分类和锁回收，不把空回复当作成功。"""
+        agent = ChatAgent(Mock(astream=stream))
+        with pytest.raises(ServiceError) as error:
+            await agent.achat("你好", "a")
+        assert error.value.error_code is ErrorCode.CHAT_FAILED
+        assert isinstance(error.value.__cause__, ValueError)
+        assert agent._locks == {}
+    asyncio.run(scenario())
 
 
-def test_failed_call_releases_serialization_lock():
-    """先模拟失败再调用成功，验证异常路径释放互斥锁并保留底层原因。"""
-    graph = Mock()
-    graph.invoke.side_effect = [RuntimeError("model failed"), {"messages": [AIMessage(content="ok")]}]
-    agent = ChatAgent(graph)
-    with pytest.raises(ServiceError) as error:
-        agent.chat("first", "thread")
-    assert isinstance(error.value.__cause__, RuntimeError)
-    assert str(error.value.__cause__) == "model failed"
-    assert agent.chat("second", "thread") == "ok"
+def test_filters_private_blocks_and_preserves_final_message_identity():
+    """只转发助手文本，过滤思考和工具结果，最终回复不混入工具前的说明。"""
+    async def stream(*args, **kwargs):
+        """模拟工具前说明、思考块、工具参数、工具结果及最终回复。"""
+        yield "messages", (AIMessageChunk(content="先查询", id="before"), {"langgraph_node": "model"})
+        yield "messages", (AIMessageChunk(content=[{"type": "reasoning", "reasoning": "private-thinking"}]), {"langgraph_node": "model"})
+        yield "messages", (AIMessageChunk(content="", tool_call_chunks=[{"name": "get_weather", "args": "private-args", "id": "call", "index": 0}]), {"langgraph_node": "model"})
+        yield "updates", {"model": {"messages": [AIMessage(content="先查询", id="before", tool_calls=[{"name": "get_weather", "args": {}, "id": "call"}])]}}
+        yield "messages", (ToolMessage(content="private-result", tool_call_id="call"), {"langgraph_node": "tools"})
+        yield "messages", (AIMessageChunk(content="最终", id="final"), {"langgraph_node": "model"})
+        yield "updates", {"model": {"messages": [AIMessage(content="最终", id="final")]}}
+
+    async def scenario():
+        """检查对外数据及最终消息归属，保证隐藏数据不会进入增量。"""
+        events = [event async for event in ChatAgent(Mock(astream=stream)).astream("天气", "a")]
+        assert [event.text for event in events if isinstance(event, ChatDelta)] == ["先查询", "最终"]
+        assert events[-1].reply == "最终"
+        assert events[-1].message_id == "final"
+        assert "private" not in str(events)
+    asyncio.run(scenario())
 
 
-def test_complete_agent_calls_are_serialized():
-    """并发提交多次调用，确认完整轮次的最大同时执行数为一。"""
-    active = 0
-    maximum = 0
-    counter_lock = Lock()
-
-    def invoke(*args, **kwargs):
-        """模拟短暂调用并统计进入与退出数量，供并发测试观察重叠。"""
-        nonlocal active, maximum
-        with counter_lock:
-            active += 1
-            maximum = max(maximum, active)
-        sleep(0.01)
-        with counter_lock:
-            active -= 1
-        return {"messages": [AIMessage(content="ok")]}
-
-    agent = ChatAgent(Mock(invoke=invoke))
-    with ThreadPoolExecutor(max_workers=4) as executor:
-        replies = list(executor.map(lambda i: agent.chat(str(i), "thread"), range(8)))
-    assert replies == ["ok"] * 8
-    assert maximum == 1
+def test_real_graph_history_tools_and_restore():
+    """真实异步图验证多轮、隔离、重建与工具链，完成事件对应已保存的助手消息。"""
+    async def scenario():
+        """在一个循环中执行所有轮次，直接读取 checkpoint 核对最终记录。"""
+        saver = InMemorySaver()
+        graph = build_agent(StubChatModel(), [get_weather], saver)
+        agent = ChatAgent(graph)
+        assert await agent.achat("first", "a") == "first"
+        assert await agent.achat("second", "a") == "first|second"
+        assert await agent.achat("other", "b") == "other"
+        restored = ChatAgent(build_agent(StubChatModel(), [get_weather], saver))
+        assert await restored.achat("third", "a") == "first|second|third"
+        events = [event async for event in agent.astream("天气", "weather")]
+        assert events[-1].reply == "上海今天晴天，温度 25°C"
+        assert "".join(event.text for event in events if isinstance(event, ChatDelta)) == events[-1].reply
+        state = await graph.aget_state({"configurable": {"thread_id": "weather"}})
+        assert state.values["messages"][-1].text == events[-1].reply
+        assert state.values["messages"][-1].id == events[-1].message_id
+    asyncio.run(scenario())
 
 
-class StubChatModel(BaseChatModel):
-    """运行真实 LangChain 图；用可观察历史和工具调用的本地模型替代网络。"""
+def test_same_thread_fifo_other_threads_concurrent_and_cancelled_waiter():
+    """通过事件屏障验证同会话 FIFO、跨会话重叠及取消等待者不会破坏共用锁。"""
+    async def scenario():
+        """暂停第一轮，排入等待者并取消其中一轮，再检查完整执行顺序。"""
+        entered = []
+        first_started = asyncio.Event()
+        release = asyncio.Event()
+        other_started = asyncio.Event()
 
-    @property
-    def _llm_type(self):
-        """返回本地模型类型标识，满足 BaseChatModel 的抽象接口。"""
-        return "test-model"
+        async def stream(inputs, **kwargs):
+            """记录模型开始顺序，第一轮等待显式放行，其他会话立即标记进入。"""
+            text = inputs["messages"][0].content
+            entered.append(text)
+            if text == "first":
+                first_started.set()
+                await release.wait()
+            if text == "other":
+                other_started.set()
+            yield "updates", {"model": {"messages": [AIMessage(content=text)]}}
 
-    def bind_tools(self, tools, **kwargs):
-        """直接返回当前模型供真实 Agent 图调用；测试工具选择由 _generate 模拟。"""
-        return self
-
-    def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        """根据消息历史返回本地助手结果或天气工具请求，无需网络。
-
-        工具结果直接转为回复；其他输入拼接历次用户消息，使测试能观察历史读取。
-        """
-        if isinstance(messages[-1], ToolMessage):
-            reply = AIMessage(content=messages[-1].content)
-        elif messages[-1].content == "天气":
-            reply = AIMessage(content="", tool_calls=[{
-                "name": "get_weather", "args": {"city": "上海"}, "id": "weather-1"
-            }])
-        else:
-            reply = AIMessage(content="|".join(
-                message.content for message in messages if isinstance(message, HumanMessage)
-            ))
-        return ChatResult(generations=[ChatGeneration(message=reply)])
-
-
-def test_real_agent_graph_continues_history_and_isolates_threads():
-    """使用真实 Agent 图验证同线程续聊、跨线程隔离及重建实例后的历史读取。"""
-    saver = InMemorySaver()
-    agent = ChatAgent(build_agent(StubChatModel(), [get_weather], saver))
-    assert agent.chat("first", "a") == "first"
-    assert agent.chat("second", "a") == "first|second"
-    assert agent.chat("other", "b") == "other"
-    # 新 Agent 实例继续使用相同 checkpoint。
-    restored = ChatAgent(build_agent(StubChatModel(), [get_weather], saver))
-    assert restored.chat("third", "a") == "first|second|third"
-
-
-def test_real_agent_graph_invokes_weather_tool():
-    """验证真实图能发起工具调用，并把固定天气结果交回助手。"""
-    agent = ChatAgent(build_agent(StubChatModel(), [get_weather], InMemorySaver()))
-    assert agent.chat("天气", "weather") == "上海今天晴天，温度 25°C"
+        agent = ChatAgent(Mock(astream=stream))
+        first = asyncio.create_task(agent.achat("first", "a"))
+        await first_started.wait()
+        cancelled = asyncio.create_task(agent.achat("cancelled", "a"))
+        second = asyncio.create_task(agent.achat("second", "a"))
+        third = asyncio.create_task(agent.achat("third", "a"))
+        other = asyncio.create_task(agent.achat("other", "b"))
+        await other_started.wait()
+        assert entered == ["first", "other"]
+        assert agent._locks["a"].users == 4
+        cancelled.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+        assert agent._locks["a"].users == 3
+        release.set()
+        assert await asyncio.gather(first, second, third, other) == ["first", "second", "third", "other"]
+        assert entered == ["first", "other", "second", "third"]
+        assert agent._locks == {}
+    asyncio.run(asyncio.wait_for(scenario(), 5))
 
 
-@pytest.mark.parametrize("failure", [False, True])
-def test_chat_logs_context_duration_and_failure_without_chat_body(
-    monkeypatch, caplog, failure
-):
-    """固定时钟后检查成功与失败日志的标识、耗时、级别和正文保护。"""
-    module = importlib.import_module("app.agents.agent")
-    monkeypatch.setattr(module, "perf_counter", Mock(side_effect=[10.0, 10.25]))
-    graph = Mock()
-    if failure:
-        graph.invoke.side_effect = RuntimeError("provider failed")
-    else:
-        graph.invoke.return_value = {"messages": [AIMessage(content="private-reply")]}
-    with caplog.at_level(logging.INFO, logger=module.__name__):
-        if failure:
-            with pytest.raises(ServiceError):
-                ChatAgent(graph).chat("private-message", "thread")
-        else:
-            assert ChatAgent(graph).chat("private-message", "thread") == "private-reply"
-    records = [record for record in caplog.records if record.name == module.__name__]
-    assert len(records) == 1
-    assert records[0].thread_id == "thread"
-    assert records[0].duration_ms == 250
-    assert records[0].levelno == (logging.ERROR if failure else logging.INFO)
-    assert bool(records[0].exc_info) is failure
-    assert "private-message" not in caplog.text
-    assert "private-reply" not in caplog.text
+def test_first_delta_precedes_completion_and_early_close_releases_graph():
+    """首段在图结束前交付；消费者关闭半途流时等待异步清理并释放会话锁。"""
+    async def scenario():
+        """取一个增量后关闭，再用同一会话成功执行下一轮。"""
+        cleaned = asyncio.Event()
+
+        async def stream(*args, **kwargs):
+            """输出首段后永远等待，finally 异步清理模拟底层资源释放。"""
+            try:
+                yield "messages", (AIMessageChunk(content="首段", id="partial"), {"langgraph_node": "model"})
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                cleaned.set()
+
+        agent = ChatAgent(Mock(astream=stream))
+        async with aclosing(agent.astream("hello", "a")) as events:
+            first = await anext(events)
+            assert first.text == "首段" and not cleaned.is_set()
+            assert agent._locks["a"].lock.locked()
+        assert cleaned.is_set() and agent._locks == {}
+        agent._agent = GraphStub("恢复")
+        assert await agent.achat("again", "a") == "恢复"
+    asyncio.run(asyncio.wait_for(scenario(), 5))
 
 
-def test_duration_includes_waiting_for_lock(monkeypatch, caplog):
-    """用推进时钟的锁替身确认对话耗时包含排队时间。"""
+def test_generation_cancellation_is_not_logged_as_failure(caplog):
+    """取消正在等待模型的请求，异步 finally 完成且无失败堆栈，随后同会话可用。"""
+    async def scenario():
+        """通过事件确认模型已进入后再取消，避免把未调度任务当作取消验证。"""
+        started, cleaned = asyncio.Event(), asyncio.Event()
+
+        async def stream(*args, **kwargs):
+            """暂停模型并在取消后异步执行清理，帮助检测持续取消造成的清理遗漏。"""
+            try:
+                started.set()
+                await asyncio.Event().wait()
+                yield
+            finally:
+                await asyncio.sleep(0)
+                cleaned.set()
+
+        agent = ChatAgent(Mock(astream=stream))
+        task = asyncio.create_task(agent.achat("hello", "a"))
+        await started.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert cleaned.is_set() and agent._locks == {}
+        agent._agent = GraphStub("恢复")
+        assert await agent.achat("again", "a") == "恢复"
+    asyncio.run(asyncio.wait_for(scenario(), 5))
+    assert not [record for record in caplog.records if record.levelno >= logging.WARNING]
+
+
+@pytest.mark.parametrize("flush_failure", [False, True])
+def test_done_waits_for_checkpoint_flush_and_flush_failure_is_not_success(flush_failure):
+    """最终模型更新不等于落库完成；图收尾成功才交付 done，写入失败仍抛出错误。"""
+    async def scenario():
+        """阻塞最终更新之后的持久化阶段，检查调用方无法提前取得完成事件。"""
+        flushing, release = asyncio.Event(), asyncio.Event()
+
+        async def stream(*args, **kwargs):
+            """模拟最终模型已产出，但 checkpoint 尚未完成或最终写入失败。"""
+            yield "messages", (AIMessageChunk(content="文本", id="reply"), {"langgraph_node": "model"})
+            yield "updates", {"model": {"messages": [AIMessage(content="文本", id="reply")]}}
+            flushing.set()
+            await release.wait()
+            if flush_failure:
+                raise RuntimeError("checkpoint failed")
+
+        agent = ChatAgent(Mock(astream=stream))
+        async with aclosing(agent.astream("hello", "a")) as events:
+            assert isinstance(await anext(events), ChatDelta)
+            done = asyncio.create_task(anext(events))
+            await flushing.wait()
+            assert not done.done()
+            assert agent._locks["a"].lock.locked()
+            release.set()
+            if flush_failure:
+                with pytest.raises(ServiceError):
+                    await done
+            else:
+                assert isinstance(await done, ChatResponse)
+        assert agent._locks == {}
+    asyncio.run(asyncio.wait_for(scenario(), 5))
+
+
+def test_real_graph_cancellation_retains_user_checkpoint_without_partial_answer():
+    """真实图取消后保留已保存的用户输入，不把已发出的半段文本伪装为完成回复。"""
+    class PausedModel(StubChatModel):
+        """首段后暂停的本地模型；事件作为测试依赖传入，不访问真实服务。"""
+
+        entered: Any
+        cleaned: Any
+
+        async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
+            """先发半段再阻塞，取消时标记模型资源清理已完成。"""
+            try:
+                yield ChatGenerationChunk(message=AIMessageChunk(content="半段", id="partial"))
+                self.entered.set()
+                await asyncio.Event().wait()
+            finally:
+                await asyncio.sleep(0)
+                self.cleaned.set()
+
+    async def scenario():
+        """等待用户消息落库并进入生成，取消后读取实际 checkpoint 核验记录。"""
+        entered, cleaned = asyncio.Event(), asyncio.Event()
+        graph = build_agent(PausedModel(entered=entered, cleaned=cleaned), [], InMemorySaver())
+        agent = ChatAgent(graph)
+        task = asyncio.create_task(agent.achat("保存用户问题", "a"))
+        await entered.wait()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        state = await graph.aget_state({"configurable": {"thread_id": "a"}})
+        assert [message.content for message in state.values["messages"]] == ["保存用户问题"]
+        assert cleaned.is_set() and agent._locks == {}
+    asyncio.run(asyncio.wait_for(scenario(), 5))
+
+
+def test_duration_includes_async_lock_queue(monkeypatch, caplog):
+    """使用可控时钟推进排队时间，验证成功日志包含等待同会话锁的耗时。"""
     module = importlib.import_module("app.agents.agent")
     clock = [10.0]
-    monkeypatch.setattr(module, "perf_counter", lambda: clock[0])
 
-    class QueuedLock:
-        def __enter__(self):
-            """模拟获取锁前等待两秒，推进由测试控制的时钟。"""
+    def now():
+        """返回测试推进的时间，避免真实等待造成不稳定耗时断言。"""
+        return clock[0]
+
+    monkeypatch.setattr(module, "perf_counter", now)
+
+    async def scenario():
+        """占有会话锁，待请求进入排队后推进两秒再释放。"""
+        agent = ChatAgent(GraphStub("ok"))
+        async with agent._conversation("a"):
+            pending = asyncio.create_task(agent.achat("hello", "a"))
+            while agent._locks["a"].users != 2:
+                await asyncio.sleep(0)
             clock[0] += 2
-
-        def __exit__(self, *args):
-            """提供无副作用的退出钩子，使锁替身可用于 with 语句。"""
-            pass
-
-    agent = ChatAgent(Mock(invoke=Mock(return_value={"messages": [AIMessage(content="ok")]})))
-    agent._lock = QueuedLock()
+        await pending
     with caplog.at_level(logging.INFO, logger=module.__name__):
-        agent.chat("hello", "thread")
+        asyncio.run(asyncio.wait_for(scenario(), 5))
     assert caplog.records[-1].duration_ms == 2000
 
 
-@pytest.mark.parametrize("error", [
-    BusinessError(error_code=ErrorCode.BUSINESS_ERROR),
-    ServiceError(error_code=ErrorCode.INTERNAL_ERROR),
-])
-def test_explicit_application_error_is_preserved_and_logged_once(error, caplog):
-    """验证已知业务或系统异常保持原对象，且只记录一次正确级别的日志。"""
-    graph = Mock()
-    graph.invoke.side_effect = error
-    with caplog.at_level(logging.WARNING), pytest.raises(type(error)) as caught:
-        ChatAgent(graph).chat("private-message", "business-thread")
-    assert caught.value is error
-    assert error.logged
-    assert len(caplog.records) == 1
-    record = caplog.records[0]
-    assert record.thread_id == "business-thread"
-    assert record.duration_ms >= 0
-    assert record.levelno == (logging.WARNING if isinstance(error, BusinessError) else logging.ERROR)
-    assert bool(record.exc_info) is isinstance(error, ServiceError)
+@pytest.mark.parametrize("failure", [None, RuntimeError("provider failed"), BusinessError(), ServiceError()])
+def test_logs_duration_error_classification_and_recovery(monkeypatch, caplog, failure):
+    """验证成功及各类失败只记录一次耗时日志，保留异常链，失败后可再次调用。"""
+    module = importlib.import_module("app.agents.agent")
+    monkeypatch.setattr(module, "perf_counter", Mock(side_effect=[10.0, 10.25, 11.0, 11.5]))
+    graph = GraphStub("private-reply")
+    graph.failure = failure
+    agent = ChatAgent(graph)
+
+    async def scenario():
+        """检查异常原对象或异常链，并在失败路径再次使用相同会话。"""
+        if failure:
+            with pytest.raises((BusinessError, ServiceError)) as caught:
+                await agent.achat("private-message", "a")
+            if isinstance(failure, (BusinessError, ServiceError)):
+                assert caught.value is failure
+            else:
+                assert caught.value.__cause__ is failure
+        else:
+            assert await agent.achat("private-message", "a") == "private-reply"
+        assert agent._locks == {}
+
+    with caplog.at_level(logging.INFO, logger=module.__name__):
+        asyncio.run(scenario())
+    records = [record for record in caplog.records if record.name == module.__name__]
+    assert len(records) == 1 and records[0].duration_ms == 250
+    expected = logging.INFO if failure is None else logging.WARNING if isinstance(failure, BusinessError) else logging.ERROR
+    assert records[0].levelno == expected
+    assert bool(records[0].exc_info) is (expected == logging.ERROR)
+    assert "private-message" not in caplog.text and "private-reply" not in caplog.text
+    graph.failure = None
+    assert asyncio.run(agent.achat("again", "a")) == "private-reply"

@@ -3,7 +3,8 @@
 临时环境文件和保存器替身代替真实凭据、数据库连接及迁移。
 """
 
-from contextlib import contextmanager
+import asyncio
+from contextlib import asynccontextmanager
 from dataclasses import replace
 
 import pytest
@@ -121,7 +122,9 @@ def test_checkpointer_initializes_and_closes_even_on_failure(
     events = []
 
     class Saver:
-        def setup(self):
+        """仅模拟异步 setup 的保存器，用于观察迁移异常及上下文清理顺序。"""
+
+        async def setup(self):
             """记录初始化事件，并根据测试参数模拟迁移失败。"""
             events.append("setup")
             if failure == "setup":
@@ -129,8 +132,8 @@ def test_checkpointer_initializes_and_closes_even_on_failure(
 
     saver = Saver()
 
-    @contextmanager
-    def connection(conninfo):
+    @asynccontextmanager
+    async def connection(conninfo):
         """检查连接参数，提供保存器替身，并保证 finally 记录关闭事件。"""
         assert conninfo_to_dict(conninfo)["dbname"] == "zhizhou"
         events.append("open")
@@ -139,11 +142,11 @@ def test_checkpointer_initializes_and_closes_even_on_failure(
         finally:
             events.append("close")
 
-    monkeypatch.setattr(checkpoint.PostgresSaver, "from_conn_string", connection)
+    monkeypatch.setattr(checkpoint.AsyncPostgresSaver, "from_conn_string", connection)
 
-    def use_connection():
+    async def use_connection():
         """执行受测资源上下文，并按参数模拟业务使用期间的异常。"""
-        with open_checkpointer(settings) as actual:
+        async with open_checkpointer(settings) as actual:
             assert actual is saver
             events.append("body")
             if failure == "body":
@@ -151,9 +154,9 @@ def test_checkpointer_initializes_and_closes_even_on_failure(
 
     if failure:
         with pytest.raises(RuntimeError, match=f"{failure} failed"):
-            use_connection()
+            asyncio.run(use_connection())
     else:
-        use_connection()
+        asyncio.run(use_connection())
     assert events == (["open", "setup", "close"] if failure == "setup" else [
         "open", "setup", "body", "close"
     ])

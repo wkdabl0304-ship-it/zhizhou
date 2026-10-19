@@ -1,6 +1,6 @@
 # 知舟后端
 
-使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现最小 FastAPI 聊天接口和可独立运行的智能体示例，通过 LangChain 调用 DeepSeek 的 `deepseek-flash` 模型，并使用 PostgreSQL 保存对话状态。天气工具返回固定演示内容，不连接真实天气服务。
+使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现异步 SSE FastAPI 聊天接口和可独立运行的智能体示例，通过 LangChain 调用 DeepSeek 的 `deepseek-flash` 模型，并使用 PostgreSQL 保存对话状态。天气工具返回固定演示内容，不连接真实天气服务。
 
 项目定位和功能规划见[根 README](../README.md)。
 
@@ -37,7 +37,7 @@ docker compose -f docker-compose-dev.yml up -d postgres
 
 以上配置项均必填且不能仅包含空白；端口必须为 1–65535 之间的整数。当前数据库主机为 `127.0.0.1`，模型地址为 `https://api.deepseek.com`；默认值定义在 `app/config/settings.py`。
 
-配置无效或数据库无法连接时，服务启动失败。服务启动时创建或迁移 checkpoint 表，复用已有对话记录，关闭时释放数据库连接。数据库密码等连接参数由 psycopg 转义，支持特殊字符。
+配置无效或数据库无法连接时，服务启动失败。服务通过 `AsyncPostgresSaver` 异步连接和初始化 checkpoint 表，复用既有表与对话记录，关闭时等待连接释放。数据库密码等连接参数由 psycopg 转义，支持特殊字符。
 
 ## 启动与聊天接口
 
@@ -54,7 +54,15 @@ uv run python -m app --reload
 uv run python -m app --reload --host 0.0.0.0 --port 8080
 ```
 
-`--reload` 仅用于开发。原命令 `uv run uvicorn app.main:app --reload` 仍可使用，日志会在应用生命周期开始时统一；该兼容方式最早几条 Uvicorn 日志仍使用默认样式。
+`--reload` 仅用于开发。统一入口通过可导入的事件循环工厂启动服务，Windows 普通启动和 reload 子进程均使用 psycopg 支持的 `SelectorEventLoop`，不修改全局事件循环 policy。
+
+直接调用 Uvicorn 时，使用相同工厂，尤其不要在 Windows 普通启动时使用默认的 Proactor 循环：
+
+```powershell
+uv run uvicorn app.main:app --loop app.config.event_loop:create_event_loop --reload
+```
+
+此方式的日志在应用生命周期开始时统一，最早几条 Uvicorn 日志仍使用默认样式。
 
 打开 [Swagger UI](http://127.0.0.1:8000/docs)，在“聊天”分组调用 `POST /api/chat`。请求示例：
 
@@ -65,22 +73,42 @@ uv run python -m app --reload --host 0.0.0.0 --port 8080
 }
 ```
 
-成功响应使用统一格式，`data` 包含最终助手回复和原对话标识：
+接口直接返回 SSE，HTTP `200`，`Content-Type: text/event-stream`，并设置 `Cache-Control: no-cache`、`X-Accel-Buffering: no`。每个事件由 `event:`、一行 JSON `data:` 和空行组成，JSON 中的换行会转义。例如：
 
-```json
-{
-  "code": 0,
-  "message": "成功",
-  "data": {
-    "reply": "模型回复文本",
-    "thread_id": "conversation-001"
-  }
-}
+```text
+event: start
+data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001"}}
+
+event: delta
+data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","message_id":"reply-1","text":"你好"}}
+
+event: done
+data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","reply":"你好","message_id":"reply-1"}}
+
 ```
 
-请求中的 `message` 和 `thread_id` 均为必填字符串，空字符串、仅包含空白的字段或非法 JSON 返回 HTTP `422` 和统一错误响应。相同 `thread_id` 继续已有对话，不同标识隔离历史；服务重启后仍可继续持久化的对话。Agent 系统失败返回 HTTP `500`，具体异常记录在服务端。
+| 事件 | data 字段 | 含义 |
+| --- | --- | --- |
+| `start` | `thread_id` | 请求已接受，可能仍在等待会话锁 |
+| `delta` | `thread_id / message_id / text` | 当前助手消息的一段可见文本 |
+| `done` | `thread_id / message_id / reply` | 最终助手完整回复，图执行与 checkpoint 写入已完成 |
+| `error` | `null` | 非零错误码和安全解释，本轮失败结束 |
 
-接口为非流式同步调用，FastAPI 在线程池中执行。当前 MVP 通过进程内锁串行执行完整 Agent 调用（不同对话也会排队），请使用单进程运行。尚未提供用户认证、对话所有权校验或生产并发方案；对话标识仅用于区分历史记录。
+`delta` 按 `message_id` 分组，可能包含工具调用前的助手说明；`done.reply` 是最终权威回答，不能简单把所有消息的增量拼成最终回答。不向客户端输出思考、工具参数、工具原始结果或历史消息。图通过原生 `astream` 边生成边输出，并非完整生成后切片。成功事件 `code=0`，正常结束只发送一个 `done` 或 `error`；客户端断开时不保证终止事件。若传输提前结束但未收到终止事件，应视为未确认完成。
+
+请求中的 `message` 和 `thread_id` 均为必填字符串，空字符串、仅包含空白的字段或非法 JSON 返回 HTTP `422` 和统一 JSON 错误响应。路由或依赖在流建立前发生的框架错误也继续使用 JSON。SSE 开始后，模型、工具或 checkpoint 失败通过 `error` 报告，HTTP 状态保持 `200`，不再转为 JSON 或 HTTP `500`：
+
+```text
+event: error
+data: {"code":50001,"message":"对话执行失败，请稍后重试","data":null}
+
+```
+
+相同 `thread_id` 继续已有对话，不同标识隔离历史；重启服务后仍可继续持久化的对话。每个会话使用异步锁串行执行完整轮次（包括持久化和清理），不同会话可并发生成；持有者及等待者全部退出后回收锁条目。锁仅在当前进程、当前 Agent 实例内有效，仍请使用单进程运行。尚未提供认证、对话所有权校验或跨进程调度。
+
+客户端断开会取消排队或生成中的任务，等待底层流清理并释放会话锁。取消不记录为聊天失败，不回滚已经写入的 checkpoint。通常用户消息已保存，但正在生成的半段助手回复尚未构成完整模型步骤，不保证保存；若模型已经完成落库、仅传输尚未结束，完整回复可能已经保存。本次没有额外消息表、“已中断”消息状态、自动重试、事件重放或断点续传。
+
+浏览器调用方需要使用 `fetch` 的响应流解析 SSE（接口为 POST，不能直接使用只接受 GET 的原生 `EventSource`）。代理部署时需关闭 SSE 缓冲。仓库现有前端仍按一次性 JSON 解析响应，**尚未适配该协议，当前无法正常展示聊天回复**；前端代码未在本次改造中修改，后续接入边界见[前端说明](../frontend/README.md#页面与聊天边界)。Swagger 提供事件样例，增量验收应使用支持流式读取的客户端。
 
 ## 分级 API 路由
 
@@ -148,7 +176,7 @@ raise BusinessError(ErrorCode.BUSINESS_ERROR)
 
 业务异常记录 `WARNING`，不输出堆栈；已知系统异常记录 `ERROR` 和堆栈。应用异常携带内部“已记录”标识，避免跨层重复记录。未知异常由全局处理器返回安全响应，Starlette 重抛后由 Uvicorn 记录原始堆栈。应用启动失败仍终止启动，不转换为业务响应。
 
-该约定用于普通 JSON 业务接口；`/docs`、`/openapi.json`、文件下载和未来流式接口保持各自协议，不通过中间件读取并重写响应体。接口文档展示统一模型，并提供 HTTP `200` 下成功和业务失败的示例。
+该约定用于普通 JSON 业务接口；`/docs`、`/openapi.json`、文件下载和 SSE 聊天保持各自协议，不通过中间件读取并重写响应体。接口文档展示统一模型，并提供 HTTP `200` 下成功和业务失败的示例。
 
 ## 命令行智能体示例
 
@@ -160,7 +188,7 @@ uv run python -m app.agents
 
 编辑 `app/agents/__main__.py` 中的 `MESSAGE` 和 `THREAD_ID` 后即可运行并打印回复。当前默认使用 `conversation-002` 和“刚刚说什么了”；重复运行沿用同一段对话状态，也可与 HTTP 接口共用对话记录。原命令 `uv run python -m app.agents.agent` 仍可使用。
 
-命令行和 HTTP 共用配置、数据库管理和 Agent 实现。命令行成功时输出纯文本回复，预期的业务或系统失败以退出码 `1` 结束，已记录的异常不会再次由解释器打印堆栈。导入模块不会加载配置、连接数据库或发起模型调用。
+命令行和 HTTP 共用配置、异步数据库管理和 Agent 实现；命令行用同一个异步流聚合最终文本，不额外执行模型。命令行通过 Runner 和同一循环工厂运行，Windows 也使用 Selector 循环。命令行成功时输出纯文本回复，预期的业务或系统失败以退出码 `1` 结束，已记录的异常不会再次由解释器打印堆栈。导入模块不会加载配置、连接数据库或发起模型调用。
 
 ## 统一日志
 
@@ -204,22 +232,24 @@ uv run pytest -q
 
 默认测试使用模型及数据库替身和内存 checkpoint，无需真实密钥或 PostgreSQL。覆盖配置校验与优先级、特殊字符连接参数、资源释放、接口校验与错误响应、导入无外部副作用，以及真实 LangChain 图的多轮对话、记录隔离和天气工具调用。日志测试额外覆盖级别、访问日志开关、重复初始化、Uvicorn 子进程配置、启动参数以及对话日志的耗时与异常；全局日志配置在独立子进程中验证，保留其他测试的日志捕获能力。
 
-路由测试验证 `/api/chat` 的请求与响应、旧路径 `404`、错误方法 `405` 及 `Allow` 头、Agent 实例复用、依赖覆盖和 OpenAPI 路径、分组与响应示例。
+路由测试验证 `/api/chat` 的 SSE 事件、响应头、校验及流内错误、旧路径 `404`、错误方法 `405` 及 `Allow` 头、实例复用、依赖覆盖和 OpenAPI 示例。Agent 测试用可控异步事件验证首段先于完成、同会话 FIFO、跨会话并发、取消与异常后恢复、锁回收、最终落库边界，以及真实图取消时保留用户输入但不保存半段助手回复。
 
 错误处理测试覆盖码值唯一性、业务码类型与范围、成功数据类型、业务失败 HTTP `200`、参数与协议错误、响应头保留、未知异常与响应模型校验失败，以及 CLI 退出码和异常日志不重复。另用短暂启动的本地 Uvicorn 服务验证兜底响应和实际堆栈输出，测试完成即关闭服务；该测试也不依赖模型或数据库。
 
-真实服务验证可通过 `/docs` 依次测试：同一 `thread_id` 告知姓名并追问姓名、更换标识确认无之前的历史、重启服务后使用原标识继续对话。测试模型的实际回复不应作为固定文本断言。
+SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP 客户端验证首段增量在生成完成前到达、流中失败和客户端断开取消；完成后关闭客户端、服务器与套接字。模拟 ASGI 2.0/2.4 覆盖排队、模型等待、发送失败和服务器取消时的异步清理；普通启动及 reload 配置均核对事件循环工厂。
+
+真实模型验收使用可逐事件读取 SSE 的客户端依次测试：同一 `thread_id` 告知姓名并追问姓名、更换标识确认无之前的历史、重启服务后使用原标识继续对话。测试模型的实际回复不应作为固定文本断言。
 
 ## 目录职责
 
 - `app/__main__.py`：统一 Web 启动入口，处理地址、端口、reload 参数并向 Uvicorn 传递日志配置。
 - `app/main.py`：FastAPI 应用、启动/退出资源管理、全局异常处理器注册和 API 总路由挂载。
 - `app/agents/`：Agent 专属实现；`models.py` 创建模型，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
-- `app/config/`：通用配置加载与校验，以及标准 logging 集中配置。
+- `app/config/`：通用配置加载与校验、标准 logging 集中配置，以及供 Web/CLI 使用的事件循环工厂。
 - `app/db/`：数据库资源管理，当前包含 PostgreSQL checkpoint 连接和初始化。
 - `app/errors/`：错误码与默认解释、应用异常类型和异常日志责任。
 - `app/schemas/`：聊天请求、聊天数据模型及通用响应模型和构建函数。
-- `app/api/`：API 总路由、公共请求依赖、按业务划分的子路由，以及统一异常处理器和错误响应文档；结构与扩展步骤见[分级 API 路由](#分级-api-路由)。
+- `app/api/`：API 总路由、公共请求依赖、按业务划分的子路由、SSE 编码与断开清理，以及统一异常处理器和错误响应文档；结构与扩展步骤见[分级 API 路由](#分级-api-路由)。
 - `app/models/`、`app/repositories/`、`app/services/`、`app/utils/`：分别预留给业务数据库模型、数据访问、业务服务和通用辅助函数，当前仍为包占位。
 - `tests/`：配置、数据库生命周期、Agent 和聊天接口测试。
 

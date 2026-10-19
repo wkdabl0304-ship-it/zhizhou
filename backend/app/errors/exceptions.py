@@ -26,7 +26,7 @@ class AppError(Exception):
 
 
 class BusinessError(AppError):
-    """可预期业务失败，HTTP 边界返回 200，客户端通过非零 code 判断。"""
+    """可预期业务失败，JSON 或 SSE 边界返回非零业务码，HTTP 状态为 200。"""
 
     def __init__(self, error_code: ErrorCode = ErrorCode.BUSINESS_ERROR) -> None:
         """接收业务目录成员；码值不在 20000–29999 范围时抛出 ValueError。"""
@@ -36,7 +36,7 @@ class BusinessError(AppError):
 
 
 class ServiceError(AppError):
-    """可预期系统失败，由 HTTP 边界转换为安全的 500 响应。"""
+    """可预期系统失败；JSON 边界返回 500，已建立的 SSE 通过 error 事件报告。"""
 
     def __init__(self, error_code: ErrorCode = ErrorCode.INTERNAL_ERROR) -> None:
         """接收系统目录成员；成功码、业务码或请求错误码均不允许使用。"""
