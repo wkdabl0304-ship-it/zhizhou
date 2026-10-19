@@ -1,4 +1,4 @@
-<!-- 消息展示：按文本块渲染段落、列表和代码，不执行 HTML；支持真实请求及预览的等待和失败状态。 -->
+<!-- 消息展示：助手正文解析 Markdown，用户正文保持纯文本；兼容流式状态和预览结构化块。 -->
 <script setup lang="ts">
 import { ref } from 'vue'
 import { Check, Copy, TriangleAlert } from '@lucide/vue'
@@ -6,11 +6,12 @@ import type { ChatMessage } from '@/types/chat'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiTooltip from '@/components/ui/UiTooltip.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
+import MarkdownContent from './MarkdownContent.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
 
-/** 将结构化消息转换为纯文本后复制；权限拒绝或不安全上下文给出可见提示。 */
+/** 复制原始消息文本（助手保留 Markdown 标记）；权限拒绝时给出可见提示。 */
 async function copy(): Promise<void> {
   const text = props.message.blocks
     .map((block) =>
@@ -39,7 +40,11 @@ async function copy(): Promise<void> {
     <!-- 失败时保留已接收的部分回复，并在正文下方明确提示未完成。 -->
     <div v-if="message.blocks.length" class="message-body">
       <template v-for="(block, index) in message.blocks" :key="index">
-        <p v-if="block.type === 'paragraph'">{{ block.text }}</p>
+        <MarkdownContent
+          v-if="block.type === 'paragraph' && message.role === 'assistant'"
+          :source="block.text"
+        />
+        <p v-else-if="block.type === 'paragraph'">{{ block.text }}</p>
         <ul v-else-if="block.type === 'list'">
           <li v-for="(item, itemIndex) in block.items" :key="itemIndex">{{ item }}</li>
         </ul>
@@ -86,7 +91,7 @@ async function copy(): Promise<void> {
 </template>
 
 <style scoped>
-/* 消息只渲染文本节点，超长链接允许折行；代码区单独横向滚动，不撑宽页面。 */
+/* 外壳只负责消息布局；助手 Markdown 的排版与高亮由独立组件管理。 */
 .message {
   min-width: 0;
   margin-bottom: 36px;
@@ -103,7 +108,11 @@ async function copy(): Promise<void> {
   background: var(--surface-soft);
 }
 .message-body {
+  min-width: 0;
   overflow-wrap: anywhere;
+}
+.message-body > .markdown-content + .markdown-content {
+  margin-top: 17px;
 }
 .message-body p {
   margin: 0 0 17px;

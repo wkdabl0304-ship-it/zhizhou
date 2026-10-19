@@ -23,7 +23,7 @@
 
 ## 技术方案
 
-- **前端**：Vue 3、TypeScript 与 Vite，使用 Reka UI 构建交互基础和自定义样式；当前通过 POST SSE 逐段展示聊天回复，并处理流中断；文件操作界面为后续规划。
+- **前端**：Vue 3、TypeScript 与 Vite，使用 Reka UI 构建交互基础和自定义样式；当前通过 POST SSE 逐段展示聊天回复，支持 Markdown 富文本、代码高亮与复制，并处理流中断；详细展示能力见[前端说明](frontend/README.md#页面与聊天边界)，文件操作界面为后续规划。
 - **后端**：Python 与 FastAPI，已实现异步 SSE 聊天和 PostgreSQL checkpoint，支持同会话串行、不同会话并发；文件处理、知识检索与权限管理为后续规划。
 - **部署**：Docker Compose，在服务器上容器化部署工作环境和知识库相关服务。
 

@@ -45,6 +45,43 @@ const longMessage: ChatMessage = {
   ],
 }
 
+// 用真实 Markdown 展示助手回复排版，供明暗主题和窄屏下人工检查，不调用模型。
+const richMessage: ChatMessage = {
+  id: 'markdown',
+  role: 'assistant',
+  demo: true,
+  blocks: [
+    {
+      type: 'paragraph',
+      text: [
+        '## 把想法变成行动',
+        '',
+        '**先明确目标**，再把任务拆成*可验证的小步骤*。',
+        '',
+        '> 清晰的下一步，比一份冗长的计划更容易开始。',
+        '',
+        '1. 确认本周目标',
+        '2. 安排一次简短同步',
+        '   - 记录风险',
+        '   - 约定负责人',
+        '',
+        '| 任务 | 负责人 | 状态 |',
+        '| --- | --- | --- |',
+        '| 整理需求 | 项目团队 | **进行中** |',
+        '',
+        '使用 `thread_id` 关联对话。代码块支持独立复制：',
+        '',
+        '```python',
+        'def greet(name):',
+        '    return f"你好，{name}"',
+        '```',
+        '',
+        '[查看 Markdown 语法](https://commonmark.org/help/)',
+      ].join('\n'),
+    },
+  ],
+}
+
 /** 记录输入结果作为可见反馈，原型不请求后端或外部模型。 */
 function record(text: string): void {
   submitted.value = text
@@ -115,6 +152,10 @@ function record(text: string): void {
       <MessageItem
         :message="{ id: 'pending', role: 'assistant', status: 'pending', blocks: [] }"
       /><MessageItem :message="{ id: 'error', role: 'assistant', status: 'error', blocks: [] }" />
+    </section>
+    <section>
+      <h2>Markdown 富文本回复</h2>
+      <MessageItem :message="richMessage" />
     </section>
     <section>
       <h2>长文本、列表与代码</h2>

@@ -122,10 +122,11 @@ describe('聊天工作空间', () => {
     }
     stream.push(
       eventFrame('start', { thread_id }) +
-        eventFrame('delta', { thread_id, message_id: 'reply-1', text: '首段已经显示' }),
+        eventFrame('delta', { thread_id, message_id: 'reply-1', text: '**首段已经显示**' }),
     )
     await flushPromises()
     expect(wrapper.text()).toContain('首段已经显示')
+    expect(wrapper.get('.markdown-content strong').text()).toBe('首段已经显示')
     expect(wrapper.get('[role="status"]').text()).toContain('正在回复')
     expect(wrapper.find('[aria-label="复制回复"]').exists()).toBe(false)
     await wrapper.get('textarea').setValue('保留下一条草稿')

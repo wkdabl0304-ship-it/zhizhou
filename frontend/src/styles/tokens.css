@@ -18,6 +18,11 @@
   --brand-hover: #116b7e;
   --brand-soft: #d8e9e9;
   --brand-contrast: #ffffff;
+  /* 代码高亮使用主题语义变量，不随第三方高亮样式切换页面背景。 */
+  --syntax-keyword: #3155a1;
+  --syntax-string: #24694c;
+  --syntax-number: #965413;
+  --syntax-comment: #526c75;
   --action: #167c91;
   --action-contrast: #ffffff;
   --danger: #b43f36;
@@ -66,6 +71,10 @@
   --brand-hover: #9ae1e3;
   --brand-soft: #203f4b;
   --brand-contrast: #10232d;
+  --syntax-keyword: #a6beff;
+  --syntax-string: #99d6b2;
+  --syntax-number: #efc48b;
+  --syntax-comment: #9bb8c2;
   --action: #79d0d4;
   --action-contrast: #10232d;
   --danger: #ffaaa0;

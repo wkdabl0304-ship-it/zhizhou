@@ -1,4 +1,4 @@
-/** 消息安全与复制回归：验证文本块不会被当作 HTML，并隔离浏览器剪贴板替身。 */
+/** 消息富文本与复制回归：区分助手 Markdown 和用户纯文本，并隔离浏览器剪贴板替身。 */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { defineComponent } from 'vue'
@@ -27,7 +27,7 @@ afterEach(() => {
 })
 
 describe('消息展示', () => {
-  // 用户与模型文本一律插值渲染，代码中的标签也不创建元素。
+  // 模型的原始 HTML 不作为网页执行，结构化预览代码中的标签也不创建元素。
   it('段落、列表和代码安全呈现为文本', () => {
     const wrapper = renderMessage({
       id: 'safe',
@@ -42,6 +42,26 @@ describe('消息展示', () => {
     expect(wrapper.find('iframe').exists()).toBe(false)
     expect(wrapper.find('b').exists()).toBe(false)
     expect(wrapper.get('code').text()).toContain('<iframe')
+  })
+
+  // 同一段 Markdown 在助手回复中排版，用户消息保持原始输入；整条回复复制保留 Markdown。
+  it('助手支持 Markdown，用户保留纯文本，整条回复复制保留源文', async () => {
+    const text = '**重要结论**\n\n- 第一步\n- 第二步'
+    const assistant = renderMessage({
+      id: 'rich',
+      role: 'assistant',
+      blocks: [{ type: 'paragraph', text }],
+    })
+    const user = renderMessage({ id: 'user', role: 'user', blocks: [{ type: 'paragraph', text }] })
+    expect(assistant.get('strong').text()).toBe('重要结论')
+    expect(assistant.findAll('ul li')).toHaveLength(2)
+    expect(user.find('strong').exists()).toBe(false)
+    expect(user.text()).toContain('**重要结论**')
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue()
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    await assistant.get('[aria-label="复制回复"]').trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith(text)
   })
 
   // 模拟剪贴板拒绝权限，必须给出可见降级提示而非未处理异常。
