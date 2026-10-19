@@ -137,4 +137,64 @@ describe('聊天工作空间', () => {
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('保留下一条草稿')
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
   })
+
+  // 贯通 SSE → store → 过程卡片：工具失败后仍等待最终回答，复制最终正文不包含思考或工具输出。
+  it('实时展示思考和命令过程，局部失败后继续展示 Markdown 回答', async () => {
+    const stream = controlledStream()
+    fetchMock.mockResolvedValueOnce(stream.response)
+    const wrapper = renderWorkspace()
+    await wrapper.get('textarea').setValue('执行测试任务')
+    await wrapper.get('form').trigger('submit')
+    const { thread_id } = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as {
+      thread_id: string
+    }
+    stream.push(
+      eventFrame('start', { thread_id }) +
+        eventFrame('reasoning_delta', {
+          thread_id,
+          message_id: 'plan',
+          text: '模型实际提供的思考文本',
+        }),
+    )
+    await flushPromises()
+    expect(wrapper.get('[aria-label="思考与执行过程"]').text()).toContain('模型实际提供的思考文本')
+    expect(wrapper.get('[role="status"]').text()).toContain('正在思考')
+    stream.push(
+      eventFrame('tool_start', {
+        thread_id,
+        tool_call_id: 'cmd',
+        run_id: 'run',
+        name: 'runner',
+        kind: 'command',
+        arguments: 'pwd',
+      }),
+    )
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toContain('正在执行命令')
+    expect(wrapper.get('[aria-label="思考与执行过程"]').text()).toContain('命令执行')
+    stream.push(
+      eventFrame('tool_error', {
+        thread_id,
+        tool_call_id: 'cmd',
+        run_id: 'run',
+        name: 'runner',
+        kind: 'command',
+        message: '工具执行失败',
+      }),
+    )
+    await flushPromises()
+    expect(wrapper.find('.message-error').exists()).toBe(false)
+    await wrapper.get('textarea').setValue('下一条草稿')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    stream.push(eventFrame('done', { thread_id, message_id: 'reply', reply: '**最终回答**' }))
+    await flushPromises()
+    expect(wrapper.get('.markdown-content strong').text()).toBe('最终回答')
+    expect(wrapper.get('[aria-label="思考与执行过程"]').text()).toContain('工具执行失败')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue()
+    vi.stubGlobal('navigator', { clipboard: { writeText } })
+    await wrapper.get('[aria-label="复制回复"]').trigger('click')
+    await flushPromises()
+    expect(writeText).toHaveBeenCalledWith('**最终回答**')
+  })
 })

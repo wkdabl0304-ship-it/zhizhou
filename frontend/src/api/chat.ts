@@ -1,10 +1,95 @@
 /** 聊天 SSE 适配：通过 POST fetch 逐事件读取响应，校验会话、事件顺序及终止状态。 */
 
-/** 已校验的成功事件；error 事件转为异常，调用方不需要自行检查业务码。 */
-export type ChatStreamEvent =
-  | { type: 'start'; threadId: string }
-  | { type: 'delta'; messageId: string; text: string }
-  | { type: 'done'; messageId: string; reply: string }
+import type { ChatStreamEvent, JsonValue, ToolKind } from '@/types/chat-events'
+export type { ChatStreamEvent } from '@/types/chat-events'
+
+/** 校验公开 JSON 数据，拒绝数组以外的非 JSON 值及非有限数值。 */
+function isJsonValue(value: unknown): value is JsonValue {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
+  if (typeof value === 'number') return Number.isFinite(value)
+  if (Array.isArray(value)) return value.every(isJsonValue)
+  return typeof value === 'object' && Object.values(value).every(isJsonValue)
+}
+
+/** 读取协议中的非空标识或名称，避免错误数据进入过程关联逻辑。 */
+function requiredString(data: Record<string, unknown>, key: string): string {
+  const value = data[key]
+  if (typeof value !== 'string' || !value.trim()) throw new Error(`聊天事件 ${key} 无效`)
+  return value
+}
+
+/** 工具执行类型只接受后端明确声明的 tool/command，不进行名称推断。 */
+function toolKind(data: Record<string, unknown>): ToolKind {
+  if (data.kind !== 'tool' && data.kind !== 'command') throw new Error('聊天工具类型无效')
+  return data.kind
+}
+
+/** 校验并转换除 start 外的事件；工具执行事件不要求不存在的 message_id 字段。 */
+function decodeEvent(
+  type: string,
+  data: Record<string, unknown>,
+): Exclude<ChatStreamEvent, { type: 'start' }> {
+  if (type === 'delta' || type === 'reasoning_delta') {
+    if (typeof data.text !== 'string') throw new Error('聊天文本增量无效')
+    return { type, messageId: requiredString(data, 'message_id'), text: data.text }
+  }
+  if (type === 'done')
+    return {
+      type,
+      messageId: requiredString(data, 'message_id'),
+      reply: requiredString(data, 'reply'),
+    }
+  const toolCallId = requiredString(data, 'tool_call_id')
+  const name = requiredString(data, 'name')
+  if (type === 'tool_call') {
+    if (
+      !isJsonValue(data.arguments) ||
+      !data.arguments ||
+      typeof data.arguments !== 'object' ||
+      Array.isArray(data.arguments)
+    )
+      throw new Error('聊天工具请求参数无效')
+    return {
+      type,
+      messageId: requiredString(data, 'message_id'),
+      toolCallId,
+      name,
+      arguments: data.arguments,
+    }
+  }
+  const kind = toolKind(data)
+  if (type === 'tool_start') {
+    if (
+      !isJsonValue(data.arguments) ||
+      data.arguments === null ||
+      (typeof data.arguments !== 'string' &&
+        (typeof data.arguments !== 'object' || Array.isArray(data.arguments)))
+    )
+      throw new Error('聊天工具执行参数无效')
+    return {
+      type,
+      toolCallId,
+      name,
+      kind,
+      runId: requiredString(data, 'run_id'),
+      arguments: data.arguments,
+    }
+  }
+  if (type === 'tool_end' && isJsonValue(data.output))
+    return {
+      type,
+      toolCallId,
+      name,
+      kind,
+      runId: requiredString(data, 'run_id'),
+      output: data.output,
+    }
+  if (type === 'tool_error') {
+    const runId = data.run_id === null ? null : requiredString(data, 'run_id')
+    return { type, toolCallId, name, kind, runId, message: requiredString(data, 'message') }
+  }
+  throw new Error('聊天事件类型或数据无效')
+}
 
 /** SSE 传输帧；data 保留原始文本，业务层再执行 JSON 及字段校验。 */
 interface EventFrame {
@@ -96,7 +181,13 @@ export async function* streamChatMessage(
       throw new Error('聊天事件格式无效')
     if (frame.event === 'error' || payload.code !== 0) throw new Error('聊天生成失败')
     const data = 'data' in payload ? payload.data : null
-    if (!data || typeof data !== 'object' || !('thread_id' in data) || data.thread_id !== threadId)
+    if (
+      !data ||
+      typeof data !== 'object' ||
+      Array.isArray(data) ||
+      !('thread_id' in data) ||
+      data.thread_id !== threadId
+    )
       throw new Error('聊天事件会话标识无效')
 
     if (frame.event === 'start') {
@@ -106,21 +197,9 @@ export async function* streamChatMessage(
       continue
     }
     if (!started) throw new Error('缺少聊天开始事件')
-    if (!('message_id' in data) || typeof data.message_id !== 'string' || !data.message_id.trim())
-      throw new Error('聊天消息标识无效')
-    if (frame.event === 'delta' && 'text' in data && typeof data.text === 'string') {
-      yield { type: 'delta', messageId: data.message_id, text: data.text }
-    } else if (
-      frame.event === 'done' &&
-      'reply' in data &&
-      typeof data.reply === 'string' &&
-      data.reply.trim()
-    ) {
-      yield { type: 'done', messageId: data.message_id, reply: data.reply }
-      return
-    } else {
-      throw new Error('聊天事件类型或数据无效')
-    }
+    const event = decodeEvent(frame.event, data)
+    yield event
+    if (event.type === 'done') return
   }
   throw new Error('聊天流在确认完成前中断')
 }

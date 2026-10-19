@@ -1,8 +1,9 @@
 /** 聊天状态：管理当前页面的临时会话与流式请求，不持久化或恢复会话标识和正文。 */
-import { computed, ref } from 'vue'
+import { computed, ref, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import { streamChatMessage } from '@/api/chat'
 import type { ChatMessage, Conversation } from '@/types/chat'
+import { finishActivities, updateActivity } from '@/utils/chatActivity'
 
 /** 生成随机会话标识；普通 HTTP 环境没有 randomUUID 时使用浏览器随机字节。 */
 function createThreadId(): string {
@@ -14,7 +15,8 @@ function createThreadId(): string {
 
 /** 每个应用实例建立独立内存状态；首次加载即预留随机 thread_id。 */
 export const useChatStore = defineStore('chat', () => {
-  const conversations = ref<Conversation[]>([])
+  // 明确 Ref 的公共类型，避免工具 JSON 的递归结构被类型系统反复做深层 UnwrapRef。
+  const conversations: Ref<Conversation[]> = ref([])
   const activeId = ref<string | null>(null)
   const newThreadId = ref(createThreadId())
   // 当前会话可能不存在；空值统一表示首页，避免展示其他会话的残留消息。
@@ -82,6 +84,8 @@ export const useChatStore = defineStore('chat', () => {
     const segments = new Map<string, string>()
     try {
       for await (const event of streamChatMessage(content, conversation.id)) {
+        updateActivity(assistant, event)
+        if (event.type !== 'start') assistant.status = 'streaming'
         if (event.type === 'delta') {
           segments.set(event.messageId, (segments.get(event.messageId) ?? '') + event.text)
           assistant.blocks = Array.from(segments.values(), (text) => ({ type: 'paragraph', text }))
@@ -89,10 +93,12 @@ export const useChatStore = defineStore('chat', () => {
         } else if (event.type === 'done') {
           assistant.blocks = [{ type: 'paragraph', text: event.reply }]
           assistant.status = 'complete'
+          finishActivities(assistant, true)
         }
       }
       return true
     } catch {
+      finishActivities(assistant, false)
       assistant.status = 'error'
       return false
     }

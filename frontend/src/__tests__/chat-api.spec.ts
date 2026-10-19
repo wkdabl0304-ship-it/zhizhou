@@ -142,4 +142,132 @@ describe('POST SSE 解析', () => {
     await expect(collect()).rejects.toThrow('聊天生成失败')
     expect(stream.isCancelled()).toBe(true)
   })
+
+  // 实际执行事件没有 message_id；工具局部失败使用 code=0，不得终止整轮事件消费。
+  it('消费思考、请求、命令执行与局部失败事件，直到最终回答', async () => {
+    fetchMock.mockResolvedValueOnce(
+      sseResponse(
+        [
+          eventFrame('start', { thread_id }),
+          eventFrame('reasoning_delta', { thread_id, message_id, text: '先读取工作目录。' }),
+          eventFrame('tool_call', {
+            thread_id,
+            message_id,
+            tool_call_id: 'call-1',
+            name: 'runner',
+            arguments: { command: 'pwd' },
+          }),
+          eventFrame('tool_start', {
+            thread_id,
+            tool_call_id: 'call-1',
+            run_id: 'run-1',
+            name: 'runner',
+            kind: 'command',
+            arguments: 'pwd',
+          }),
+          eventFrame('tool_error', {
+            thread_id,
+            tool_call_id: 'call-1',
+            run_id: 'run-1',
+            name: 'runner',
+            kind: 'command',
+            message: '执行失败，请稍后重试',
+          }),
+          eventFrame('tool_error', {
+            thread_id,
+            tool_call_id: 'rejected',
+            run_id: null,
+            name: 'unknown',
+            kind: 'tool',
+            message: '工具不可用',
+          }),
+          eventFrame('tool_end', {
+            thread_id,
+            tool_call_id: 'other',
+            run_id: 'run-2',
+            name: 'lookup',
+            kind: 'tool',
+            output: { value: null, ok: false, count: 0, items: [] },
+          }),
+          eventFrame('done', { thread_id, message_id, reply: '已整理现有信息。' }),
+        ].join(''),
+      ),
+    )
+    expect(await collect()).toEqual([
+      { type: 'start', threadId: thread_id },
+      { type: 'reasoning_delta', messageId: message_id, text: '先读取工作目录。' },
+      {
+        type: 'tool_call',
+        messageId: message_id,
+        toolCallId: 'call-1',
+        name: 'runner',
+        arguments: { command: 'pwd' },
+      },
+      {
+        type: 'tool_start',
+        toolCallId: 'call-1',
+        runId: 'run-1',
+        name: 'runner',
+        kind: 'command',
+        arguments: 'pwd',
+      },
+      {
+        type: 'tool_error',
+        toolCallId: 'call-1',
+        runId: 'run-1',
+        name: 'runner',
+        kind: 'command',
+        message: '执行失败，请稍后重试',
+      },
+      {
+        type: 'tool_error',
+        toolCallId: 'rejected',
+        runId: null,
+        name: 'unknown',
+        kind: 'tool',
+        message: '工具不可用',
+      },
+      {
+        type: 'tool_end',
+        toolCallId: 'other',
+        runId: 'run-2',
+        name: 'lookup',
+        kind: 'tool',
+        output: { value: null, ok: false, count: 0, items: [] },
+      },
+      { type: 'done', messageId: message_id, reply: '已整理现有信息。' },
+    ])
+  })
+
+  // 新事件也必须校验会话、调用标识及字段类型；协议损坏不能悄悄归并到其他卡片。
+  it.each([
+    ['reasoning_delta', { message_id, text: 123 }],
+    ['tool_call', { message_id, tool_call_id: 'id', name: 'lookup', arguments: [] }],
+    ['tool_start', { tool_call_id: 'id', name: 'lookup', kind: 'tool', run_id: '', arguments: {} }],
+    [
+      'tool_start',
+      { tool_call_id: 'id', name: 'lookup', kind: 'shell', run_id: 'run', arguments: {} },
+    ],
+    ['tool_end', { tool_call_id: 'id', name: 'lookup', kind: 'tool', run_id: 'run' }],
+    [
+      'tool_error',
+      { tool_call_id: 'id', name: 'lookup', kind: 'tool', run_id: null, message: 123 },
+    ],
+    [
+      'tool_start',
+      {
+        tool_call_id: 'id',
+        name: 'lookup',
+        kind: 'tool',
+        run_id: 'run',
+        arguments: {},
+        thread_id: 'wrong',
+      },
+    ],
+  ])('拒绝不合法的 %s 过程事件', async (type, data) => {
+    fetchMock.mockResolvedValueOnce(
+      sseResponse(eventFrame('start', { thread_id }) + eventFrame(type, { thread_id, ...data })),
+    )
+    await expect(collect()).rejects.toThrow(/聊天/)
+  })
 })

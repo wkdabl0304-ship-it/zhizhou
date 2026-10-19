@@ -82,6 +82,100 @@ const richMessage: ChatMessage = {
   ],
 }
 
+// 过程样例完全使用本地数据；命令卡片只演示协议 kind=command，不实际执行系统命令。
+const processMessage: ChatMessage = {
+  id: 'process',
+  role: 'assistant',
+  demo: true,
+  status: 'complete',
+  blocks: [
+    {
+      type: 'paragraph',
+      text: '**处理完成。** 以下保留本轮思考与工具执行记录，可展开查看参数和结果。',
+    },
+  ],
+  activities: [
+    {
+      type: 'reasoning',
+      id: 'reasoning-plan',
+      messageId: 'plan',
+      text: '需要先查询上海天气，再检查项目目录。这里是模型实际返回的思考文本的展示样例。',
+      status: 'complete',
+    },
+    {
+      type: 'tool',
+      id: 'weather',
+      toolCallId: 'weather',
+      name: 'get_weather',
+      kind: 'tool',
+      status: 'complete',
+      runs: [
+        {
+          runId: 'weather-run',
+          kind: 'tool',
+          status: 'complete',
+          arguments: { city: '上海' },
+          output: '上海今天晴天，温度 25°C',
+        },
+      ],
+    },
+    {
+      type: 'tool',
+      id: 'command',
+      toolCallId: 'command',
+      name: 'project_command',
+      kind: 'command',
+      status: 'complete',
+      runs: [
+        {
+          runId: 'command-run',
+          kind: 'command',
+          status: 'complete',
+          arguments: { command: 'pwd' },
+          output: '/workspace/zhizhou',
+        },
+      ],
+    },
+    {
+      type: 'tool',
+      id: 'rejected',
+      toolCallId: 'rejected',
+      name: 'unavailable_tool',
+      kind: 'tool',
+      status: 'error',
+      error: '工具不可用，请稍后重试',
+      runs: [],
+    },
+  ],
+}
+
+// 保持等待的样例用于验证动画、折叠交互与长参数滚动，不创建真实在途请求。
+const runningProcessMessage: ChatMessage = {
+  id: 'process-running',
+  role: 'assistant',
+  demo: true,
+  status: 'streaming',
+  blocks: [],
+  activities: [
+    {
+      type: 'tool',
+      id: 'running-command',
+      toolCallId: 'running-command',
+      name: 'project_command',
+      kind: 'command',
+      status: 'running',
+      runs: [
+        {
+          runId: 'running',
+          kind: 'command',
+          status: 'running',
+          arguments: { command: 'pnpm build' },
+        },
+      ],
+    },
+  ],
+}
+
 /** 记录输入结果作为可见反馈，原型不请求后端或外部模型。 */
 function record(text: string): void {
   submitted.value = text
@@ -156,6 +250,11 @@ function record(text: string): void {
     <section>
       <h2>Markdown 富文本回复</h2>
       <MessageItem :message="richMessage" />
+    </section>
+    <section>
+      <h2>思考、工具与命令过程</h2>
+      <MessageItem :message="processMessage" />
+      <MessageItem :message="runningProcessMessage" />
     </section>
     <section>
       <h2>长文本、列表与代码</h2>

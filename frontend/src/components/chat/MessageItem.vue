@@ -1,15 +1,29 @@
 <!-- 消息展示：助手正文解析 Markdown，用户正文保持纯文本；兼容流式状态和预览结构化块。 -->
 <script setup lang="ts">
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { Check, Copy, TriangleAlert } from '@lucide/vue'
 import type { ChatMessage } from '@/types/chat'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiTooltip from '@/components/ui/UiTooltip.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
 import MarkdownContent from './MarkdownContent.vue'
+import AgentActivity from './AgentActivity.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
+
+/** 过程事件和正文分别呈现，底部提示仅描述当前活动阶段，不将工具失败当作整轮失败。 */
+const progressLabel = computed(() => {
+  const activities = props.message.activities ?? []
+  const runningTool = activities.find((item) => item.type === 'tool' && item.status === 'running')
+  if (runningTool?.type === 'tool')
+    return runningTool.kind === 'command' ? '正在执行命令…' : '正在调用工具…'
+  if (activities.some((item) => item.type === 'reasoning' && item.status === 'running'))
+    return '正在思考…'
+  if (activities.some((item) => item.status === 'queued')) return '正在准备工具调用…'
+  if (props.message.blocks.length) return '正在回复…'
+  return activities.length ? '正在整理结果…' : '正在整理思路…'
+})
 
 /** 复制原始消息文本（助手保留 Markdown 标记）；权限拒绝时给出可见提示。 */
 async function copy(): Promise<void> {
@@ -37,6 +51,10 @@ async function copy(): Promise<void> {
       <BrandLogo :size="25" /><span>知舟</span
       ><span v-if="message.demo" class="demo-label">演示回复</span>
     </div>
+    <AgentActivity
+      v-if="message.role === 'assistant' && message.activities?.length"
+      :activities="message.activities"
+    />
     <!-- 失败时保留已接收的部分回复，并在正文下方明确提示未完成。 -->
     <div v-if="message.blocks.length" class="message-body">
       <template v-for="(block, index) in message.blocks" :key="index">
@@ -60,13 +78,15 @@ async function copy(): Promise<void> {
       role="status"
     >
       <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
-      {{ message.status === 'streaming' ? '正在回复…' : '正在整理思路…' }}
+      {{ progressLabel }}
     </div>
     <div v-if="message.status === 'error'" class="message-error" role="alert">
       <TriangleAlert :size="18" />
       <div>
-        {{ message.blocks.length ? '回复未完成' : '暂时无法获取回复' }}
-        <p>请稍后再试，你输入的内容{{ message.blocks.length ? '和已接收的回复' : '' }}仍然保留。</p>
+        {{
+          message.blocks.length || message.activities?.length ? '回复未完成' : '暂时无法获取回复'
+        }}
+        <p>请稍后再试，已接收的内容仍然保留。</p>
       </div>
     </div>
     <div
