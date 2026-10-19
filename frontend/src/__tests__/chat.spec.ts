@@ -2,15 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { useChatStore } from '@/stores/chat'
+import { controlledStream, eventFrame, sseResponse, success } from './helpers/chatStream'
 
 const fetchMock = vi.fn<typeof fetch>()
-
-/** 构造与真实统一响应一致的成功结果，回显请求所属的 thread_id。 */
-function success(threadId: string, reply = '后端真实格式的回复'): Response {
-  return new Response(
-    JSON.stringify({ code: 0, message: '成功', data: { reply, thread_id: threadId } }),
-  )
-}
 
 // 每个测试隔离 Pinia 和网络替身，不访问真实后端或共享可变状态。
 beforeEach(() => {
@@ -45,7 +39,7 @@ describe('后端聊天状态', () => {
     expect(id).toMatch(/^[a-f0-9-]{32,36}$/)
     expect(fetchMock).toHaveBeenLastCalledWith('/api/chat', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
       body: JSON.stringify({ message: '请帮我整理工作计划', thread_id: id }),
     })
     expect(chat.activeConversation?.title).toBe('请帮我整理工作计划')
@@ -118,30 +112,93 @@ describe('后端聊天状态', () => {
   })
 
   // 覆盖 HTTP 错误、HTTP 200 业务失败、协议格式错误与断网；均保留用户消息并允许继续发送。
-  it.each(['http', 'business', 'invalid-json', 'invalid-data', 'wrong-thread', 'network'])(
-    '%s 失败后显示失败占位并释放发送状态',
-    async (kind) => {
-      if (kind === 'http') fetchMock.mockResolvedValueOnce(new Response('', { status: 500 }))
-      if (kind === 'business')
-        fetchMock.mockResolvedValueOnce(
-          new Response(JSON.stringify({ code: 20000, message: '业务处理失败', data: null })),
-        )
-      if (kind === 'invalid-json') fetchMock.mockResolvedValueOnce(new Response('not json'))
-      if (kind === 'invalid-data')
-        fetchMock.mockResolvedValueOnce(
-          new Response(JSON.stringify({ code: 0, data: { reply: 123 } })),
-        )
-      if (kind === 'wrong-thread') fetchMock.mockResolvedValueOnce(success('other-thread'))
-      if (kind === 'network') fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-      const chat = useChatStore()
-      expect(await chat.send('保留这条消息')).toBe(false)
-      expect(chat.isSending).toBe(false)
-      expect(chat.activeConversation?.messages).toHaveLength(2)
-      expect(chat.activeConversation?.messages[0]?.blocks).toEqual([
-        { type: 'paragraph', text: '保留这条消息' },
-      ])
-      expect(chat.activeConversation?.messages[1]?.status).toBe('error')
-      expect(await chat.send('再次发送')).toBe(true)
-    },
-  )
+  it.each([
+    'http',
+    'business',
+    'invalid-json',
+    'invalid-data',
+    'wrong-thread',
+    'network',
+    'early-eof',
+  ])('%s 失败后显示失败占位并释放发送状态', async (kind) => {
+    if (kind === 'http') fetchMock.mockResolvedValueOnce(new Response('', { status: 500 }))
+    if (kind === 'business')
+      fetchMock.mockResolvedValueOnce(sseResponse(eventFrame('error', null, 20000)))
+    if (kind === 'invalid-json')
+      fetchMock.mockResolvedValueOnce(sseResponse('event: start\ndata: not json\n\n'))
+    if (kind === 'invalid-data')
+      fetchMock.mockResolvedValueOnce(sseResponse(eventFrame('delta', { reply: 123 })))
+    if (kind === 'wrong-thread') fetchMock.mockResolvedValueOnce(success('other-thread'))
+    if (kind === 'network') fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+    if (kind === 'early-eof') fetchMock.mockResolvedValueOnce(sseResponse(''))
+    const chat = useChatStore()
+    expect(await chat.send('保留这条消息')).toBe(false)
+    expect(chat.isSending).toBe(false)
+    expect(chat.activeConversation?.messages).toHaveLength(2)
+    expect(chat.activeConversation?.messages[0]?.blocks).toEqual([
+      { type: 'paragraph', text: '保留这条消息' },
+    ])
+    expect(chat.activeConversation?.messages[1]?.status).toBe('error')
+    expect(await chat.send('再次发送')).toBe(true)
+  })
+
+  // 保持连接打开，在最终事件到来前验证可见增量；done 替换全部临时消息，不混入工具前说明。
+  it('按 message_id 累积增量，并以 done 的权威回答替换临时文本', async () => {
+    const stream = controlledStream()
+    fetchMock.mockResolvedValueOnce(stream.response)
+    const chat = useChatStore()
+    const pending = chat.send('查一下天气')
+    const thread_id = chat.activeId!
+    stream.push(
+      eventFrame('start', { thread_id }) +
+        eventFrame('delta', { thread_id, message_id: 'tool-preface', text: '先查询天气' }),
+    )
+    await vi.waitFor(() => expect(chat.activeConversation?.messages[1]?.status).toBe('streaming'))
+    expect(chat.isSending).toBe(true)
+    expect(await chat.send('不能并发')).toBe(false)
+    stream.push(
+      eventFrame('delta', { thread_id, message_id: 'final', text: '今天' }) +
+        eventFrame('delta', { thread_id, message_id: 'final', text: '晴天' }),
+    )
+    await vi.waitFor(() =>
+      expect(chat.activeConversation?.messages[1]?.blocks).toEqual([
+        { type: 'paragraph', text: '先查询天气' },
+        { type: 'paragraph', text: '今天晴天' },
+      ]),
+    )
+    stream.push(
+      eventFrame('done', { thread_id, message_id: 'final', reply: '最终确认：今天晴天。' }),
+    )
+    expect(await pending).toBe(true)
+    expect(chat.activeConversation?.messages[1]?.blocks).toEqual([
+      { type: 'paragraph', text: '最终确认：今天晴天。' },
+    ])
+    expect(chat.isSending).toBe(false)
+    expect(stream.isCancelled()).toBe(true)
+  })
+
+  // 三种中断边界都不能把已出现的增量误判为成功；失败不抹掉可见内容，也不自动重试。
+  it.each(['error', 'eof', 'disconnect'])('部分输出后 %s 保留文本并标记失败', async (kind) => {
+    const stream = controlledStream()
+    fetchMock.mockResolvedValueOnce(stream.response)
+    const chat = useChatStore()
+    const pending = chat.send('请继续')
+    const thread_id = chat.activeId!
+    stream.push(
+      eventFrame('start', { thread_id }) +
+        eventFrame('delta', { thread_id, message_id: 'partial', text: '未完成的回复' }),
+    )
+    await vi.waitFor(() => expect(chat.activeConversation?.messages[1]?.status).toBe('streaming'))
+    if (kind === 'error') stream.push(eventFrame('error', null, 50000))
+    if (kind === 'eof') stream.close()
+    if (kind === 'disconnect') stream.fail()
+    expect(await pending).toBe(false)
+    expect(chat.activeConversation?.messages[1]).toMatchObject({
+      status: 'error',
+      blocks: [{ type: 'paragraph', text: '未完成的回复' }],
+    })
+    expect(chat.isSending).toBe(false)
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(await chat.send('新的消息')).toBe(true)
+  })
 })

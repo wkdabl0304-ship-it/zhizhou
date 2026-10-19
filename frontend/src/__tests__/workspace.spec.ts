@@ -6,6 +6,7 @@ import { defineComponent } from 'vue'
 import { TooltipProvider } from 'reka-ui'
 import ChatView from '@/views/ChatView.vue'
 import WelcomeHeading from '@/components/chat/WelcomeHeading.vue'
+import { controlledStream, eventFrame, success } from './helpers/chatStream'
 
 const wrappers: VueWrapper[] = []
 const fetchMock = vi.fn<typeof fetch>()
@@ -15,7 +16,7 @@ beforeEach(() => {
   // 回显实际 thread_id，验证页面经过真实 API 适配层更新消息，替身不连接模型。
   fetchMock.mockImplementation(async (_url, init) => {
     const { thread_id } = JSON.parse(init!.body as string) as { thread_id: string }
-    return new Response(JSON.stringify({ code: 0, data: { reply: '来自后端的回复', thread_id } }))
+    return success(thread_id, '来自后端的回复')
   })
   vi.stubGlobal('fetch', fetchMock)
   vi.stubGlobal('matchMedia', () => ({
@@ -107,5 +108,32 @@ describe('聊天工作空间', () => {
     await wrapper.get('form').trigger('submit')
     await flushPromises()
     expect(wrapper.text()).toContain('来自后端的回复')
+  })
+
+  // 在流未完成时检查实际 DOM，确保增量可见、复制暂不可用，中断后仍保留部分正文。
+  it('逐段展示回复，中断后保留文本和草稿并标明未完成', async () => {
+    const stream = controlledStream()
+    fetchMock.mockResolvedValueOnce(stream.response)
+    const wrapper = renderWorkspace()
+    await wrapper.get('textarea').setValue('流式回复测试')
+    await wrapper.get('form').trigger('submit')
+    const { thread_id } = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as {
+      thread_id: string
+    }
+    stream.push(
+      eventFrame('start', { thread_id }) +
+        eventFrame('delta', { thread_id, message_id: 'reply-1', text: '首段已经显示' }),
+    )
+    await flushPromises()
+    expect(wrapper.text()).toContain('首段已经显示')
+    expect(wrapper.get('[role="status"]').text()).toContain('正在回复')
+    expect(wrapper.find('[aria-label="复制回复"]').exists()).toBe(false)
+    await wrapper.get('textarea').setValue('保留下一条草稿')
+    stream.close()
+    await flushPromises()
+    expect(wrapper.text()).toContain('首段已经显示')
+    expect(wrapper.get('[role="alert"]').text()).toContain('回复未完成')
+    expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('保留下一条草稿')
+    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
   })
 })

@@ -4,12 +4,12 @@ export type MessageBlock =
   | { type: 'list'; items: string[] }
   | { type: 'code'; language: string; text: string }
 
-/** 消息展示状态；真实请求和开发预览共用等待、完成与失败状态。 */
+/** 消息展示状态；等待首段、接收增量、确认完成与失败均由流式请求驱动。 */
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   blocks: MessageBlock[]
-  status?: 'complete' | 'pending' | 'error'
+  status?: 'complete' | 'pending' | 'streaming' | 'error'
   demo?: boolean
 }
 

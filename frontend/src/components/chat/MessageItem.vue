@@ -36,17 +36,8 @@ async function copy(): Promise<void> {
       <BrandLogo :size="25" /><span>知舟</span
       ><span v-if="message.demo" class="demo-label">演示回复</span>
     </div>
-    <div v-if="message.status === 'pending'" class="message-pending" role="status">
-      <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>正在整理思路…
-    </div>
-    <div v-else-if="message.status === 'error'" class="message-error" role="alert">
-      <TriangleAlert :size="18" />
-      <div>
-        暂时无法获取回复
-        <p>请稍后再试，你输入的内容仍然保留。</p>
-      </div>
-    </div>
-    <div v-else class="message-body">
+    <!-- 失败时保留已接收的部分回复，并在正文下方明确提示未完成。 -->
+    <div v-if="message.blocks.length" class="message-body">
       <template v-for="(block, index) in message.blocks" :key="index">
         <p v-if="block.type === 'paragraph'">{{ block.text }}</p>
         <ul v-else-if="block.type === 'list'">
@@ -57,6 +48,21 @@ async function copy(): Promise<void> {
           <pre><code>{{ block.text }}</code></pre>
         </div>
       </template>
+    </div>
+    <div
+      v-if="message.status === 'pending' || message.status === 'streaming'"
+      class="message-pending"
+      role="status"
+    >
+      <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+      {{ message.status === 'streaming' ? '正在回复…' : '正在整理思路…' }}
+    </div>
+    <div v-if="message.status === 'error'" class="message-error" role="alert">
+      <TriangleAlert :size="18" />
+      <div>
+        {{ message.blocks.length ? '回复未完成' : '暂时无法获取回复' }}
+        <p>请稍后再试，你输入的内容{{ message.blocks.length ? '和已接收的回复' : '' }}仍然保留。</p>
+      </div>
     </div>
     <div
       v-if="message.role === 'assistant' && (!message.status || message.status === 'complete')"

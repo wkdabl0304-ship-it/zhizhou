@@ -1,7 +1,7 @@
-/** 聊天状态：管理当前页面的临时会话与非流式请求，不持久化或恢复会话标识和正文。 */
+/** 聊天状态：管理当前页面的临时会话与流式请求，不持久化或恢复会话标识和正文。 */
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
-import { sendChatMessage } from '@/api/chat'
+import { streamChatMessage } from '@/api/chat'
 import type { ChatMessage, Conversation } from '@/types/chat'
 
 /** 生成随机会话标识；普通 HTTP 环境没有 randomUUID 时使用浏览器随机字节。 */
@@ -23,7 +23,9 @@ export const useChatStore = defineStore('chat', () => {
   )
   const isSending = computed(
     () =>
-      activeConversation.value?.messages.some((message) => message.status === 'pending') ?? false,
+      activeConversation.value?.messages.some(
+        (message) => message.status === 'pending' || message.status === 'streaming',
+      ) ?? false,
   )
   let sequence = 0
 
@@ -45,9 +47,9 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * 追加用户消息和等待占位，再用后端文本更新占位；空白或同会话重复发送返回 false。
+   * 追加用户消息和等待占位，逐事件更新回复；空白或同会话重复发送返回 false。
    * 每个会话仅允许一个在途请求；捕获原会话引用，切换页面内会话不会串写回复。
-   * 失败保留用户消息并标记占位，返回 false；不自动重试，避免后端重复执行。
+   * 失败保留用户消息及已收到的文本并标记未完成，返回 false；不自动重试。
    */
   async function send(text: string): Promise<boolean> {
     const content = text.trim()
@@ -76,10 +78,19 @@ export const useChatStore = defineStore('chat', () => {
     })
     // 从响应式数组取得占位，保证异步更新能够触发组件重新渲染。
     const assistant = conversation.messages[conversation.messages.length - 1]!
+    // 工具调用前后的助手消息分别累积；done 的权威回答会替换这些临时文本块。
+    const segments = new Map<string, string>()
     try {
-      const data = await sendChatMessage(content, conversation.id)
-      assistant.blocks = [{ type: 'paragraph', text: data.reply }]
-      assistant.status = 'complete'
+      for await (const event of streamChatMessage(content, conversation.id)) {
+        if (event.type === 'delta') {
+          segments.set(event.messageId, (segments.get(event.messageId) ?? '') + event.text)
+          assistant.blocks = Array.from(segments.values(), (text) => ({ type: 'paragraph', text }))
+          assistant.status = 'streaming'
+        } else if (event.type === 'done') {
+          assistant.blocks = [{ type: 'paragraph', text: event.reply }]
+          assistant.status = 'complete'
+        }
+      }
       return true
     } catch {
       assistant.status = 'error'
