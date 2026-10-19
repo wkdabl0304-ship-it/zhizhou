@@ -1,40 +1,148 @@
-# 知舟 Zhizhou
+<p align="center">
+  <img src="frontend/public/favicon.svg" width="76" height="76" alt="知舟舟形标志" />
+</p>
 
-让企业知识触手可及，让日常工作始于一句话。
+<h1 align="center">知舟 · Zhizhou</h1>
 
-**面向企业内部非技术人员的云端 AI 工作空间：通过对话读写文件、查询企业文档，让智能体协助完成日常工作。**
+<p align="center"><strong>心有山海，自有知舟。</strong></p>
+<p align="center">让知识流动，让想法抵达。<br />一个面向日常工作的开源 AI 工作空间。</p>
 
-知舟可以理解为加入了企业共享知识库和权限管理的云端 Codex：提供类似 ChatGPT 的 Web 对话界面，智能体在服务器的工作环境中处理文件，并通过云端 RAG（检索增强生成）查找企业资料。员工无需编程，即可使用自然语言描述需求。
+<p align="center">
+  <a href="frontend/package.json"><img src="https://img.shields.io/badge/Vue-3-42b883?style=flat-square" alt="Vue 3" /></a>
+  <a href="backend/pyproject.toml"><img src="https://img.shields.io/badge/Python-3.14%2B-3776ab?style=flat-square" alt="Python 3.14 及以上" /></a>
+  <a href="backend/README.md#启动与聊天接口"><img src="https://img.shields.io/badge/Streaming-SSE-167c91?style=flat-square" alt="SSE 流式对话" /></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-142c3e?style=flat-square" alt="Apache 2.0 许可证" /></a>
+</p>
 
-> 项目正在开发中，本 README 展示产品蓝图，以下主要功能为规划目标。当前已实现异步 SSE 后端聊天接口与智能体示例，采用青蓝水墨品牌的前端（统一 Logo、公共组件与明暗主题）已接通流式回复、思考和工具/命令执行过程展示；文件处理、知识检索和权限管理尚未实现。
+<p align="center">
+  <a href="#为什么做知舟">项目愿景</a> ·
+  <a href="#现在可以体验什么">功能亮点</a> ·
+  <a href="#开发进度">开发进度</a> ·
+  <a href="#本地体验">本地体验</a> ·
+  <a href="#开发与参与">开发文档</a>
+</p>
 
-## 主要功能
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.jpg" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/home-light.jpg" />
+  <img src="docs/images/home-light.jpg" alt="知舟实际首页：青蓝水墨山海、舟形标志、对话输入区和工作场景建议" width="1280" />
+</picture>
 
-- **Web 对话**：提供类似 ChatGPT 的交互界面，在浏览器中向智能体提问、发起任务。
-- **文件读写**：通过自然语言让智能体在服务器工作环境中读取、创建和修改文件，无需在本地配置开发环境。
-- **共享文档问答**：企业文档统一存放在云端，通过向量检索找到相关内容，让智能体结合内部资料回答问题。
-- **权限管理**：支持部门之间的数据隔离，也支持文档全员共享；文件访问和知识库检索遵循对应权限。
+<p align="center"><sub>项目实际界面 · 青蓝水墨与明暗主题 · 封面随你的 GitHub 明暗主题自动切换</sub></p>
 
-## 适用场景
+> **正在构建中。** 当前已打通真实模型的流式对话、思考与工具执行过程展示，以及后端对话状态持久化。文件工作区、企业知识库和权限管理仍在规划中，当前版本适合本地体验与开发。
 
-- 查询公司制度、业务资料和部门文档。
-- 让智能体阅读文件、整理内容、起草或修改文档。
-- 在部门内部共享知识，或将通用资料开放给全体员工。
+## 为什么做知舟
+
+工作中的一个问题，往往散落在文档、文件和同事的经验里。找到资料只是开始，把资料变成清晰的结论和可执行的下一步，才是我们真正想完成的事。
+
+知舟希望把这些工作放进一个对话空间：**用自然语言说明目标，让智能体查找知识、处理文件，并在需要时请你确认下一步。** 面向企业内部非技术人员，员工通过浏览器使用，工作环境由服务器承载。
+
+我们正在从一个能对话、能展示执行过程的工作空间出发，逐步走向以下场景：
+
+| 你的一句话 | 希望知舟帮你完成的事 |
+| --- | --- |
+| “帮我整理一份新员工入职清单。” | 当前可以通过模型对话起草内容；未来结合企业制度生成清单。 |
+| “把这几份材料整理成项目周报。” | 规划接入文件工作区，阅读材料、提炼进展与风险并生成文档。 |
+| “公司差旅报销有哪些要求？给我出处。” | 规划接入企业知识库，通过 RAG 检索资料并提供来源。 |
+| “这项操作先让我确认，再继续。” | 规划加入人工审批，让需要确认的动作暂停并在审批后恢复。 |
+
+## 现在可以体验什么
+
+### 一边生成，一边看见结果
+
+对话通过 SSE 实时输出，无需等待整段回答生成后才看到内容。助手回复支持 Markdown、表格、代码高亮和复制；异常中断时保留已经收到的内容，方便继续查看。
+
+### 从回答到过程，都有迹可循
+
+模型提供的思考文本、工具请求、执行状态与公开结果，会显示为可展开的过程卡片。你可以查看调用参数和返回内容，也能区分等待、执行中、完成与失败。
+
+<p align="center">
+  <img src="docs/images/agent-activity.jpg" alt="知舟过程卡片组件预览：展开的思考文本、天气工具参数及结果，以及命令和失败状态" width="900" />
+</p>
+
+<p align="center"><sub>实际组件预览，使用本地演示数据；天气工具返回固定内容，命令卡片仅展示 UI，尚未接入 Shell 执行器。</sub></p>
+
+### 给想法一个安静的起点
+
+青蓝水墨、山海与小舟构成首页，搭配明暗主题、轻量动效和响应式布局。桌面侧栏支持收起，窄屏使用抽屉导航；系统开启减少动态效果时，首页会相应减少动效。
+
+<details>
+<summary>查看深色首页</summary>
+
+![知舟深色首页，深靛背景与青蓝水墨山景](docs/images/home-dark.jpg)
+
+</details>
+
+### 已有可以继续扩展的对话基础
+
+后端使用 PostgreSQL checkpoint 保存对话状态，相同 `thread_id` 可延续历史；同一会话内串行执行，不同会话可并发生成。前端支持本次浏览中的新建与切换会话，刷新后暂不恢复历史列表。
+
+## 开发进度
+
+| 能力 | 状态 | 当前范围 |
+| --- | --- | --- |
+| Web 流式对话 | 已实现 | 前后端已接通 DeepSeek，逐段展示回复。 |
+| 思考与执行过程 | 已实现 | 展示模型实际返回的思考、工具参数、执行状态与公开结果。 |
+| Markdown 与主题 | 已实现 | 富文本、代码高亮与复制，明暗主题及窄屏适配。 |
+| 对话状态保存 | 后端已实现 | PostgreSQL checkpoint；前端历史恢复与正式会话管理待完善。 |
+| 停止与恢复 | 部分实现 | 连接断开可取消生成；停止按钮、持久化任务与断线续传待实现。 |
+| 人工审批 | 规划中 | 审阅待执行动作、批准或拒绝，并恢复执行。 |
+| 文件工作区 | 规划中 | 在服务器工作环境中读取、创建和修改文件。 |
+| 企业知识库 | 规划中 | 共享资料检索、RAG 问答与来源引用。 |
+| 用户与权限 | 规划中 | 登录、会话归属、部门隔离与共享权限。 |
+| 完整容器化部署 | 规划中 | 当前开发 Compose 仅包含 PostgreSQL。 |
+
+## 本地体验
+
+**先看界面**：准备符合要求的 Node.js 与 pnpm，在仓库根目录执行：
+
+```shell
+cd frontend
+pnpm install --frozen-lockfile
+pnpm dev
+```
+
+打开终端提示的地址即可体验首页、明暗主题和响应式布局。开发模式下还可访问 `/dev/ui` 查看富文本与过程卡片样例；这些预览不需要模型密钥或数据库，真实聊天需要启动后端。
+
+**接通真实对话**：按以下顺序准备后端，再启动或保留上述前端开发服务器：
+
+1. 准备 Python **3.14+**、uv、Docker Compose 与 DeepSeek API 密钥；前端 Node.js 要求为 `^22.18.0 || >=24.12.0`，使用 pnpm。
+2. 按[后端配置说明](backend/README.md#配置与数据库)准备根目录 `.env` 并启动 PostgreSQL；已有 `.env` 时直接编辑，不覆盖现有配置。
+3. 按[后端启动说明](backend/README.md#启动与聊天接口)安装依赖并启动服务。前端开发服务器会把 `/api` 请求代理到后端。
+
+详细安装、配置、测试与构建命令分别维护在[前端文档](frontend/README.md)和[后端文档](backend/README.md)。当前后端请使用单进程运行；完整生产部署尚未提供，生产反向代理需要关闭 SSE 缓冲。
 
 ## 技术方案
 
-- **前端**：Vue 3、TypeScript 与 Vite，使用 Reka UI 构建交互基础和自定义样式；通过 POST SSE 实时展示回复、思考和工具/命令执行状态，支持 Markdown、代码高亮与复制，并保留中断前的内容；详细展示能力见[前端说明](frontend/README.md#页面与聊天边界)，文件操作界面为后续规划。
-- **后端**：Python 与 FastAPI，已实现含思考与工具执行过程的异步 SSE 聊天和 PostgreSQL checkpoint，支持同会话串行、不同会话并发；文件处理、知识检索与权限管理为后续规划。
-- **部署**：Docker Compose，在服务器上容器化部署工作环境和知识库相关服务。
+| 层次 | 技术与职责 |
+| --- | --- |
+| 前端 | Vue 3 · TypeScript · Vite · Pinia · Reka UI |
+| 内容呈现 | markdown-it · highlight.js · Lucide Vue |
+| API 与传输 | Python · FastAPI · 异步 POST SSE |
+| 智能体 | LangChain / LangGraph · DeepSeek |
+| 状态存储 | PostgreSQL · AsyncPostgresSaver |
+| 开发工具 | pnpm · uv · Vitest · pytest · Docker Compose（数据库） |
 
-## 部署与启动
+```mermaid
+flowchart LR
+    UI["Vue 3 工作空间"] -->|发送消息| API["FastAPI"]
+    API -->|SSE 回复与过程事件| UI
+    API --> Agent["LangChain / LangGraph"]
+    Agent <--> Model["DeepSeek"]
+    Agent <--> DB[("PostgreSQL checkpoint")]
+    Agent --> Tools["已注册工具"]
+```
 
-计划由管理员通过 Docker Compose 统一部署，员工通过浏览器访问。后端 `POST /api/chat` 使用异步 SSE，使用 DeepSeek 和 PostgreSQL 保存对话状态，支持多轮对话及客户端断开取消。接口协议与中断后的保存边界见[后端说明](backend/README.md#启动与聊天接口)。前端已适配正文及过程事件，可查看模型提供的思考、工具调用参数与执行结果；开发服务器将 `/api` 代理到后端，生产反向代理需关闭 SSE 缓冲。前端每次加载页面随机生成临时会话标识，不恢复后端历史；这只是跑通聊天的临时方案，后续会重构会话管理，具体行为见[前端开发说明](frontend/README.md#页面与聊天边界)。[开发 Compose 配置](docker-compose-dev.yml)目前仅提供 PostgreSQL，尚未包含前后端服务或完整生产部署。
+## 开发与参与
 
-模块开发说明见：
+如果你也关注 AI 工作空间、企业知识管理或智能体交互，欢迎通过 [Issues](https://github.com/wkdabl0304-ship-it/zhizhou/issues) 交流使用场景、反馈问题，或提交 Pull Request。
 
-- [前端开发说明](frontend/README.md)：环境要求、联调启动、聊天接口与临时会话、组件预览、样式和组件约定、构建与测试。
-- [后端开发说明](backend/README.md)：配置、聊天服务统一启动入口与接口、统一响应与错误码、命令行智能体示例、日志、测试和目录职责。
+| 从哪里开始 | 阅读内容 |
+| --- | --- |
+| [前端开发说明](frontend/README.md) | 环境、界面与聊天边界、组件约定、构建和测试。 |
+| [后端开发说明](backend/README.md) | 配置、启动、SSE 协议、Agent、日志和测试。 |
+| [项目协作约定](AGENTS.md) | 技术版本、代码注释、变更讲解和文档维护规则。 |
 
 ## 许可证
 
