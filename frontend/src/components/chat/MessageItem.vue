@@ -11,6 +11,8 @@ import AgentActivity from './AgentActivity.vue'
 
 const props = defineProps<{ message: ChatMessage }>()
 const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
+// 两类消息共用复制逻辑和按钮样式，标签区分用户内容与助手回复。
+const copyTarget = computed(() => (props.message.role === 'user' ? '内容' : '回复'))
 
 /** 过程事件和正文分别呈现，底部提示仅描述当前活动阶段，不将工具失败当作整轮失败。 */
 const progressLabel = computed(() => {
@@ -98,16 +100,18 @@ async function copy(): Promise<void> {
       </div>
     </div>
     <div
-      v-if="message.role === 'assistant' && (!message.status || message.status === 'complete')"
+      v-if="message.role === 'user' || !message.status || message.status === 'complete'"
       class="message-actions"
     >
-      <UiTooltip :text="copyState === 'copied' ? '已复制' : '复制回复'"
-        ><UiIconButton :label="copyState === 'copied' ? '已复制回复' : '复制回复'" @click="copy"
+      <UiTooltip :text="copyState === 'copied' ? '已复制' : `复制${copyTarget}`"
+        ><UiIconButton
+          :label="copyState === 'copied' ? `已复制${copyTarget}` : `复制${copyTarget}`"
+          @click="copy"
           ><Check v-if="copyState === 'copied'" :size="15" /><Copy
             v-else
             :size="15" /></UiIconButton
       ></UiTooltip>
-      <span class="copy-status" role="status">{{
+      <span v-if="copyState !== 'idle'" class="copy-status" role="status">{{
         copyState === 'failed'
           ? '复制失败，请手动选择文本复制'
           : copyState === 'copied'
@@ -126,8 +130,14 @@ async function copy(): Promise<void> {
 }
 .message--user {
   display: flex;
-  justify-content: flex-end;
+  flex-direction: column;
+  align-items: flex-end;
   margin: 16px 0 34px;
+}
+/* 用户操作区跟随气泡右对齐，复制提示放在按钮左侧，不与气泡横向并排。 */
+.message--user .message-actions {
+  flex-direction: row-reverse;
+  margin: 6px 0 0;
 }
 .message--user .message-body {
   max-width: 85%;

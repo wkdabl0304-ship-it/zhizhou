@@ -44,7 +44,7 @@ pnpm dev
 
 代码块通过 `highlight.js` 对 JavaScript、TypeScript、Python、JSON、Bash、CSS、HTML/XML、SQL、Markdown 和 YAML 及其别名高亮，未知语言按纯文本展示。代码块可单独复制，不包含高亮标签；整条回复复制保留原始 Markdown。当前未添加数学公式或 Mermaid 图表扩展。`/dev/ui` 提供完整富文本样例，便于检查排版。
 
-Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会发送。输入框自动增高并在上限后内部滚动，消息滚动区域与底部输入区独立布局。复制回复使用浏览器剪贴板 API，通常要求 HTTPS 或 localhost；失败时显示手动复制提示。
+Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会发送。输入框自动增高并在上限后内部滚动，消息滚动区域与底部输入区独立布局。用户消息气泡下方提供右对齐的“复制内容”按钮，与助手回复下方的复制按钮共用交互和反馈；助手生成期间也可复制已发送的用户内容。复制使用浏览器剪贴板 API，通常要求 HTTPS 或 localhost；失败时显示手动复制提示。
 
 ## 公共样式与组件约定
 
