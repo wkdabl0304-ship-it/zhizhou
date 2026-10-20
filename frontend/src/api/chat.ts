@@ -29,7 +29,7 @@ function decodeEvent(
   type: string,
   data: Record<string, unknown>,
 ): Exclude<ChatStreamEvent, { type: 'start' }> {
-  if (type === 'delta' || type === 'reasoning_delta') {
+  if (type === 'delta') {
     if (typeof data.text !== 'string') throw new Error('聊天文本增量无效')
     return { type, messageId: requiredString(data, 'message_id'), text: data.text }
   }

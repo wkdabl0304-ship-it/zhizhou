@@ -39,14 +39,6 @@ class ChatDelta(ChatStart):
     text: str
 
 
-class ChatReasoningDelta(ChatStart):
-    """模型服务实际提供的思考文本增量，独立于助手正文，不推测或补造内容。"""
-
-    event: ClassVar[str] = "reasoning_delta"
-    message_id: str
-    text: str
-
-
 class ChatToolCall(ChatStart):
     """模型已生成的完整工具请求；此事件不表示工具已经开始执行。"""
 
@@ -100,6 +92,6 @@ class ChatResponse(ChatStart):
 
 # event 是类级别的协议名称，不重复写入 data；所有流事件的外壳仍由路由构建。
 type ChatAgentEvent = (
-    ChatDelta | ChatReasoningDelta | ChatToolCall | ChatToolStart
+    ChatDelta | ChatToolCall | ChatToolStart
     | ChatToolEnd | ChatToolError | ChatResponse
 )

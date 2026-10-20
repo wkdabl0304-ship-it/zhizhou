@@ -187,8 +187,9 @@ def test_openapi_documents_sse_and_uniform_pre_stream_errors(runtime):
     assert set(responses["200"]["content"]) == {"text/event-stream"}
     content = responses["200"]["content"]["text/event-stream"]
     assert "event: done" in content["examples"]["success"]["value"]
-    for name in ("reasoning_delta", "tool_call", "tool_start", "tool_end"):
+    for name in ("delta", "tool_call", "tool_start", "tool_end"):
         assert f"event: {name}" in content["examples"]["success"]["value"]
+    assert "reasoning_delta" not in str(operation)
     assert "event: tool_error" in content["examples"]["tool_error"]["value"]
     assert "event: error" in content["examples"]["error"]["value"]
     for status in ("404", "405", "422", "500"):
@@ -211,9 +212,10 @@ def test_api_streams_real_tool_execution_as_process_events(runtime, monkeypatch)
         response = client.post("/api/chat", json={"message": "天气", "thread_id": "a"})
     events = parse_events(response)
     names = [event["event"] for event in events]
-    assert names[:4] == ["start", "tool_call", "tool_start", "tool_end"]
+    assert names[:5] == ["start", "delta", "tool_call", "tool_start", "tool_end"]
+    assert events[1]["payload"]["data"]["text"] == "我准备调用 get_weather 获取所需信息。"
     assert names[-1] == "done" and names.count("done") == 1
-    call, started, ended = [events[index]["payload"]["data"] for index in (1, 2, 3)]
+    call, started, ended = [events[index]["payload"]["data"] for index in (2, 3, 4)]
     assert call["tool_call_id"] == started["tool_call_id"] == ended["tool_call_id"] == "weather-1"
     assert call["arguments"] == started["arguments"] == {"city": "上海"}
     assert ended["output"] == "上海今天晴天，温度 25°C"

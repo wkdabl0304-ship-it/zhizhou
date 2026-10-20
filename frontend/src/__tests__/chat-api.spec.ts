@@ -96,6 +96,17 @@ describe('POST SSE 解析', () => {
     expect(await collect()).toHaveLength(2)
   })
 
+  // 推理事件已从公开协议移除，即使字段完整也不能作为正文交给展示层。
+  it('拒绝旧的推理事件，不把推理解释为进度正文', async () => {
+    fetchMock.mockResolvedValueOnce(
+      sseResponse(
+        eventFrame('start', { thread_id }) +
+          eventFrame('reasoning_delta', { thread_id, message_id, text: '内部推理' }),
+      ),
+    )
+    await expect(collect()).rejects.toThrow(/聊天/)
+  })
+
   // 传输完成与业务完成不同；协议错误和被截断的终止帧都应失败，不能误判为成功。
   it.each([
     'missing-start',
@@ -144,12 +155,12 @@ describe('POST SSE 解析', () => {
   })
 
   // 实际执行事件没有 message_id；工具局部失败使用 code=0，不得终止整轮事件消费。
-  it('消费思考、请求、命令执行与局部失败事件，直到最终回答', async () => {
+  it('消费进度正文、请求、命令执行与局部失败事件，直到最终回答', async () => {
     fetchMock.mockResolvedValueOnce(
       sseResponse(
         [
           eventFrame('start', { thread_id }),
-          eventFrame('reasoning_delta', { thread_id, message_id, text: '先读取工作目录。' }),
+          eventFrame('delta', { thread_id, message_id, text: '先读取工作目录。' }),
           eventFrame('tool_call', {
             thread_id,
             message_id,
@@ -195,7 +206,7 @@ describe('POST SSE 解析', () => {
     )
     expect(await collect()).toEqual([
       { type: 'start', threadId: thread_id },
-      { type: 'reasoning_delta', messageId: message_id, text: '先读取工作目录。' },
+      { type: 'delta', messageId: message_id, text: '先读取工作目录。' },
       {
         type: 'tool_call',
         messageId: message_id,
@@ -241,7 +252,7 @@ describe('POST SSE 解析', () => {
 
   // 新事件也必须校验会话、调用标识及字段类型；协议损坏不能悄悄归并到其他卡片。
   it.each([
-    ['reasoning_delta', { message_id, text: 123 }],
+    ['delta', { message_id, text: 123 }],
     ['tool_call', { message_id, tool_call_id: 'id', name: 'lookup', arguments: [] }],
     ['tool_start', { tool_call_id: 'id', name: 'lookup', kind: 'tool', run_id: '', arguments: {} }],
     [

@@ -20,7 +20,7 @@ from app.agents.factory import build_agent
 from app.agents.tools.weather import get_weather
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import BusinessError, ServiceError
-from app.schemas.chat import ChatDelta, ChatReasoningDelta, ChatResponse, ChatToolCall
+from app.schemas.chat import ChatDelta, ChatResponse, ChatToolCall
 from chat_fakes import GraphStub, StubChatModel
 
 
@@ -62,12 +62,18 @@ def test_missing_final_reply_is_an_error(messages):
     asyncio.run(scenario())
 
 
-def test_separates_reasoning_and_tools_from_reply_and_preserves_message_identity():
-    """思考与工具请求独立成事件，工具参数碎片不当作正文，最终回复不混入工具前的说明。"""
+@pytest.mark.parametrize("reasoning", [
+    AIMessageChunk(content="", additional_kwargs={"reasoning_content": "private-thinking"}),
+    AIMessageChunk(content=[{"type": "reasoning", "reasoning": "private-thinking"}]),
+    AIMessageChunk(content=[{"type": "thinking", "thinking": "private-thinking"}]),
+    AIMessageChunk(content=[{"type": "reasoning", "summary": [{"type": "summary_text", "text": "private-thinking"}]}]),
+])
+def test_excludes_reasoning_and_preserves_progress_and_final_message_identity(reasoning):
+    """推理不进入公开流；正文说明与最终回答分别保留，工具参数碎片不当作正文。"""
     async def stream(*args, **kwargs):
         """模拟工具前说明、思考块、工具参数、工具结果及最终回复。"""
         yield "messages", (AIMessageChunk(content="先查询", id="before"), {"langgraph_node": "model"})
-        yield "messages", (AIMessageChunk(content=[{"type": "reasoning", "reasoning": "private-thinking"}]), {"langgraph_node": "model"})
+        yield "messages", (reasoning, {"langgraph_node": "model"})
         yield "messages", (AIMessageChunk(content="", tool_call_chunks=[{"name": "get_weather", "args": "private-args", "id": "call", "index": 0}]), {"langgraph_node": "model"})
         yield "updates", {"model": {"messages": [AIMessage(content="先查询", id="before", tool_calls=[{"name": "get_weather", "args": {}, "id": "call"}])]}}
         yield "messages", (ToolMessage(content="private-result", tool_call_id="call"), {"langgraph_node": "tools"})
@@ -80,7 +86,8 @@ def test_separates_reasoning_and_tools_from_reply_and_preserves_message_identity
         assert [event.text for event in events if isinstance(event, ChatDelta)] == ["先查询", "最终"]
         assert events[-1].reply == "最终"
         assert events[-1].message_id == "final"
-        assert [event.text for event in events if isinstance(event, ChatReasoningDelta)] == ["private-thinking"]
+        assert "private-thinking" not in str(events)
+        assert not any(event.event == "reasoning_delta" for event in events)
         assert [event.tool_call_id for event in events if isinstance(event, ChatToolCall)] == ["call"]
         assert "private-args" not in str(events) and "private-result" not in str(events)
     asyncio.run(scenario())
@@ -100,10 +107,42 @@ def test_real_graph_history_tools_and_restore():
         assert await restored.achat("third", "a") == "first|second|third"
         events = [event async for event in agent.astream("天气", "weather")]
         assert events[-1].reply == "上海今天晴天，温度 25°C"
-        assert "".join(event.text for event in events if isinstance(event, ChatDelta)) == events[-1].reply
+        assert next(event for event in events if isinstance(event, ChatDelta)).text == "我准备调用 get_weather 获取所需信息。"
+        assert events[0].message_id != events[-1].message_id
         state = await graph.aget_state({"configurable": {"thread_id": "weather"}})
         assert state.values["messages"][-1].text == events[-1].reply
         assert state.values["messages"][-1].id == events[-1].message_id
+    asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("missing_content", ["", " \n"])
+def test_each_tool_step_has_progress_without_repeating_model_text(missing_content):
+    """多次工具往返分别保证正文说明，模型已有正文时不追加兜底，最终正文独立。"""
+    async def stream(*args, **kwargs):
+        """模拟两个缺少正文的步骤和一个已有正文的步骤，不访问模型或实际工具。"""
+        for index, content in enumerate([missing_content, "我接着核对结果。", missing_content]):
+            message_id = f"step-{index}"
+            if content.strip():
+                yield "messages", (AIMessageChunk(content=content, id=message_id), {"langgraph_node": "model"})
+            yield "updates", {"model": {"messages": [AIMessage(
+                content=content, id=message_id,
+                tool_calls=[{"name": "get_weather", "args": {"city": "北京"}, "id": f"call-{index}"}],
+            )]}}
+            yield "updates", {"tools": {"messages": [ToolMessage(content="结果", tool_call_id=f"call-{index}")]}}
+        yield "messages", (AIMessageChunk(content="最终回答", id="final"), {"langgraph_node": "model"})
+        yield "updates", {"model": {"messages": [AIMessage(content="最终回答", id="final")]}}
+
+    async def scenario():
+        """逐对校验正文、完整调用和最终回复的顺序及消息归属。"""
+        events = [event async for event in ChatAgent(Mock(astream=stream)).astream("天气", "a")]
+        for index in range(3):
+            text, call = events[index * 2:index * 2 + 2]
+            assert isinstance(text, ChatDelta) and isinstance(call, ChatToolCall)
+            assert text.message_id == call.message_id == f"step-{index}"
+            assert text.text == ("我接着核对结果。" if index == 1 else "我准备调用 get_weather 获取所需信息。")
+        assert events[-2].message_id == events[-1].message_id == "final"
+        assert events[-1].reply == "最终回答"
+        assert len(events) == 8
     asyncio.run(scenario())
 
 

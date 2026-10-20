@@ -18,12 +18,19 @@ const progressLabel = computed(() => {
   const runningTool = activities.find((item) => item.type === 'tool' && item.status === 'running')
   if (runningTool?.type === 'tool')
     return runningTool.kind === 'command' ? '正在执行命令…' : '正在调用工具…'
-  if (activities.some((item) => item.type === 'reasoning' && item.status === 'running'))
-    return '正在思考…'
-  if (activities.some((item) => item.status === 'queued')) return '正在准备工具调用…'
+  if (activities.some((item) => item.type === 'tool' && item.status === 'queued'))
+    return '正在准备工具调用…'
   if (props.message.blocks.length) return '正在回复…'
   return activities.length ? '正在整理结果…' : '正在整理思路…'
 })
+
+/** 流式和失败正文已在时间线显示；仅最终正文或没有时间线的兼容消息使用独立正文区。 */
+const showBody = computed(
+  () =>
+    props.message.blocks.length > 0 &&
+    (props.message.status === 'complete' ||
+      !props.message.activities?.some((item) => item.type === 'text')),
+)
 
 /** 复制原始消息文本（助手保留 Markdown 标记）；权限拒绝时给出可见提示。 */
 async function copy(): Promise<void> {
@@ -54,9 +61,10 @@ async function copy(): Promise<void> {
     <AgentActivity
       v-if="message.role === 'assistant' && message.activities?.length"
       :activities="message.activities"
+      :status="message.status"
     />
     <!-- 失败时保留已接收的部分回复，并在正文下方明确提示未完成。 -->
-    <div v-if="message.blocks.length" class="message-body">
+    <div v-if="showBody" class="message-body">
       <template v-for="(block, index) in message.blocks" :key="index">
         <MarkdownContent
           v-if="block.type === 'paragraph' && message.role === 'assistant'"

@@ -1,6 +1,6 @@
 # 知舟后端
 
-使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现异步 SSE FastAPI 聊天接口和可独立运行的智能体示例，通过 LangChain 的 DeepSeek 专用适配调用 `deepseek-flash` 模型，支持正文、思考文本和工具执行过程事件，并使用 PostgreSQL 保存对话状态。天气工具返回固定演示内容，不连接真实天气服务。
+使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现异步 SSE FastAPI 聊天接口和可独立运行的智能体示例，通过 LangChain 的 DeepSeek 专用适配调用 `deepseek-flash` 模型，支持公开进度正文、最终回答和工具执行过程事件，不对外返回模型推理，并使用 PostgreSQL 保存对话状态。天气工具返回固定演示内容，不连接真实天气服务。
 
 项目定位和功能规划见[根 README](../README.md)。
 
@@ -91,7 +91,6 @@ data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","reply
 | --- | --- | --- |
 | `start` | `thread_id` | 请求已接受，可能仍在等待会话锁 |
 | `delta` | `thread_id / message_id / text` | 当前助手消息的一段正文 |
-| `reasoning_delta` | `thread_id / message_id / text` | 模型服务实际提供的一段思考文本或公开摘要 |
 | `tool_call` | `thread_id / message_id / tool_call_id / name / arguments` | 模型已生成完整工具请求，尚不代表已执行 |
 | `tool_start` | `thread_id / tool_call_id / run_id / name / kind / arguments` | 工具实际开始执行，参数不包含框架注入值 |
 | `tool_end` | `thread_id / tool_call_id / run_id / name / kind / output` | 工具成功执行后的正文结果，不含 artifact |
@@ -99,15 +98,15 @@ data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","reply
 | `done` | `thread_id / message_id / reply` | 最终助手完整回复，图执行与 checkpoint 写入已完成 |
 | `error` | `null` | 非零错误码和安全解释，本轮失败结束 |
 
-`delta` 按 `message_id` 分组，可能包含工具调用前的助手说明；`done.reply` 是最终权威回答，不能简单把所有消息的增量拼成最终回答。思考通过 `reasoning_delta` 输出，完整工具参数通过 `tool_call` 和 `tool_start` 输出，公开工具结果通过 `tool_end` 输出；不返回历史快照、加密推理字段、工具 artifact 或内部异常堆栈。图通过原生 `astream` 边生成边输出，并非完整生成后切片。成功事件 `code=0`，正常结束只发送一个 `done` 或 `error`；客户端断开时不保证终止事件。若传输提前结束但未收到终止事件，应视为未确认完成。
+`delta` 按 `message_id` 分组，可能包含工具调用前的助手说明；`done.reply` 是最终权威回答，不能简单把所有消息的增量拼成最终回答。公开进度说明使用普通 `delta`，不再提供 `reasoning_delta`；完整工具参数通过 `tool_call` 和 `tool_start` 输出，公开工具结果通过 `tool_end` 输出；不返回历史快照、模型推理字段、工具 artifact 或内部异常堆栈。图通过原生 `astream` 边生成边输出，并非完整生成后切片。成功事件 `code=0`，正常结束只发送一个 `done` 或 `error`；客户端断开时不保证终止事件。若传输提前结束但未收到终止事件，应视为未确认完成。
 
 新增过程事件同样使用 `{code, message, data}` 外壳，正常交付的过程事件 `code=0`。`tool_error` 表示某一次工具调用失败，模型可能处理该失败后继续回复，因此客户端不能把它当成整轮终止；只有 `done` 或顶层 `error` 才终止本轮。未知工具和参数校验失败也会产生 `tool_error`，不会让 UI 永久等待工具结果。工具失败解释使用中央错误码的安全文案，不回传异常字符串。
 
 例如，一次工具执行的事件数据如下（每帧后仍需空行）：
 
 ```text
-event: reasoning_delta
-data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","message_id":"plan-1","text":"需要查询天气。"}}
+event: delta
+data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","message_id":"plan-1","text":"我先查询上海的天气。"}}
 
 event: tool_call
 data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","message_id":"plan-1","tool_call_id":"weather-1","name":"get_weather","arguments":{"city":"上海"}}}
@@ -120,11 +119,17 @@ data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","tool_
 
 ```
 
-同一个工具请求用 `tool_call_id` 关联，`run_id` 标识实际执行次数；工具事件可以交错，并行工具谁先完成就先报告结果，不等待整个工具节点结束。`message_id` 将思考、正文及完整调用请求关联到对应的模型消息；`done.reply` 仍只包含最终正文。参数是模型生成的完整 JSON，当前不对外发送尚未完成的参数字符串碎片，也不逐行转发命令 stdout/stderr。
+同一个工具请求用 `tool_call_id` 关联，`run_id` 标识实际执行次数；工具事件可以交错，并行工具谁先完成就先报告结果，不等待整个工具节点结束。`message_id` 将正文及完整调用请求关联到对应的模型消息；`done.reply` 仍只包含最终正文。参数是模型生成的完整 JSON，当前不对外发送尚未完成的参数字符串碎片，也不逐行转发命令 stdout/stderr。
 
 当前仅注册 `get_weather` 演示工具。协议支持工具设置 `metadata={"display_kind": "command"}`，实际执行事件便带有 `kind="command"`，参数和结果沿用相同字段；这只是已注册工具的展示类型，本次未增加 Shell 执行器、任意系统命令执行能力或自动分类规则。普通工具默认 `kind="tool"`。
 
-思考文本只来自模型服务提供的 `reasoning_content` 或标准 reasoning/thinking 内容块，服务没有返回时不会补造思考。模型工厂显式启用 DeepSeek 思考模式，`DeepSeekChatModel` 在官方 `ChatDeepSeek` 适配之上补充历史助手 `reasoning_content` 的回传，保证工具后的模型步骤和多轮请求保留这些字段。旧 checkpoint 没有保存的思考无法恢复，回传时使用空字符串。该约束见 [DeepSeek 思考模式说明](https://api-docs.deepseek.com/guides/thinking_mode/)。工具和思考事件是当前请求的实时展示流，不新增事件存储或重放接口；完整模型思考及工具消息仍由原有 checkpoint 机制保存。
+系统提示词要求每条包含工具调用的助手消息同时提供非空 `content`：详细说明当前处理什么、准备怎样使用工具和检查结果，以及与用户目标相关的判断依据、假设或取舍。同一消息包含多个并行调用时，正文须覆盖每个调用的用途。本轮首次调用还应介绍任务目标、交付结果、主要步骤与先后依赖、验证方式；后续调用根据实际结果说明发现与下一步，不重复整份规划。首次调用按当前用户消息计算，历史会话中的工具调用不免除本轮规划。公开依据是面向用户的决策摘要，不输出内部推理链，不虚构已执行的操作。
+
+当前 `create_agent` 默认在模型不再返回工具调用时结束本轮，因此行动说明和规划必须与实际 `tool_calls` 放在同一条助手消息中，不能先单独发送计划再期待自动继续。无需工具时，在当前正文中直接给出完整答案或必要的澄清问题；工具执行后信息充足时直接完成回答，不为保持循环而调用无关工具。这是当前图的执行方式，不代表 LangChain 无法通过自定义图或中间件实现其他循环。
+
+模型遗漏正文时，Agent 在 `tool_call` 之前补发同一 `message_id` 的中性说明“我准备调用 … 获取所需信息。”；不声明已经执行或成功，也不改写模型 checkpoint。该兜底仅标明将调用的工具，不替模型编造任务规划或判断依据。最终 `done.message_id` 标识应从过程区移出的最终正文，`done.reply` 为权威完整回答。详细规划和行动说明由提示词引导，当前没有内容完整性强制校验或自动重试机制；无需工具时，必要说明与答案仍属于同一正文，提示词不会创建额外的可折叠消息或阶段事件。
+
+模型内部仍启用 DeepSeek 思考模式，并通过 `DeepSeekChatModel` 回传历史助手 `reasoning_content`，以维持工具后续步骤和多轮请求的兼容性；这些字段只在模型与 checkpoint 内部使用，不编码成 SSE。旧 checkpoint 缺失的字段按空字符串回传。工具及进度正文是当前请求的实时流，本次没有新增事件存储、历史读取或重放接口。
 
 请求中的 `message` 和 `thread_id` 均为必填字符串，空字符串、仅包含空白的字段或非法 JSON 返回 HTTP `422` 和统一 JSON 错误响应。路由或依赖在流建立前发生的框架错误也继续使用 JSON。SSE 开始后，模型、工具或 checkpoint 失败通过 `error` 报告，HTTP 状态保持 `200`，不再转为 JSON 或 HTTP `500`：
 
@@ -138,7 +143,7 @@ data: {"code":50001,"message":"对话执行失败，请稍后重试","data":null
 
 客户端断开会取消排队或生成中的任务，等待底层流清理并释放会话锁。取消不记录为聊天失败，不回滚已经写入的 checkpoint。通常用户消息已保存，但正在生成的半段助手回复尚未构成完整模型步骤，不保证保存；若模型已经完成落库、仅传输尚未结束，完整回复可能已经保存。本次没有额外消息表、“已中断”消息状态、自动重试、事件重放或断点续传。
 
-浏览器调用方需要使用 `fetch` 的响应流解析 SSE（接口为 POST，不能直接使用只接受 GET 的原生 `EventSource`）。代理部署时需关闭 SSE 缓冲。仓库前端已适配正文、思考、工具与命令展示事件，按调用及执行标识更新可展开的过程卡片，单次工具失败不终止本轮；最终确认和中断内容保留行为也适用于过程记录。界面行为与使用边界见[前端说明](../frontend/README.md#页面与聊天边界)。Swagger 提供事件样例，扩展协议验收可使用前端或其他支持新增事件的流式客户端。
+浏览器调用方需要使用 `fetch` 的响应流解析 SSE（接口为 POST，不能直接使用只接受 GET 的原生 `EventSource`）。代理部署时需关闭 SSE 缓冲。仓库前端按时间顺序交错展示进度正文与工具执行，最终回答到达后整体折叠过程，按调用及执行标识更新工具详情，单次工具失败不终止本轮；最终确认和中断内容保留行为也适用于过程记录。界面行为与使用边界见[前端说明](../frontend/README.md#页面与聊天边界)。Swagger 提供事件样例，扩展协议验收可使用前端或其他支持新增事件的流式客户端。
 
 ## 分级 API 路由
 
@@ -268,7 +273,7 @@ uv run pytest -q
 
 SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP 客户端验证首段增量在生成完成前到达、流中失败和客户端断开取消；完成后关闭客户端、服务器与套接字。模拟 ASGI 2.0/2.4 覆盖排队、模型等待、发送失败和服务器取消时的异步清理；普通启动及 reload 配置均核对事件循环工厂。
 
-过程事件测试使用真实图验证并行工具独立完成、命令类型标记、工具参数和结果、可恢复及不可恢复错误、执行前拒绝、artifact 排除及工具执行取消。模型适配测试通过 MockTransport 模拟 DeepSeek HTTP SSE，由正式客户端解析思考及工具参数碎片，核验 checkpoint 和工具后续、多轮请求中的 reasoning_content 回传，不访问真实模型。
+过程事件测试使用真实图验证并行工具独立完成、命令类型标记、工具参数和结果、可恢复及不可恢复错误、执行前拒绝、artifact 排除及工具执行取消。模型适配测试通过 MockTransport 模拟 DeepSeek HTTP SSE，由正式客户端解析内部思考及工具参数碎片，验证推理不外发、缺少正文时的兜底顺序，并核验 checkpoint 和工具后续、多轮请求中的 reasoning_content 回传，不访问真实模型。
 
 真实模型验收使用可逐事件读取 SSE 的客户端依次测试：同一 `thread_id` 告知姓名并追问姓名、更换标识确认无之前的历史、重启服务后使用原标识继续对话。测试模型的实际回复不应作为固定文本断言。
 
@@ -276,7 +281,7 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 
 - `app/__main__.py`：统一 Web 启动入口，处理地址、端口、reload 参数并向 Uvicorn 传递日志配置。
 - `app/main.py`：FastAPI 应用、启动/退出资源管理、全局异常处理器注册和 API 总路由挂载。
-- `app/agents/`：Agent 专属实现；`models.py` 创建支持思考回传的模型，`events.py` 适配公开思考及工具生命周期，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
+- `app/agents/`：Agent 专属实现；`models.py` 创建支持思考回传的模型，`events.py` 适配工具生命周期，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
 - `app/config/`：通用配置加载与校验、标准 logging 集中配置，以及供 Web/CLI 使用的事件循环工厂。
 - `app/db/`：数据库资源管理，当前包含 PostgreSQL checkpoint 连接和初始化。
 - `app/errors/`：错误码与默认解释、应用异常类型和异常日志责任。

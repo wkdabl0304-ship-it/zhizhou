@@ -4,9 +4,9 @@ import type { JsonValue, ToolKind } from './chat-events'
 /** 过程状态；interrupted 表示没有收到完成确认，不等同于工具执行失败。 */
 export type ActivityStatus = 'queued' | 'running' | 'complete' | 'error' | 'interrupted'
 
-/** 模型实际提供的思考，按 message_id 独立累积，不补造缺失内容。 */
-export interface ReasoningActivity {
-  type: 'reasoning'
+/** 助手公开正文，按 message_id 累积；done 到达后将最终正文移出过程时间线。 */
+export interface TextActivity {
+  type: 'text'
   id: string
   messageId: string
   text: string
@@ -36,8 +36,8 @@ export interface ToolActivity {
   runs: ToolRun[]
 }
 
-/** 按首次到达顺序展示思考和工具请求；后续事件更新原卡片，不重新排序。 */
-export type ChatActivity = ReasoningActivity | ToolActivity
+/** 按首次到达顺序交错展示正文和工具请求，执行更新原条目，不按名称重新排序。 */
+export type ChatActivity = TextActivity | ToolActivity
 export type MessageBlock =
   | { type: 'paragraph'; text: string }
   | { type: 'list'; items: string[] }

@@ -91,15 +91,15 @@ const processMessage: ChatMessage = {
   blocks: [
     {
       type: 'paragraph',
-      text: '**处理完成。** 以下保留本轮思考与工具执行记录，可展开查看参数和结果。',
+      text: '**处理完成。** 可展开查看本轮行动说明、工具参数与执行结果。',
     },
   ],
   activities: [
     {
-      type: 'reasoning',
-      id: 'reasoning-plan',
+      type: 'text',
+      id: 'progress-plan',
       messageId: 'plan',
-      text: '需要先查询上海天气，再检查项目目录。这里是模型实际返回的思考文本的展示样例。',
+      text: '我先查询上海的天气。',
       status: 'complete',
     },
     {
@@ -118,6 +118,13 @@ const processMessage: ChatMessage = {
           output: '上海今天晴天，温度 25°C',
         },
       ],
+    },
+    {
+      type: 'text',
+      id: 'next-step',
+      messageId: 'next-step',
+      text: '天气结果已返回，我接着检查项目目录。',
+      status: 'complete',
     },
     {
       type: 'tool',
@@ -157,6 +164,13 @@ const runningProcessMessage: ChatMessage = {
   status: 'streaming',
   blocks: [],
   activities: [
+    {
+      type: 'text',
+      id: 'running-preface',
+      messageId: 'running-preface',
+      text: '我先运行构建，检查当前项目是否可以正常打包。',
+      status: 'complete',
+    },
     {
       type: 'tool',
       id: 'running-command',
@@ -252,7 +266,7 @@ function record(text: string): void {
       <MessageItem :message="richMessage" />
     </section>
     <section>
-      <h2>思考、工具与命令过程</h2>
+      <h2>进度正文、工具与命令过程</h2>
       <MessageItem :message="processMessage" />
       <MessageItem :message="runningProcessMessage" />
     </section>

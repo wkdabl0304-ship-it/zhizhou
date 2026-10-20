@@ -1,4 +1,4 @@
-"""聊天 SSE 子路由：编码正文、思考与工具过程，并在流内报告生成失败。
+"""聊天 SSE 子路由：编码进度正文与工具过程，并在流内报告生成失败。
 
 资源由生命周期创建并注入；参数与框架错误仍由全局 JSON 处理器负责。
 流一旦建立，HTTP 状态不可修改，Agent 异常必须转换成终止 error 事件。
@@ -17,7 +17,7 @@ from app.api.streaming import DisconnectStreamingResponse, encode_event
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import AppError, ServiceError, log_app_error
 from app.schemas.chat import (
-    ChatDelta, ChatReasoningDelta, ChatRequest, ChatResponse, ChatStart,
+    ChatDelta, ChatRequest, ChatResponse, ChatStart,
     ChatToolCall, ChatToolEnd, ChatToolError, ChatToolStart,
 )
 from app.schemas.response import failure, success
@@ -28,7 +28,7 @@ router = APIRouter(prefix="/chat", tags=["聊天"])
 # 用真实序列化函数维护文档示例，避免协议样例与运行时编码各自演变。
 _EXAMPLE = "".join([
     encode_event("start", success(ChatStart(thread_id="conversation-001"))),
-    encode_event("reasoning_delta", success(ChatReasoningDelta(thread_id="conversation-001", message_id="plan-1", text="需要查询天气。"))),
+    encode_event("delta", success(ChatDelta(thread_id="conversation-001", message_id="plan-1", text="我先查询上海的天气。"))),
     encode_event("tool_call", success(ChatToolCall(thread_id="conversation-001", message_id="plan-1", tool_call_id="weather-1", name="get_weather", arguments={"city": "上海"}))),
     encode_event("tool_start", success(ChatToolStart(thread_id="conversation-001", tool_call_id="weather-1", run_id="run-1", name="get_weather", arguments={"city": "上海"}))),
     encode_event("tool_end", success(ChatToolEnd(thread_id="conversation-001", tool_call_id="weather-1", run_id="run-1", name="get_weather", output="上海今天晴天，温度 25°C"))),
@@ -47,7 +47,7 @@ _EXAMPLE = "".join([
                 "SSE：start 表示接受请求；delta 按 message_id 输出 text；done 包含最终 reply。"
                 "成功事件 code=0；error 使用非零错误码且 data=null，之后不再发送 done。"
                 "delta 可能包含工具调用前的助手文字，done.reply 是最终完整回答。"
-                "reasoning_delta 输出模型实际提供的思考文本，不保证每个模型都有。"
+                "工具调用前通过 delta 输出行动说明，不对外返回模型推理。"
                 "tool_call 表示模型已生成完整调用；tool_start/tool_end/tool_error 表示实际执行状态，"
                 "按 tool_call_id 关联，run_id 区分每次执行。kind=command 表示已注册的命令工具。"
                 "tool_error 不是整轮终止事件；error 才终止本轮。连接断开会取消生成，不保证终止事件。"

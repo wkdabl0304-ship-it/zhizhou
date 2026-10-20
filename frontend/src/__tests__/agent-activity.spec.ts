@@ -31,7 +31,7 @@ function tools(): ToolActivity[] {
 
 describe('Agent 过程状态', () => {
   // 同名工具依赖调用标识区分，实际执行开始前保持 queued，交错完成不能串写结果。
-  it('实时累积思考，隔离交错执行的同名工具，并保留最终过程', async () => {
+  it('实时累积进度正文，隔离交错执行的同名工具，并保留最终过程', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
     const chat = useChatStore()
@@ -39,17 +39,19 @@ describe('Agent 过程状态', () => {
     const thread_id = chat.activeId!
     stream.push(
       eventFrame('start', { thread_id }) +
-        eventFrame('reasoning_delta', { thread_id, message_id: 'plan', text: '先查询' }) +
-        eventFrame('reasoning_delta', { thread_id, message_id: 'plan', text: '两个城市。' }),
+        eventFrame('delta', { thread_id, message_id: 'plan', text: '先查询' }) +
+        eventFrame('delta', { thread_id, message_id: 'plan', text: '两个城市。' }),
     )
     await vi.waitFor(() =>
       expect(chat.activeConversation?.messages[1]?.activities?.[0]).toMatchObject({
-        type: 'reasoning',
+        type: 'text',
         text: '先查询两个城市。',
         status: 'running',
       }),
     )
-    expect(chat.activeConversation?.messages[1]?.blocks).toEqual([])
+    expect(chat.activeConversation?.messages[1]?.blocks).toEqual([
+      { type: 'paragraph', text: '先查询两个城市。' },
+    ])
     expect(chat.isSending).toBe(true)
     stream.push(
       eventFrame('tool_call', {
@@ -185,7 +187,7 @@ describe('Agent 过程状态', () => {
   })
 
   // 生成失败与网络断开不能确认工具成败；先前明确完成的执行仍保留成功状态。
-  it.each(['error', 'eof'])('%s 后保留思考和参数，未结束的执行标记未确认', async (kind) => {
+  it.each(['error', 'eof'])('%s 后保留进度正文和参数，未结束的执行标记未确认', async (kind) => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
     const chat = useChatStore()
@@ -209,7 +211,7 @@ describe('Agent 过程状态', () => {
           kind: 'tool',
           output: false,
         }) +
-        eventFrame('reasoning_delta', { thread_id, message_id: 'plan', text: '仍在整理' }),
+        eventFrame('delta', { thread_id, message_id: 'plan', text: '仍在整理' }),
     )
     await vi.waitFor(() => expect(chat.activeConversation?.messages[1]?.activities).toHaveLength(3))
     if (kind === 'error') stream.push(eventFrame('error', null, 50000))
@@ -244,14 +246,14 @@ describe('Agent 过程状态', () => {
     await chat.send('新任务')
     stream.push(
       eventFrame('start', { thread_id: oldId }) +
-        eventFrame('reasoning_delta', { thread_id: oldId, message_id: 'old', text: '旧会话思考' }) +
+        eventFrame('delta', { thread_id: oldId, message_id: 'old', text: '旧会话进度正文' }) +
         eventFrame('done', { thread_id: oldId, message_id: 'reply', reply: '旧回答' }),
     )
     await pending
     expect(chat.activeConversation?.messages[1]?.activities).toEqual([])
     chat.select(oldId)
     expect(chat.activeConversation?.messages[1]?.activities?.[0]).toMatchObject({
-      text: '旧会话思考',
+      text: '旧会话进度正文',
       status: 'complete',
     })
   })
@@ -292,15 +294,15 @@ describe('Agent 过程状态', () => {
 
 describe('过程卡片展示', () => {
   // 工具返回内容与命令参数不能执行为 HTML；null/false/0 和多次执行都必须真实显示。
-  it('折叠展示思考与命令详情，保留有效空值并转义不可信内容', () => {
+  it('折叠展示进度正文与命令详情，保留有效空值并转义不可信内容', () => {
     const wrapper = mount(AgentActivity, {
       props: {
         activities: [
           {
             id: 'thinking',
-            type: 'reasoning',
+            type: 'text',
             messageId: 'm',
-            text: '<script>思考文本</script>',
+            text: '<script>进度正文文本</script>',
             status: 'complete',
           },
           {
@@ -336,9 +338,9 @@ describe('过程卡片展示', () => {
       },
     })
     wrappers.push(wrapper)
-    expect(wrapper.findAll('details')).toHaveLength(3)
+    expect(wrapper.findAll('details')).toHaveLength(2)
     expect(wrapper.get('details').attributes('open')).toBeUndefined()
-    expect(wrapper.text()).toContain('思考过程')
+    expect(wrapper.text()).toContain('<script>进度正文文本</script>')
     expect(wrapper.text()).toContain('命令执行')
     expect(wrapper.text()).toContain('第 2 次执行')
     expect(wrapper.text()).toContain('已请求，等待执行')

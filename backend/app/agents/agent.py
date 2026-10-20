@@ -1,4 +1,4 @@
-"""异步执行 Agent 对话，输出正文、思考和工具过程并按会话隔离完整轮次。
+"""异步执行 Agent 对话，输出进度正文和工具过程并按会话隔离完整轮次。
 
 Web 与命令行共用本模块；图负责 checkpoint，HTTP 协议由 API 层编码。
 锁仅协调同一事件循环中的单个 Agent 实例，不提供多进程互斥。
@@ -16,11 +16,11 @@ from uuid import uuid4
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
-from app.agents.events import ToolEventHandler, reasoning_text
+from app.agents.events import ToolEventHandler
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import AppError, ServiceError, log_app_error
 from app.schemas.chat import (
-    ChatAgentEvent, ChatDelta, ChatReasoningDelta, ChatResponse,
+    ChatAgentEvent, ChatDelta, ChatResponse,
     ChatToolCall, ChatToolEnd, ChatToolError, ChatToolStart,
 )
 
@@ -92,11 +92,9 @@ class ChatAgent:
                     async for mode, payload in stream:
                         if mode == "messages":
                             chunk, metadata = payload
-                            # 过程与正文分别输出，避免思考块污染最终回答；工具结果由真实回调发送。
+                            # 仅转发正文；推理字段留在图内供模型续聊，不进入公开事件。
                             if isinstance(chunk, AIMessage) and metadata.get("langgraph_node") == "model":
                                 current_id = chunk.id or current_id
-                                for text in reasoning_text(chunk):
-                                    yield ChatReasoningDelta(thread_id=thread_id, message_id=current_id, text=text)
                                 if chunk.text:
                                     yield ChatDelta(thread_id=thread_id, message_id=current_id, text=str(chunk.text))
                         elif mode == "updates":
@@ -113,6 +111,14 @@ class ChatAgent:
                                     final_message = update["messages"][-1]
                                     final_id = final_message.id or current_id
                                     if isinstance(final_message, AIMessage):
+                                        # 提示词无法保证模型总有正文；在工具请求交付前补充中性行动说明。
+                                        # 兜底仅用于展示，不改写 checkpoint 或假称工具已执行成功。
+                                        if final_message.tool_calls and not final_message.text.strip():
+                                            names = "、".join(dict.fromkeys(call["name"] for call in final_message.tool_calls))
+                                            yield ChatDelta(
+                                                thread_id=thread_id, message_id=final_id,
+                                                text=f"我准备调用 {names} 获取所需信息。",
+                                            )
                                         for call in final_message.tool_calls:
                                             tool_names[call["id"]] = call["name"]
                                             yield ChatToolCall(

@@ -1,51 +1,20 @@
-"""Agent 过程事件适配：提取模型公开思考文本，捕获工具的真实执行生命周期。
+"""Agent 过程事件适配：捕获工具的真实执行生命周期。
 
 工具回调通过 LangGraph custom 通道发送结构化数据，与正文共享同一条流。
 每轮创建独立回调实例，避免不同会话间的工具状态串写；不发送内部异常、
 完整框架对象或工具 artifact，也不将这些过程正文主动写入应用日志。
 """
 
-from collections.abc import Iterator
 from dataclasses import dataclass
 from typing import Any, Literal
 from uuid import UUID
 
 from langchain_core.callbacks import AsyncCallbackHandler
-from langchain_core.messages import AIMessage, ToolMessage
+from langchain_core.messages import ToolMessage
 from langgraph.config import get_stream_writer
 
 from app.errors.codes import ErrorCode
 from app.schemas.chat import ChatToolEnd, ChatToolError, ChatToolStart
-
-
-def reasoning_text(message: AIMessage) -> Iterator[str]:
-    """提取当前消息片段中的公开思考文本，优先采用 DeepSeek 的原始字段。
-
-    同一个文本可能同时出现在 provider 字段与标准内容块中，只选择一种表示，
-    防止重复发送。不读取 encrypted_content、签名或其他非文本元数据。
-    """
-    provider_text = message.additional_kwargs.get("reasoning_content")
-    if isinstance(provider_text, str):
-        if provider_text:
-            yield provider_text
-        return
-    if isinstance(message.content, list):
-        for block in message.content:
-            if not isinstance(block, dict):
-                continue
-            if block.get("type") == "reasoning":
-                text = block.get("reasoning")
-                if isinstance(text, str) and text:
-                    yield text
-                # 部分模型仅提供 reasoning summary；保留服务返回的摘要文本。
-                elif isinstance(block.get("summary"), list):
-                    for summary in block["summary"]:
-                        if isinstance(summary, dict) and isinstance(summary.get("text"), str):
-                            yield summary["text"]
-            elif block.get("type") == "thinking":
-                text = block.get("thinking")
-                if isinstance(text, str) and text:
-                    yield text
 
 
 @dataclass

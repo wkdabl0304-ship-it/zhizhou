@@ -138,8 +138,8 @@ describe('聊天工作空间', () => {
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
   })
 
-  // 贯通 SSE → store → 过程卡片：工具失败后仍等待最终回答，复制最终正文不包含思考或工具输出。
-  it('实时展示思考和命令过程，局部失败后继续展示 Markdown 回答', async () => {
+  // 贯通 SSE → store → 过程卡片：工具失败后仍等待最终回答，复制最终正文不包含进度正文或工具输出。
+  it('实时展示进度正文和命令过程，局部失败后继续展示 Markdown 回答', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
     const wrapper = renderWorkspace()
@@ -150,15 +150,15 @@ describe('聊天工作空间', () => {
     }
     stream.push(
       eventFrame('start', { thread_id }) +
-        eventFrame('reasoning_delta', {
+        eventFrame('delta', {
           thread_id,
           message_id: 'plan',
-          text: '模型实际提供的思考文本',
+          text: '模型实际提供的进度正文文本',
         }),
     )
     await flushPromises()
-    expect(wrapper.get('[aria-label="思考与执行过程"]').text()).toContain('模型实际提供的思考文本')
-    expect(wrapper.get('[role="status"]').text()).toContain('正在思考')
+    expect(wrapper.get('[aria-label="执行过程"]').text()).toContain('模型实际提供的进度正文文本')
+    expect(wrapper.get('[role="status"]').text()).toContain('正在回复')
     stream.push(
       eventFrame('tool_start', {
         thread_id,
@@ -171,7 +171,7 @@ describe('聊天工作空间', () => {
     )
     await flushPromises()
     expect(wrapper.get('[role="status"]').text()).toContain('正在执行命令')
-    expect(wrapper.get('[aria-label="思考与执行过程"]').text()).toContain('命令执行')
+    expect(wrapper.get('[aria-label="执行过程"]').text()).toContain('命令执行')
     stream.push(
       eventFrame('tool_error', {
         thread_id,
@@ -189,12 +189,147 @@ describe('聊天工作空间', () => {
     stream.push(eventFrame('done', { thread_id, message_id: 'reply', reply: '**最终回答**' }))
     await flushPromises()
     expect(wrapper.get('.markdown-content strong').text()).toBe('最终回答')
-    expect(wrapper.get('[aria-label="思考与执行过程"]').text()).toContain('工具执行失败')
+    expect(wrapper.get('[aria-label="执行过程"]').text()).toContain('工具执行失败')
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue()
     vi.stubGlobal('navigator', { clipboard: { writeText } })
     await wrapper.get('[aria-label="复制回复"]').trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith('**最终回答**')
+  })
+
+  // 贯通正文→工具→后续正文→工具→最终回答；验证实时顺序、自动折叠与完整展开。
+  it('按顺序显示行动和工具，完成后折叠全部过程且不重复最终回答', async () => {
+    const stream = controlledStream()
+    fetchMock.mockResolvedValueOnce(stream.response)
+    const wrapper = renderWorkspace()
+    await wrapper.get('textarea').setValue('查询北京天气')
+    await wrapper.get('form').trigger('submit')
+    const { thread_id } = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as {
+      thread_id: string
+    }
+    stream.push(
+      [
+        eventFrame('start', { thread_id }),
+        eventFrame('delta', { thread_id, message_id: 'first', text: '我先查询北京天气。' }),
+        eventFrame('tool_call', {
+          thread_id,
+          message_id: 'first',
+          tool_call_id: 'weather',
+          name: 'get_weather',
+          arguments: { city: '北京' },
+        }),
+        eventFrame('tool_start', {
+          thread_id,
+          tool_call_id: 'weather',
+          run_id: 'r1',
+          name: 'get_weather',
+          kind: 'tool',
+          arguments: { city: '北京' },
+        }),
+        eventFrame('tool_end', {
+          thread_id,
+          tool_call_id: 'weather',
+          run_id: 'r1',
+          name: 'get_weather',
+          kind: 'tool',
+          output: '晴天',
+        }),
+        eventFrame('delta', { thread_id, message_id: 'next', text: '我接着核对温度。' }),
+        eventFrame('tool_call', {
+          thread_id,
+          message_id: 'next',
+          tool_call_id: 'temperature',
+          name: 'check_temperature',
+          arguments: {},
+        }),
+        eventFrame('tool_start', {
+          thread_id,
+          tool_call_id: 'temperature',
+          run_id: 'r2',
+          name: 'check_temperature',
+          kind: 'tool',
+          arguments: {},
+        }),
+        eventFrame('tool_end', {
+          thread_id,
+          tool_call_id: 'temperature',
+          run_id: 'r2',
+          name: 'check_temperature',
+          kind: 'tool',
+          output: '25°C',
+        }),
+        // 同文不同标识必须保留，不能靠字符串去重误删进度；done 会替换最终消息的增量。
+        eventFrame('delta', { thread_id, message_id: 'answer', text: '我接着核对温度。' }),
+      ].join(''),
+    )
+    await flushPromises()
+    const timeline = wrapper.get('.process-timeline')
+    expect(timeline.isVisible()).toBe(true)
+    expect(wrapper.find('.process-toggle').exists()).toBe(false)
+    expect(wrapper.findAll('.process-entry').map((item) => item.text())).toEqual([
+      '我先查询北京天气。',
+      expect.stringContaining('get_weather'),
+      '我接着核对温度。',
+      expect.stringContaining('check_temperature'),
+      '我接着核对温度。',
+    ])
+    // 工具详情是独立原生折叠，整体收起后再次展开应保留用户先前的选择。
+    wrapper.get('details').element.setAttribute('open', '')
+    stream.push(
+      eventFrame('done', { thread_id, message_id: 'answer', reply: '**北京晴天，25°C。**' }),
+    )
+    await flushPromises()
+    expect(wrapper.get('.process-toggle').attributes('aria-expanded')).toBe('false')
+    expect(timeline.isVisible()).toBe(false)
+    expect(wrapper.get('.message--assistant .message-body').text()).toBe('北京晴天，25°C。')
+    expect(wrapper.findAll('.process-entry')).toHaveLength(4)
+    await wrapper.get('.process-toggle').trigger('click')
+    expect(timeline.isVisible()).toBe(true)
+    expect(wrapper.get('details').attributes('open')).toBe('')
+    expect(
+      wrapper.findAll('.process-entry').filter((item) => item.text() === '我接着核对温度。'),
+    ).toHaveLength(1)
+    expect(timeline.text()).not.toContain('北京晴天，25°C。')
+    // 与最终事件无关的草稿更新不应再次强制折叠。
+    await wrapper.get('textarea').setValue('下一条问题')
+    expect(timeline.isVisible()).toBe(true)
+    await wrapper.get('.process-toggle').trigger('click')
+    expect(timeline.isVisible()).toBe(false)
+  })
+
+  // 单纯聊天没有工具过程；最终回答的消息增量移出时间线，不留下空的折叠入口。
+  it('普通回答完成后只展示最终正文，失败时保留展开的部分过程', async () => {
+    const stream = controlledStream()
+    fetchMock.mockResolvedValueOnce(stream.response)
+    const wrapper = renderWorkspace()
+    await wrapper.get('textarea').setValue('你好')
+    await wrapper.get('form').trigger('submit')
+    const { thread_id } = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as {
+      thread_id: string
+    }
+    stream.push(
+      eventFrame('start', { thread_id }) +
+        eventFrame('delta', { thread_id, message_id: 'answer', text: '你好' }) +
+        eventFrame('done', { thread_id, message_id: 'answer', reply: '你好。' }),
+    )
+    await flushPromises()
+    expect(wrapper.find('.agent-activity').exists()).toBe(false)
+    expect(wrapper.get('.message--assistant .message-body').text()).toBe('你好。')
+
+    const failed = controlledStream()
+    fetchMock.mockResolvedValueOnce(failed.response)
+    await wrapper.get('textarea').setValue('继续')
+    await wrapper.get('form').trigger('submit')
+    failed.push(
+      eventFrame('start', { thread_id }) +
+        eventFrame('delta', { thread_id, message_id: 'partial', text: '我先检查。' }),
+    )
+    failed.close()
+    await flushPromises()
+    expect(wrapper.get('.process-toggle').attributes('aria-expanded')).toBe('true')
+    expect(wrapper.get('.process-timeline').isVisible()).toBe(true)
+    expect(wrapper.get('.process-timeline').text()).toBe('我先检查。')
+    expect(wrapper.get('[role="alert"]').text()).toContain('回复未完成')
   })
 })

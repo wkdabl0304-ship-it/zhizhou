@@ -11,7 +11,6 @@ export type ToolKind = 'tool' | 'command'
 export type ChatStreamEvent =
   | { type: 'start'; threadId: string }
   | { type: 'delta'; messageId: string; text: string }
-  | { type: 'reasoning_delta'; messageId: string; text: string }
   | { type: 'done'; messageId: string; reply: string }
   | {
       type: 'tool_call'

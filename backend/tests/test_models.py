@@ -16,7 +16,7 @@ from app.agents.factory import build_agent
 from app.agents.models import DeepSeekChatModel, create_model
 from app.agents.tools.weather import get_weather
 from app.config.settings import Settings
-from app.schemas.chat import ChatDelta, ChatReasoningDelta, ChatToolCall, ChatToolEnd, ChatToolStart
+from app.schemas.chat import ChatDelta, ChatToolCall, ChatToolEnd, ChatToolStart
 
 
 def test_model_factory_enables_thinking_and_preserves_existing_configuration(monkeypatch):
@@ -81,8 +81,9 @@ def test_real_model_http_stream_preserves_reasoning_across_tool_and_followup_req
                 graph = build_agent(model, [get_weather], InMemorySaver())
                 agent = ChatAgent(graph)
                 events = [event async for event in agent.astream("天气", "a")]
-                assert [event.text for event in events if isinstance(event, ChatReasoningDelta)] == ["先查", "天气", "整理结果"]
-                assert "".join(event.text for event in events if isinstance(event, ChatDelta)) == "上海晴"
+                assert not any(event.event == "reasoning_delta" for event in events)
+                assert "整理结果" not in str(events)
+                assert [event.text for event in events if isinstance(event, ChatDelta)] == ["我准备调用 get_weather 获取所需信息。", "上海", "晴"]
                 calls = [event for event in events if isinstance(event, ChatToolCall)]
                 starts = [event for event in events if isinstance(event, ChatToolStart)]
                 ends = [event for event in events if isinstance(event, ChatToolEnd)]

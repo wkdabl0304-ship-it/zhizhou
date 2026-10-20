@@ -1,11 +1,11 @@
-/** 聊天过程归并：按模型消息、调用和执行标识更新卡片，独立于正文与视图状态。 */
+/** 聊天时间线归并：保留公开正文与工具的到达顺序，完成时分离最终回答。 */
 import type { ChatMessage, ToolActivity } from '@/types/chat'
 import type { ChatStreamEvent } from '@/types/chat-events'
 
-/** 结束当前正在累积的思考；后续事件意味着模型已转入下一阶段，不推测缺失文本。 */
-function closeReasoning(message: ChatMessage, interrupted = false): void {
+/** 结束上一阶段正文；中断仅表示未确认完成，不推测工具是否成功。 */
+function closeText(message: ChatMessage, interrupted = false): void {
   for (const item of message.activities ?? []) {
-    if (item.type === 'reasoning' && item.status === 'running')
+    if (item.type === 'text' && item.status === 'running')
       item.status = interrupted ? 'interrupted' : 'complete'
   }
 }
@@ -18,7 +18,7 @@ function updateToolStatus(tool: ToolActivity): void {
 }
 
 /**
- * 归并一个过程事件；正文及终止事件仅用于收束思考状态，不写入回复正文。
+ * 正文按消息标识累积，工具按调用与执行标识更新；done 仅移出最终消息的正文。
  * 无 tool_call 的执行事件也创建卡片；run_id 为 null 的拒绝保留为请求失败，不伪造执行记录。
  */
 export function updateActivity(message: ChatMessage, event: ChatStreamEvent): void {
@@ -26,29 +26,33 @@ export function updateActivity(message: ChatMessage, event: ChatStreamEvent): vo
   message.activities ??= []
   // 从响应式消息重新读取数组，避免首次赋值表达式返回原始数组而漏掉增量通知。
   const activities = message.activities
-  if (event.type === 'reasoning_delta') {
-    let reasoning = activities.find(
-      (item) => item.type === 'reasoning' && item.messageId === event.messageId,
-    )
-    if (!reasoning) {
-      closeReasoning(message)
+  if (event.type === 'delta') {
+    let text = activities.find((item) => item.type === 'text' && item.messageId === event.messageId)
+    if (!text) {
+      closeText(message)
       activities.push({
-        type: 'reasoning',
-        id: `reasoning-${event.messageId}`,
+        type: 'text',
+        id: `text-${event.messageId}`,
         messageId: event.messageId,
         text: '',
         status: 'running',
       })
-      reasoning = activities[activities.length - 1]!
+      text = activities[activities.length - 1]!
     }
-    if (reasoning.type === 'reasoning') {
-      reasoning.text += event.text
-      reasoning.status = 'running'
+    if (text.type === 'text') {
+      text.text += event.text
+      text.status = 'running'
     }
     return
   }
-  closeReasoning(message)
-  if (event.type === 'delta' || event.type === 'done') return
+  closeText(message)
+  if (event.type === 'done') {
+    // 最终回答已经有独立正文；按标识移除，不能用文本相等误删之前的进度说明。
+    message.activities = activities.filter(
+      (item) => item.type !== 'text' || item.messageId !== event.messageId,
+    )
+    return
+  }
   let tool = activities.find(
     (item): item is ToolActivity => item.type === 'tool' && item.toolCallId === event.toolCallId,
   )
@@ -92,7 +96,7 @@ export function updateActivity(message: ChatMessage, event: ChatStreamEvent): vo
 
 /** 终止整轮时结束活动指示；没有执行结果的工具均标记未确认，不把传输中断当作执行失败。 */
 export function finishActivities(message: ChatMessage, succeeded: boolean): void {
-  closeReasoning(message, !succeeded)
+  closeText(message, !succeeded)
   for (const tool of message.activities ?? []) {
     if (tool.type !== 'tool') continue
     for (const run of tool.runs) {

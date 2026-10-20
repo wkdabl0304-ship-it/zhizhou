@@ -160,8 +160,6 @@ def test_real_uvicorn_delivers_incrementally_and_cancels_disconnected_request():
                     assert response.headers["x-accel-buffering"] == "no"
                     assert (await read_event(lines))[0] == "start"
                     event, payload = await read_event(lines)
-                    assert event == "reasoning_delta" and payload["data"]["text"] == "公开思考"
-                    event, payload = await read_event(lines)
                     assert event == "delta" and payload["data"]["text"] == "你好\n"
                     assert not finished.is_set()
                     release.set()

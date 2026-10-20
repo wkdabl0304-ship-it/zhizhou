@@ -80,7 +80,7 @@ export const useChatStore = defineStore('chat', () => {
     })
     // 从响应式数组取得占位，保证异步更新能够触发组件重新渲染。
     const assistant = conversation.messages[conversation.messages.length - 1]!
-    // 工具调用前后的助手消息分别累积；done 的权威回答会替换这些临时文本块。
+    // blocks 保留临时正文便于失败诊断；可见顺序由 activities 维护，done 只替换最终正文。
     const segments = new Map<string, string>()
     try {
       for await (const event of streamChatMessage(content, conversation.id)) {

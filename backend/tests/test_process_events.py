@@ -1,4 +1,4 @@
-"""验证公开思考、工具执行与命令类工具的过程事件。
+"""验证正文说明、工具执行与命令类工具的过程事件。
 
 使用真实 LangChain 图、内存 checkpoint 和本地工具，通过事件屏障控制并发；
 命令类工具只返回固定结果，不启动系统命令，全部测试无需外部服务。
@@ -14,26 +14,12 @@ from langchain_core.tools import ToolException, tool
 from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.agent import ChatAgent
-from app.agents.events import reasoning_text
 from app.agents.factory import build_agent
 from app.errors.exceptions import ServiceError
 from app.schemas.chat import (
-    ChatResponse, ChatToolCall, ChatToolEnd, ChatToolError, ChatToolStart,
+    ChatDelta, ChatResponse, ChatToolCall, ChatToolEnd, ChatToolError, ChatToolStart,
 )
 from chat_fakes import StubChatModel
-
-
-@pytest.mark.parametrize("message,expected", [
-    (AIMessage(content="正文", additional_kwargs={"reasoning_content": "公开思考"}), ["公开思考"]),
-    (AIMessage(content=[{"type": "reasoning", "reasoning": "标准思考", "encrypted_content": "hidden"}]), ["标准思考"]),
-    (AIMessage(content=[{"type": "reasoning", "summary": [{"type": "summary_text", "text": "公开摘要"}]}]), ["公开摘要"]),
-    (AIMessage(content=[{"type": "thinking", "thinking": "思考文本", "signature": "hidden"}]), ["思考文本"]),
-    (AIMessage(content=[{"type": "reasoning", "reasoning": "重复表示"}], additional_kwargs={"reasoning_content": "原字段"}), ["原字段"]),
-    (AIMessage(content=[{"type": "reasoning", "encrypted_content": "hidden"}]), []),
-])
-def test_reasoning_only_extracts_provider_public_text(message, expected):
-    """提取服务公开文本或摘要，避免重复，不暴露加密内容或签名。"""
-    assert list(reasoning_text(message)) == expected
 
 
 class ToolCallingModel(StubChatModel):
@@ -91,6 +77,9 @@ def test_parallel_tools_report_independent_completion_before_node_finishes():
         try:
             await both_started.wait()
             assert len([event for event in observed if isinstance(event, ChatToolCall)]) == 2
+            # 模型只返回并行调用时，兜底正文仍在调用和实际执行之前到达。
+            assert isinstance(observed[0], ChatDelta)
+            assert "slow_tool、command_preview" in observed[0].text
             release_second.set()
             await second_finished.wait()
             assert not any(isinstance(event, ChatToolEnd) and event.name == "slow_tool" for event in observed)
