@@ -8,6 +8,7 @@ import asyncio
 from contextlib import aclosing
 
 import pytest
+from chat_fakes import StubChatModel
 from langchain_core.messages import AIMessage, ToolMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langchain_core.tools import ToolException, tool
@@ -17,9 +18,13 @@ from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
 from app.errors.exceptions import ServiceError
 from app.schemas.chat import (
-    ChatDelta, ChatResponse, ChatToolCall, ChatToolEnd, ChatToolError, ChatToolStart,
+    ChatDelta,
+    ChatResponse,
+    ChatToolCall,
+    ChatToolEnd,
+    ChatToolError,
+    ChatToolStart,
 )
-from chat_fakes import StubChatModel
 
 
 class ToolCallingModel(StubChatModel):
@@ -90,7 +95,7 @@ def test_parallel_tools_report_independent_completion_before_node_finishes():
             assert set(starts) == set(ends) == {"call-0", "call-1"}
             for call_id in starts:
                 assert starts[call_id].run_id == ends[call_id].run_id
-                assert starts[call_id].thread_id == ends[call_id].thread_id == "parallel"
+                assert starts[call_id].conversation_id == ends[call_id].conversation_id == "parallel"
             assert starts["call-1"].kind == ends["call-1"].kind == "command"
             assert starts["call-0"].kind == "tool"
             assert isinstance(observed[-1], ChatResponse)

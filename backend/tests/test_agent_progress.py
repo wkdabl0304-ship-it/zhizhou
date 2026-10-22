@@ -7,6 +7,7 @@
 import asyncio
 
 import pytest
+from chat_fakes import StubChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, SystemMessage
 from langchain_core.outputs import ChatGenerationChunk
 from langgraph.checkpoint.memory import InMemorySaver
@@ -16,7 +17,6 @@ from app.agents.factory import build_agent
 from app.agents.prompts import SYSTEM_PROMPT
 from app.agents.tools.weather import get_weather
 from app.schemas.chat import ChatDelta, ChatResponse, ChatToolCall, ChatToolStart
-from chat_fakes import StubChatModel
 
 
 @pytest.mark.parametrize("with_tools", [False, True])
@@ -91,9 +91,9 @@ def test_content_and_tool_calls_share_model_step_and_final_reply_is_separate(wit
                 assert events[call_index].message_id == response.id
                 assert events[call_index].arguments == call["args"]
 
-        assert events[-1] == ChatResponse(reply=final_text, thread_id="progress", message_id="final")
+        assert events[-1] == ChatResponse(reply=final_text, conversation_id="progress", message_id="final")
         assert sum(isinstance(event, ChatToolCall) for event in events) == (3 if with_tools else 0)
-        state = await graph.aget_state({"configurable": {"thread_id": "progress"}})
+        state = await graph.aget_state({"configurable": {"thread_id": "conversation:progress"}})
         saved = [message for message in state.values["messages"] if isinstance(message, AIMessage)]
         assert [message.text for message in saved] == [response.text for response in responses]
         assert [message.tool_calls for message in saved] == [response.tool_calls for response in responses]

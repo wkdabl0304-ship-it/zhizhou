@@ -9,19 +9,22 @@ import json
 import socket
 import sys
 from unittest.mock import Mock
+from uuid import UUID, uuid4
 
 import httpx
 import pytest
 import uvicorn
 from fastapi import FastAPI
 from langchain_core.messages import AIMessage, AIMessageChunk
+from service_fakes import A, MemoryConversationService
 
 from app.agents.agent import ChatAgent
+from app.api.dependencies import get_current_user
 from app.api.exception_handlers import register_exception_handlers
 from app.api.router import api_router
 from app.api.routes.chat import chat
 from app.config.event_loop import create_event_loop
-from app.schemas.chat import ChatRequest
+from app.services.conversations import PreparedChat
 
 
 @pytest.mark.parametrize("version", ["2.0", "2.4"])
@@ -45,9 +48,9 @@ def test_disconnect_cleans_generator_and_conversation_lock(version, interruption
         agent = ChatAgent(Mock(astream=stream))
         holder = None
         if interruption == "waiting":
-            holder = asyncio.create_task(agent.achat("first", "a"))
+            holder = asyncio.create_task(agent.achat("first", A))
             await entered.wait()
-        response = await chat(ChatRequest(message="next", thread_id="a"), agent)
+        response = await chat(PreparedChat(UUID(A), uuid4(), "next", False), agent, MemoryConversationService())
 
         async def send(message):
             """观察真实编码后的增量，按场景模拟底层 socket 发送失败。"""
@@ -59,7 +62,7 @@ def test_disconnect_cleans_generator_and_conversation_lock(version, interruption
         async def receive():
             """在模型等待或第二轮排队后发送 disconnect，其他场景等待被取消。"""
             if interruption == "waiting":
-                while agent._locks["a"].users != 2:
+                while agent._locks[A].users != 2:
                     await asyncio.sleep(0)
             elif interruption == "generating":
                 await entered.wait()
@@ -77,7 +80,7 @@ def test_disconnect_cleans_generator_and_conversation_lock(version, interruption
             else:
                 await task
             if holder:
-                assert agent._locks["a"].users == 1
+                assert agent._locks[A].users == 1
                 assert not cleaned.is_set()
                 holder.cancel()
                 with pytest.raises(asyncio.CancelledError):
@@ -124,6 +127,11 @@ def test_real_uvicorn_delivers_incrementally_and_cancels_disconnected_request():
 
         app = FastAPI()
         app.state.chat_agent = ChatAgent(Mock(astream=stream))
+        app.state.conversation_service = MemoryConversationService()
+        def current_user():
+            """TCP 传输回归注入已认证用户，避免与 JWT 集成测试重复耦合。"""
+            return Mock(id=UUID(A))
+        app.dependency_overrides[get_current_user] = current_user
         register_exception_handlers(app)
         app.include_router(api_router)
         listener = socket.socket()
@@ -152,7 +160,7 @@ def test_real_uvicorn_delivers_incrementally_and_cancels_disconnected_request():
                     raise AssertionError("server failed to start")
                 await asyncio.sleep(0.001)
             async with httpx.AsyncClient(base_url=f"http://127.0.0.1:{port}", timeout=5) as client:
-                async with client.stream("POST", "/api/chat", json={"message": "success", "thread_id": "a"}) as response:
+                async with client.stream("POST", "/api/chat", json={"message": "success", "conversation_id": A}) as response:
                     lines = response.aiter_lines()
                     assert response.status_code == 200
                     assert response.headers["content-type"].startswith("text/event-stream")
@@ -168,12 +176,12 @@ def test_real_uvicorn_delivers_incrementally_and_cancels_disconnected_request():
                     assert event == "done" and payload["data"]["reply"] == "你好\n世界"
                     assert finished.is_set()
                     assert [line async for line in lines] == []
-                async with client.stream("POST", "/api/chat", json={"message": "failure", "thread_id": "a"}) as response:
+                async with client.stream("POST", "/api/chat", json={"message": "failure", "conversation_id": A}) as response:
                     body = (await response.aread()).decode()
                     assert "event: delta" in body and "event: error" in body
                     assert "event: done" not in body and "private-provider-error" not in body
                     assert '"code":50001' in body
-                async with client.stream("POST", "/api/chat", json={"message": "cancel", "thread_id": "a"}) as response:
+                async with client.stream("POST", "/api/chat", json={"message": "cancel", "conversation_id": A}) as response:
                     lines = response.aiter_lines()
                     assert (await read_event(lines))[0] == "start"
                     assert (await read_event(lines))[0] == "delta"

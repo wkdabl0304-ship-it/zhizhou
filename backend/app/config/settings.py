@@ -24,6 +24,21 @@ class Settings:
     postgres_host: str = "127.0.0.1"
     model_name: str = "deepseek-flash"
     model_base_url: str = "https://api.deepseek.com"
+    jwt_secret: str = field(default="", repr=False)
+    jwt_ttl_seconds: int = 7200
+    jwt_issuer: str = "zhizhou"
+    jwt_audience: str = "zhizhou-api"
+
+
+@dataclass(frozen=True)
+class DatabaseSettings:
+    """独立的数据库配置，迁移命令不要求模型密钥或 JWT 密钥。"""
+
+    postgres_user: str
+    postgres_password: str = field(repr=False)
+    postgres_db: str
+    postgres_port: int
+    postgres_host: str = "127.0.0.1"
 
 
 @dataclass(frozen=True)
@@ -61,7 +76,9 @@ def load_logging_settings(env_path: Path | None = None) -> LoggingSettings:
         """读取 name 对应的日志级别；缺省用 default，非法时抛出 ValueError。"""
         value = (values.get(name, default) or "").strip().upper()
         if value not in levels:
-            raise ValueError(f"{name} 必须是 DEBUG、INFO、WARNING、ERROR、CRITICAL 之一")
+            raise ValueError(
+                f"{name} 必须是 DEBUG、INFO、WARNING、ERROR、CRITICAL 之一"
+            )
         return value
 
     enabled = (values.get("LOG_ACCESS_ENABLED", "true") or "").strip().lower()
@@ -77,8 +94,8 @@ def load_logging_settings(env_path: Path | None = None) -> LoggingSettings:
 def load_settings(env_path: Path | None = None) -> Settings:
     """读取并校验业务配置，返回供模型和数据库工厂使用的 Settings。
 
-    env_path 可覆盖默认环境文件。密钥、数据库用户、密码、库名和端口
-    均须非空；端口须在 1–65535 范围内，否则抛出 ValueError。
+    env_path 可覆盖默认环境文件。模型密钥、数据库参数和 JWT 密钥须非空；
+    JWT 密钥至少 32 字节，端口和令牌有效期分别校验范围及正整数约束。
     错误只指出配置项或约束，不把密钥等原始值拼接到错误消息中。
     """
     values = _read_environment(env_path)
@@ -88,6 +105,7 @@ def load_settings(env_path: Path | None = None) -> Settings:
         "POSTGRES_PASSWORD",
         "POSTGRES_DB",
         "POSTGRES_PORT",
+        "JWT_SECRET",
     )
     missing = [name for name in required if not (values.get(name) or "").strip()]
     # 一次列出缺失项，方便开发者完整补齐配置后再尝试启动。
@@ -101,10 +119,50 @@ def load_settings(env_path: Path | None = None) -> Settings:
     if not 1 <= port <= 65535:
         raise ValueError("POSTGRES_PORT 必须是 1–65535 之间的整数")
 
+    secret = values["JWT_SECRET"]
+    if len(secret.encode("utf-8")) < 32:
+        raise ValueError("JWT_SECRET 至少需要 32 个字节")
+    try:
+        ttl = int(values.get("JWT_TTL_SECONDS", "7200"))
+    except ValueError, TypeError:
+        raise ValueError("JWT_TTL_SECONDS 必须是正整数") from None
+    if ttl <= 0:
+        raise ValueError("JWT_TTL_SECONDS 必须是正整数")
+    host = (values.get("POSTGRES_HOST", "127.0.0.1") or "").strip()
+    if not host:
+        raise ValueError("POSTGRES_HOST 不能为空")
+
     return Settings(
         deepseek_api_key=values["DEEPSEEK_API_KEY"],
         postgres_user=values["POSTGRES_USER"],
         postgres_password=values["POSTGRES_PASSWORD"],
         postgres_db=values["POSTGRES_DB"],
         postgres_port=port,
+        postgres_host=host,
+        jwt_secret=secret,
+        jwt_ttl_seconds=ttl,
+    )
+
+
+def load_database_settings(env_path: Path | None = None) -> DatabaseSettings:
+    """仅加载迁移和业务引擎需要的数据库配置，不连接数据库或读取其他密钥。"""
+    values = _read_environment(env_path)
+    names = ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "POSTGRES_PORT")
+    if any(not (values.get(name) or "").strip() for name in names):
+        raise ValueError("数据库配置不完整，请检查 POSTGRES_* 配置")
+    try:
+        port = int(values["POSTGRES_PORT"])
+    except ValueError:
+        raise ValueError("POSTGRES_PORT 必须是 1–65535 之间的整数") from None
+    if not 1 <= port <= 65535:
+        raise ValueError("POSTGRES_PORT 必须是 1–65535 之间的整数")
+    host = (values.get("POSTGRES_HOST", "127.0.0.1") or "").strip()
+    if not host:
+        raise ValueError("POSTGRES_HOST 不能为空")
+    return DatabaseSettings(
+        values["POSTGRES_USER"],
+        values["POSTGRES_PASSWORD"],
+        values["POSTGRES_DB"],
+        port,
+        host,
     )

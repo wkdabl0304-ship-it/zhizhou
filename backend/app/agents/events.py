@@ -33,9 +33,9 @@ class ToolEventHandler(AsyncCallbackHandler):
     run_inline = True
     raise_error = True
 
-    def __init__(self, thread_id: str) -> None:
+    def __init__(self, conversation_id: str) -> None:
         """保存会话标识，创建按运行 ID 区分的并行工具上下文。"""
-        self._thread_id = thread_id
+        self._conversation_id = conversation_id
         self._runs: dict[UUID, _ToolRun] = {}
 
     async def on_tool_start(
@@ -56,7 +56,7 @@ class ToolEventHandler(AsyncCallbackHandler):
         )
         self._runs[run_id] = run
         get_stream_writer()(ChatToolStart( # 往 custom 流里写入事件
-            thread_id=self._thread_id, tool_call_id=run.tool_call_id,
+            conversation_id=self._conversation_id, tool_call_id=run.tool_call_id,
             run_id=str(run_id), name=run.name, kind=run.kind,
             arguments=inputs if inputs is not None else input_str,
         ))
@@ -71,7 +71,7 @@ class ToolEventHandler(AsyncCallbackHandler):
             return
         content = output.content if isinstance(output, ToolMessage) else output
         get_stream_writer()(ChatToolEnd(
-            thread_id=self._thread_id, tool_call_id=run.tool_call_id,
+            conversation_id=self._conversation_id, tool_call_id=run.tool_call_id,
             run_id=str(run_id), name=run.name, kind=run.kind, output=content,
         ))
 
@@ -84,7 +84,7 @@ class ToolEventHandler(AsyncCallbackHandler):
     def _write_error(self, run_id: UUID, run: _ToolRun) -> None:
         """统一编码安全工具失败事件，不把异常字符串混入客户端过程流。"""
         get_stream_writer()(ChatToolError(
-            thread_id=self._thread_id, tool_call_id=run.tool_call_id,
+            conversation_id=self._conversation_id, tool_call_id=run.tool_call_id,
             run_id=str(run_id), name=run.name, kind=run.kind,
             message=ErrorCode.TOOL_FAILED.message,
         ))

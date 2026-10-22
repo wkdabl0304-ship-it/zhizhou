@@ -18,7 +18,10 @@ from app.api.exception_handlers import ERROR_RESPONSES, register_exception_handl
 from app.api.router import api_router
 from app.config.logging import configure_logging
 from app.config.settings import load_logging_settings, load_settings
+from app.db.business import open_business_database
 from app.db.checkpoint import open_checkpointer
+from app.services.auth import AuthService
+from app.services.conversations import ConversationService
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +44,16 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     async with AsyncExitStack() as resources:
         try:
             settings = load_settings()
+            database = await resources.enter_async_context(open_business_database(settings))
+            auth_service = AuthService(database, settings) # 初始化 AuthService
+            await auth_service.initialize()
+            conversation_service = ConversationService(database) # 初始化 ConversationService
+            await conversation_service.recover()
             model = create_model(settings)
             checkpointer = await resources.enter_async_context(open_checkpointer(settings))
             app.state.chat_agent = ChatAgent(build_agent(model, [get_weather], checkpointer))
+            app.state.auth_service = auth_service
+            app.state.conversation_service = conversation_service
         except Exception:
             logger.exception("应用启动失败")
             raise
@@ -54,6 +64,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         finally:
             # 先撤销对外暴露的对象，再关闭其依赖，防止继续使用已关闭连接。
             del app.state.chat_agent
+            del app.state.auth_service
+            del app.state.conversation_service
             await resources.aclose()
             logger.info("应用资源已关闭")
 

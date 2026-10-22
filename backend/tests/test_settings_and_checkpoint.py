@@ -10,11 +10,12 @@ from dataclasses import replace
 import pytest
 from psycopg.conninfo import conninfo_to_dict
 
-from app.config.settings import Settings, load_settings
+from app.config.settings import Settings, load_database_settings, load_settings
 from app.db.checkpoint import build_conninfo, open_checkpointer
 
 ENV_VALUES = {
     "DEEPSEEK_API_KEY": "test-key",
+    "JWT_SECRET": "test-jwt-secret-which-is-at-least-32-bytes",
     "POSTGRES_USER": "postgres",
     "POSTGRES_PASSWORD": "test-password",
     "POSTGRES_DB": "zhizhou",
@@ -160,3 +161,31 @@ def test_checkpointer_initializes_and_closes_even_on_failure(
     assert events == (["open", "setup", "close"] if failure == "setup" else [
         "open", "setup", "body", "close"
     ])
+
+
+@pytest.mark.parametrize("key,value", [
+    ("JWT_SECRET", "too-short-secret"),
+    ("JWT_TTL_SECONDS", "0"),
+    ("JWT_TTL_SECONDS", "-1"),
+    ("JWT_TTL_SECONDS", "invalid"),
+    ("JWT_TTL_SECONDS", ""),
+    ("POSTGRES_HOST", ""),
+    ("POSTGRES_HOST", "  "),
+])
+def test_auth_settings_and_host_validation_hide_invalid_values(env_file, monkeypatch, key, value):
+    """拒绝弱长度密钥、无效令牌寿命和空主机，错误只指出配置键而不回显原值。"""
+    monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match=key) as error:
+        load_settings(env_file)
+    if value in {"too-short-secret", "invalid"}:
+        assert value not in str(error.value)
+
+
+def test_migration_configuration_needs_only_database_values(tmp_path, monkeypatch):
+    """迁移加载与模型/JWT 解耦，避免首次部署必须先准备无关应用凭据。"""
+    for key in ENV_VALUES:
+        monkeypatch.delenv(key, raising=False)
+    path = tmp_path / ".env"
+    path.write_text("\n".join(f"{key}={value}" for key, value in ENV_VALUES.items() if key.startswith("POSTGRES_")), encoding="utf-8")
+    settings = load_database_settings(path)
+    assert settings.postgres_db == "zhizhou" and settings.postgres_host == "127.0.0.1"

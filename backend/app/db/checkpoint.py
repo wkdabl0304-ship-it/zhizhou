@@ -1,6 +1,6 @@
 """管理 PostgreSQL checkpoint 的连接参数、表初始化和连接生命周期。
 
-此模块提供持久化基础设施；对话消息与 thread_id 的处理仍由 Agent 负责。
+此模块提供持久化基础设施；对话消息与 conversation_id 的处理仍由 Agent 负责。
 """
 
 from collections.abc import AsyncIterator

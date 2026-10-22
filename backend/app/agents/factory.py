@@ -21,7 +21,7 @@ def build_agent(
     """根据注入依赖返回支持 astream 的 Agent 图。
 
     model 负责生成和工具选择，tools 定义可调用能力，checkpointer
-    负责按 thread_id 保存消息。调用方须在整个图执行期间保持存储可用。
+    负责按 Agent 适配的内部状态键保存消息。调用方须在整个图执行期间保持存储可用。
     统一系统提示词从 prompts 模块读取；组装本身不会发起模型请求。
     """
     return create_agent(

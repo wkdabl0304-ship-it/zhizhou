@@ -1,20 +1,22 @@
 """聊天请求及 SSE 事件的数据模型，由 API 层添加通用响应外壳。"""
 
 from typing import ClassVar, Literal
+from uuid import UUID
 
-from pydantic import BaseModel, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
 
 
 class ChatRequest(BaseModel):
-    """一轮聊天输入；message 是用户消息，thread_id 用于关联持久化历史。"""
+    """一轮聊天输入；缺省业务会话 ID 自动创建，已有 ID 由服务校验归属及删除状态。"""
 
+    model_config = ConfigDict(extra="forbid")
     message: str = Field(min_length=1)
-    thread_id: str = Field(min_length=1)
+    conversation_id: UUID | None = None
 
-    @field_validator("message", "thread_id")
+    @field_validator("message")
     @classmethod
     def reject_blank(cls, value: str) -> str:
-        """拒绝纯空白字符串，合法值原样返回以保留消息及标识的实际内容。
+        """拒绝纯空白正文，合法值原样返回以保留用户输入的实际内容。
 
         Field 的长度约束处理空字符串，本校验补足空格、换行等情况；
         失败抛出的 ValueError 会被 Pydantic 汇总为请求校验错误。
@@ -24,14 +26,21 @@ class ChatRequest(BaseModel):
         return value
 
 
-class ChatStart(BaseModel):
-    """请求已接受；thread_id 对应排队或执行中的会话。"""
+class ChatEvent(BaseModel):
+    """所有公开事件的业务会话归属，框架内部状态键不进入协议。"""
+
+    conversation_id: str
+
+
+class ChatStart(ChatEvent):
+    """输入已提交；首轮由后端创建会话并签发轮次标识。"""
 
     event: ClassVar[str] = "start"
-    thread_id: str
+    turn_id: UUID
+    is_new: bool
 
 
-class ChatDelta(ChatStart):
+class ChatDelta(ChatEvent):
     """助手的一段可见文本；message_id 区分工具调用前后的模型消息。"""
 
     event: ClassVar[str] = "delta"
@@ -39,7 +48,7 @@ class ChatDelta(ChatStart):
     text: str
 
 
-class ChatToolCall(ChatStart):
+class ChatToolCall(ChatEvent):
     """模型已生成的完整工具请求；此事件不表示工具已经开始执行。"""
 
     event: ClassVar[str] = "tool_call"
@@ -49,7 +58,7 @@ class ChatToolCall(ChatStart):
     arguments: dict[str, JsonValue]
 
 
-class ChatToolStart(ChatStart):
+class ChatToolStart(ChatEvent):
     """一次实际工具执行；kind 由工具 display_kind 元数据声明，不按名称猜测。"""
 
     event: ClassVar[str] = "tool_start"
@@ -60,7 +69,7 @@ class ChatToolStart(ChatStart):
     arguments: dict[str, JsonValue] | str
 
 
-class ChatToolEnd(ChatStart):
+class ChatToolEnd(ChatEvent):
     """一次成功执行的公开输出；只包含工具正文，不包含 artifact 或框架对象。"""
 
     event: ClassVar[str] = "tool_end"
@@ -71,7 +80,7 @@ class ChatToolEnd(ChatStart):
     output: JsonValue
 
 
-class ChatToolError(ChatStart):
+class ChatToolError(ChatEvent):
     """工具调用失败的安全说明；执行前被拒绝时 run_id 为空，不终止整轮对话。"""
 
     event: ClassVar[str] = "tool_error"
@@ -82,7 +91,7 @@ class ChatToolError(ChatStart):
     message: str
 
 
-class ChatResponse(ChatStart):
+class ChatResponse(ChatEvent):
     """本轮最终助手消息；reply 是权威完整回答，可能不同于所有增量的拼接。"""
 
     event: ClassVar[str] = "done"

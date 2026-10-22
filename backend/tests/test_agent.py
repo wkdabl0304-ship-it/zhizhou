@@ -7,10 +7,11 @@ import asyncio
 import importlib
 import logging
 from contextlib import aclosing
-from unittest.mock import Mock
 from typing import Any
+from unittest.mock import Mock
 
 import pytest
+from chat_fakes import GraphStub, StubChatModel
 from langchain_core.messages import AIMessage, AIMessageChunk, HumanMessage, ToolMessage
 from langchain_core.outputs import ChatGenerationChunk
 from langgraph.checkpoint.memory import InMemorySaver
@@ -21,7 +22,6 @@ from app.agents.tools.weather import get_weather
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import BusinessError, ServiceError
 from app.schemas.chat import ChatDelta, ChatResponse, ChatToolCall
-from chat_fakes import GraphStub, StubChatModel
 
 
 def test_chat_passes_message_thread_and_stream_options():
@@ -32,11 +32,11 @@ def test_chat_passes_message_thread_and_stream_options():
         agent = ChatAgent(graph)
         events = [event async for event in agent.astream("你好", "thread-1")]
         assert "".join(event.text for event in events if isinstance(event, ChatDelta)) == graph.reply
-        assert events[-1] == ChatResponse(reply=graph.reply, thread_id="thread-1", message_id="reply-1")
+        assert events[-1] == ChatResponse(reply=graph.reply, conversation_id="thread-1", message_id="reply-1")
         assert len(graph.calls) == 1
         inputs, options = graph.calls[0]
         assert inputs["messages"] == [HumanMessage(content="你好")]
-        assert options["config"]["configurable"] == {"thread_id": "thread-1"}
+        assert options["config"]["configurable"] == {"thread_id": "conversation:thread-1"}
         assert len(options["config"]["callbacks"]) == 1
         assert options["stream_mode"] == ["messages", "updates", "custom"]
         assert options["version"] == "v1" and options["durability"] == "sync"
@@ -109,7 +109,7 @@ def test_real_graph_history_tools_and_restore():
         assert events[-1].reply == "上海今天晴天，温度 25°C"
         assert next(event for event in events if isinstance(event, ChatDelta)).text == "我准备调用 get_weather 获取所需信息。"
         assert events[0].message_id != events[-1].message_id
-        state = await graph.aget_state({"configurable": {"thread_id": "weather"}})
+        state = await graph.aget_state({"configurable": {"thread_id": "conversation:weather"}})
         assert state.values["messages"][-1].text == events[-1].reply
         assert state.values["messages"][-1].id == events[-1].message_id
     asyncio.run(scenario())
@@ -303,7 +303,7 @@ def test_real_graph_cancellation_retains_user_checkpoint_without_partial_answer(
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        state = await graph.aget_state({"configurable": {"thread_id": "a"}})
+        state = await graph.aget_state({"configurable": {"thread_id": "conversation:a"}})
         assert [message.content for message in state.values["messages"]] == ["保存用户问题"]
         assert cleaned.is_set() and agent._locks == {}
     asyncio.run(asyncio.wait_for(scenario(), 5))

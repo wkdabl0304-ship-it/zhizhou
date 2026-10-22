@@ -20,9 +20,20 @@ from app.agents.events import ToolEventHandler
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import AppError, ServiceError, log_app_error
 from app.schemas.chat import (
-    ChatAgentEvent, ChatDelta, ChatResponse,
-    ChatToolCall, ChatToolEnd, ChatToolError, ChatToolStart,
+    ChatAgentEvent,
+    ChatDelta,
+    ChatResponse,
+    ChatToolCall,
+    ChatToolEnd,
+    ChatToolError,
+    ChatToolStart,
 )
+
+
+def checkpoint_key(conversation_id: str) -> str:
+    """仅在框架边界映射内部状态键，避免旧的无归属 checkpoint 被业务 API 接管。"""
+    return f"conversation:{conversation_id}"
+
 
 logger = logging.getLogger(__name__)
 
@@ -44,13 +55,13 @@ class ChatAgent:
         self._locks: dict[str, _ConversationLock] = {} # 全局会话锁列表
 
     @asynccontextmanager
-    async def _conversation(self, thread_id: str) -> AsyncIterator[None]:
+    async def _conversation(self, conversation_id: str) -> AsyncIterator[None]:
         """按进入顺序取得会话锁，取消等待或离开后回收最后一个引用。
 
         注册及注销引用之间没有 await，因此事件循环内不需要额外注册表锁。
         等待者先登记引用，避免持有者释放时移除仍被其他请求使用的锁。
         """
-        entry = self._locks.setdefault(thread_id, _ConversationLock())
+        entry = self._locks.setdefault(conversation_id, _ConversationLock())
         entry.users += 1
         try:
             async with entry.lock:
@@ -58,9 +69,9 @@ class ChatAgent:
         finally:
             entry.users -= 1
             if entry.users == 0:
-                del self._locks[thread_id]
+                del self._locks[conversation_id]
 
-    async def astream(self, message: str, thread_id: str) -> AsyncIterator[ChatAgentEvent]:
+    async def astream(self, message: str, conversation_id: str) -> AsyncIterator[ChatAgentEvent]:
         """发送一轮消息，yield 正文与过程事件，持久化完成后 yield 最终回复。
 
         同会话排队，不同会话并发；计时包含排队时间。调用方提前结束时
@@ -70,7 +81,7 @@ class ChatAgent:
         """
         started = perf_counter()
         try:
-            async with self._conversation(thread_id):
+            async with self._conversation(conversation_id):
                 final_message = None
                 final_id = ""
                 current_id = str(uuid4())
@@ -81,8 +92,8 @@ class ChatAgent:
                 stream = self._agent.astream(
                     {"messages": [HumanMessage(content=message)]},
                     config={
-                        "configurable": {"thread_id": thread_id},
-                        "callbacks": [ToolEventHandler(thread_id)], # 回调监听器
+                        "configurable": {"thread_id": checkpoint_key(conversation_id)},
+                        "callbacks": [ToolEventHandler(conversation_id)], # 回调监听器
                     },
                     stream_mode=["messages", "updates", "custom"],
                     version="v1",
@@ -96,7 +107,7 @@ class ChatAgent:
                             if isinstance(chunk, AIMessage) and metadata.get("langgraph_node") == "model":
                                 current_id = chunk.id or current_id
                                 if chunk.text:
-                                    yield ChatDelta(thread_id=thread_id, message_id=current_id, text=str(chunk.text))
+                                    yield ChatDelta(conversation_id=conversation_id, message_id=current_id, text=str(chunk.text))
                         elif mode == "updates":
                             for update in payload.values():
                                 if isinstance(update, dict) and update.get("messages"):
@@ -104,7 +115,7 @@ class ChatAgent:
                                         if isinstance(item, ToolMessage) and item.status == "error" and item.tool_call_id not in finished_tools:
                                             finished_tools.add(item.tool_call_id)
                                             yield ChatToolError(
-                                                thread_id=thread_id, tool_call_id=item.tool_call_id,
+                                                conversation_id=conversation_id, tool_call_id=item.tool_call_id,
                                                 name=item.name or tool_names.get(item.tool_call_id, "tool"),
                                                 message=ErrorCode.TOOL_FAILED.message,
                                             )
@@ -116,13 +127,13 @@ class ChatAgent:
                                         if final_message.tool_calls and not final_message.text.strip():
                                             names = "、".join(dict.fromkeys(call["name"] for call in final_message.tool_calls))
                                             yield ChatDelta(
-                                                thread_id=thread_id, message_id=final_id,
+                                                conversation_id=conversation_id, message_id=final_id,
                                                 text=f"我准备调用 {names} 获取所需信息。",
                                             )
                                         for call in final_message.tool_calls:
                                             tool_names[call["id"]] = call["name"]
                                             yield ChatToolCall(
-                                                thread_id=thread_id, message_id=final_id,
+                                                conversation_id=conversation_id, message_id=final_id,
                                                 tool_call_id=call["id"], name=call["name"],
                                                 arguments=call["args"],
                                             )
@@ -130,7 +141,7 @@ class ChatAgent:
                                     current_id = str(uuid4())
                         elif mode == "custom" and isinstance(payload, (ChatToolStart, ChatToolEnd, ChatToolError)):
                             # custom 也可用于工具自定义进度，此处只转发本会话的已知协议模型。
-                            if payload.thread_id == thread_id:
+                            if payload.conversation_id == conversation_id:
                                 if isinstance(payload, (ChatToolEnd, ChatToolError)):
                                     finished_tools.add(payload.tool_call_id)
                                 yield payload
@@ -140,29 +151,29 @@ class ChatAgent:
                     or not final_message.text.strip()
                 ):
                     raise ValueError("Agent 未返回最终助手文本")
-                result = ChatResponse(reply=str(final_message.text), thread_id=thread_id, message_id=final_id)
+                result = ChatResponse(reply=str(final_message.text), conversation_id=conversation_id, message_id=final_id)
                 # 图迭代结束已经等待 checkpoint 写入，记录成功后才交付 done。
                 duration_ms = round((perf_counter() - started) * 1000, 2)
                 logger.info(
-                    "对话完成 thread_id=%r duration_ms=%.2f", thread_id, duration_ms,
-                    extra={"thread_id": thread_id, "duration_ms": duration_ms},
+                    "对话完成 conversation_id=%r duration_ms=%.2f", conversation_id, duration_ms,
+                    extra={"conversation_id": conversation_id, "duration_ms": duration_ms},
                 )
                 yield result
         except AppError as exc:
             log_app_error(logger, exc, context={
-                "thread_id": thread_id, "duration_ms": round((perf_counter() - started) * 1000, 2),
+                "conversation_id": conversation_id, "duration_ms": round((perf_counter() - started) * 1000, 2),
             })
             raise
         except Exception as exc:
             error = ServiceError(ErrorCode.CHAT_FAILED)
             log_app_error(logger, error, context={
-                "thread_id": thread_id, "duration_ms": round((perf_counter() - started) * 1000, 2),
+                "conversation_id": conversation_id, "duration_ms": round((perf_counter() - started) * 1000, 2),
             }, cause=exc)
             raise error from exc
 
-    async def achat(self, message: str, thread_id: str) -> str:
+    async def achat(self, message: str, conversation_id: str) -> str:
         """消费同一个异步流并返回最终文本，供命令行使用，不重复执行图。"""
-        async with aclosing(self.astream(message, thread_id)) as stream:
+        async with aclosing(self.astream(message, conversation_id)) as stream:
             async for event in stream:
                 if isinstance(event, ChatResponse):
                     return event.reply

@@ -6,6 +6,7 @@
 
 import logging
 from collections.abc import Mapping
+from typing import ClassVar
 
 from app.errors.codes import ErrorCode
 
@@ -33,6 +34,25 @@ class BusinessError(AppError):
         super().__init__(error_code)
         if not error_code.is_business:
             raise ValueError("BusinessError 必须使用 20000–29999 范围内的业务码")
+
+
+class RequestError(AppError):
+    """已登记的认证及资源访问失败，HTTP 边界返回对应 4xx，SSE 内仍使用错误事件。"""
+
+    _statuses: ClassVar[dict[ErrorCode, int]] = {
+        ErrorCode.UNAUTHENTICATED: 401,
+        ErrorCode.INVALID_CREDENTIALS: 401,
+        ErrorCode.CONVERSATION_NOT_FOUND: 404,
+        ErrorCode.CONVERSATION_BUSY: 409,
+        ErrorCode.INVALID_ARGUMENT: 422,
+    }
+
+    def __init__(self, error_code: ErrorCode) -> None:
+        """仅接受预定义请求错误，不允许调用层随意改变错误码与 HTTP 状态的对应关系。"""
+        super().__init__(error_code)
+        if error_code not in self._statuses:
+            raise ValueError("RequestError 必须使用已登记的请求错误码")
+        self.status_code = self._statuses[error_code]
 
 
 class ServiceError(AppError):

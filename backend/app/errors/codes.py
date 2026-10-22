@@ -12,10 +12,15 @@ class ErrorCode(Enum):
 
     # 业务失败：HTTP 200。按实际功能增加条目，不复用已有码值。
     BUSINESS_ERROR = (20000, "业务处理失败")
+    USERNAME_EXISTS = (20001, "用户名已存在")
 
     # 请求与协议错误：保留对应 HTTP 4xx。
     REQUEST_FAILED = (40000, "请求失败")
+    UNAUTHENTICATED = (40101, "登录状态无效或已过期，请重新登录")
+    INVALID_CREDENTIALS = (40102, "用户名或密码错误")
     NOT_FOUND = (40400, "接口不存在")
+    CONVERSATION_NOT_FOUND = (40401, "会话不存在或不可用")
+    CONVERSATION_BUSY = (40901, "会话正在生成，请稍后重试")
     METHOD_NOT_ALLOWED = (40500, "请求方法不允许")
     INVALID_ARGUMENT = (42200, "请求参数校验失败")
 

@@ -11,19 +11,21 @@ import runpy
 import subprocess
 import sys
 from contextlib import asynccontextmanager
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
+from uuid import UUID
 
 import pytest
+from chat_fakes import GraphStub, StubChatModel
 from fastapi import Request
 from fastapi.testclient import TestClient
+from langgraph.checkpoint.memory import InMemorySaver
+from service_fakes import OVERRIDE, A, B, MemoryConversationService
+
 from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
 from app.agents.tools.weather import get_weather
-from chat_fakes import GraphStub, StubChatModel
-from langgraph.checkpoint.memory import InMemorySaver
-
+from app.api.dependencies import get_chat_agent, get_current_user
 from app.config.settings import LoggingSettings
-from app.api.dependencies import get_chat_agent
 from app.errors.codes import ErrorCode
 from app.errors.exceptions import BusinessError
 
@@ -56,6 +58,17 @@ def runtime(monkeypatch):
     graph = GraphStub()
     settings = object()
     model = object()
+    @asynccontextmanager
+    async def business_database(actual):
+        """隔离业务引擎，不让生命周期测试连接真实数据库。"""
+        yield object()
+    def current_user():
+        """传输测试绕过身份解析，真实认证在独立测试中验证。"""
+        return Mock(id=UUID(A))
+    monkeypatch.setattr(main, "open_business_database", business_database)
+    monkeypatch.setattr(main, "AuthService", Mock(return_value=Mock(initialize=AsyncMock())))
+    monkeypatch.setattr(main, "ConversationService", MemoryConversationService)
+    monkeypatch.setitem(main.app.dependency_overrides, get_current_user, current_user)
     saver = object()
     monkeypatch.setattr(main, "load_settings", lambda: settings)
     monkeypatch.setattr(main, "create_model", lambda actual: model if actual is settings else None)
@@ -88,19 +101,19 @@ def test_chat_and_lifespan(runtime, caplog):
     graph, events = runtime
     with caplog.at_level(logging.INFO, logger="app.main"), TestClient(main.app) as client:
         assert events == ["open", "build"]
-        for thread in ["conversation-001", "conversation-001", "other"]:
-            response = client.post("/api/chat", json={"message": "你好", "thread_id": thread})
+        for thread in [A, A, B]:
+            response = client.post("/api/chat", json={"message": "你好", "conversation_id": thread})
             assert response.status_code == 200
             received = parse_events(response)
             assert [event["event"] for event in received] == ["start", "delta", "delta", "done"]
             assert received[-1]["payload"] == {
                 "code": 0, "message": "成功",
-                "data": {"reply": "你好", "thread_id": thread, "message_id": "reply-1"},
+                "data": {"reply": "你好", "conversation_id": thread, "message_id": "reply-1"},
             }
             assert response.headers["content-type"].startswith("text/event-stream")
             assert response.headers["cache-control"] == "no-cache"
             assert response.headers["x-accel-buffering"] == "no"
-            assert graph.calls[-1][1]["config"]["configurable"]["thread_id"] == thread
+            assert graph.calls[-1][1]["config"]["configurable"]["thread_id"] == f"conversation:{thread}"
         assert events == ["open", "build"]
         assert client.get("/docs").status_code == 200
     assert events == ["open", "build", "close"]
@@ -112,13 +125,13 @@ def test_chat_and_lifespan(runtime, caplog):
 
 
 @pytest.mark.parametrize("body", [
-    {}, {"message": "hi"}, {"thread_id": "a"},
-    {"message": "", "thread_id": "a"},
-    {"message": " \n\t", "thread_id": "a"},
-    {"message": "hi", "thread_id": ""},
-    {"message": "hi", "thread_id": " \t"},
-    {"message": None, "thread_id": "a"},
-    {"message": "hi", "thread_id": 123},
+    {}, {"conversation_id": A},
+    {"message": "", "conversation_id": A},
+    {"message": " \n\t", "conversation_id": A},
+    {"message": "hi", "conversation_id": ""},
+    {"message": "hi", "conversation_id": " \t"},
+    {"message": None, "conversation_id": A},
+    {"message": "hi", "conversation_id": 123},
 ])
 def test_invalid_request_does_not_invoke_agent(runtime, body):
     """验证各类非法字段返回统一 422，并在进入 Agent 之前被拒绝。"""
@@ -135,7 +148,7 @@ def test_model_error_returns_generic_error_and_logs_details(runtime, caplog):
     graph, _ = runtime
     graph.failure = RuntimeError("private-provider-error")
     with TestClient(main.app) as client, caplog.at_level(logging.ERROR):
-        response = client.post("/api/chat", json={"message": "hi", "thread_id": "a"})
+        response = client.post("/api/chat", json={"message": "hi", "conversation_id": A})
     assert response.status_code == 200
     assert [event["event"] for event in parse_events(response)] == ["start", "error"]
     assert parse_events(response)[-1]["payload"] == {"code": 50001, "message": "对话执行失败，请稍后重试", "data": None}
@@ -144,7 +157,7 @@ def test_model_error_returns_generic_error_and_logs_details(runtime, caplog):
     failures = [record for record in caplog.records if record.exc_info]
     assert len(failures) == 1
     assert failures[0].name == "app.agents.agent"
-    assert failures[0].thread_id == "a"
+    assert failures[0].conversation_id == A
 
 
 def test_business_error_from_agent_is_http_200_with_catalog_message(runtime, caplog):
@@ -153,7 +166,7 @@ def test_business_error_from_agent_is_http_200_with_catalog_message(runtime, cap
     error = BusinessError(ErrorCode.BUSINESS_ERROR)
     graph.failure = error
     with caplog.at_level(logging.WARNING), TestClient(main.app) as client:
-        response = client.post("/api/chat", json={"message": "private-request", "thread_id": "a"})
+        response = client.post("/api/chat", json={"message": "private-request", "conversation_id": A})
     assert response.status_code == 200
     assert parse_events(response)[-1]["payload"] == {"code": 20000, "message": "业务处理失败", "data": None}
     records = [record for record in caplog.records if record.name.startswith("app.")]
@@ -209,7 +222,7 @@ def test_api_streams_real_tool_execution_as_process_events(runtime, monkeypatch)
 
     monkeypatch.setitem(main.app.dependency_overrides, get_chat_agent, override_agent)
     with TestClient(main.app) as client:
-        response = client.post("/api/chat", json={"message": "天气", "thread_id": "a"})
+        response = client.post("/api/chat", json={"message": "天气", "conversation_id": A})
     events = parse_events(response)
     names = [event["event"] for event in events]
     assert names[:5] == ["start", "delta", "tool_call", "tool_start", "tool_end"]
@@ -221,7 +234,7 @@ def test_api_streams_real_tool_execution_as_process_events(runtime, monkeypatch)
     assert ended["output"] == "上海今天晴天，温度 25°C"
     for event in events:
         assert event["payload"]["code"] == 0
-        assert event["payload"]["data"]["thread_id"] == "a"
+        assert event["payload"]["data"]["conversation_id"] == A
         assert "event" not in event["payload"]["data"]
 
 
@@ -233,7 +246,7 @@ def test_chat_migration_rejects_old_path_and_wrong_method(runtime, method, path,
     """确认旧路径已移除，新路径只接受 POST，并继续使用统一协议错误响应。"""
     graph, _ = runtime
     with TestClient(main.app) as client:
-        response = client.request(method, path, json={"message": "你好", "thread_id": "a"})
+        response = client.request(method, path, json={"message": "你好", "conversation_id": A})
     assert response.status_code == status
     assert response.json()["code"] == code
     assert response.json()["data"] is None
@@ -257,7 +270,7 @@ def test_chat_dependency_reuses_initialized_agent(runtime, monkeypatch):
     with TestClient(main.app) as client:
         initialized_agent = main.app.state.chat_agent
         for message in ("第一轮", "第二轮"):
-            response = client.post("/api/chat", json={"message": message, "thread_id": "a"})
+            response = client.post("/api/chat", json={"message": message, "conversation_id": A})
             assert response.status_code == 200
         assert observed == [initialized_agent, initialized_agent]
         assert events == ["open", "build"]
@@ -277,11 +290,11 @@ def test_chat_dependency_can_be_overridden(runtime, monkeypatch):
 
     monkeypatch.setitem(main.app.dependency_overrides, get_chat_agent, override_agent)
     with TestClient(main.app) as client:
-        response = client.post("/api/chat", json={"message": "你好", "thread_id": "override"})
+        response = client.post("/api/chat", json={"message": "你好", "conversation_id": OVERRIDE})
     assert response.status_code == 200
     assert parse_events(response)[-1]["payload"] == {
         "code": 0, "message": "成功",
-        "data": {"reply": "依赖替身回复", "thread_id": "override", "message_id": "reply-1"},
+        "data": {"reply": "依赖替身回复", "conversation_id": OVERRIDE, "message_id": "reply-1"},
     }
     assert replacement_graph.calls[0][0]["messages"][0].content == "你好"
     assert graph.calls == []

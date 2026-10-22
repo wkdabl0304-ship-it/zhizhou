@@ -1,1 +1,5 @@
-"""预留业务数据库模型的位置；当前尚无用户、文档等持久化实体实现。"""
+"""业务 ORM 模型入口，导出用户、会话和问答轮次，供迁移与仓储使用。"""
+
+from app.models.entities import Base, ChatTurn, Conversation, User
+
+__all__ = ["Base", "ChatTurn", "Conversation", "User"]

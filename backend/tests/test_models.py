@@ -91,7 +91,7 @@ def test_real_model_http_stream_preserves_reasoning_across_tool_and_followup_req
                 assert calls[0].tool_call_id == starts[0].tool_call_id == ends[0].tool_call_id == "weather-1"
                 assert events.index(calls[0]) < events.index(starts[0]) < events.index(ends[0])
                 assert events[-1].reply == "上海晴"
-                state = await graph.aget_state({"configurable": {"thread_id": "a"}})
+                state = await graph.aget_state({"configurable": {"thread_id": "conversation:a"}})
                 saved = [message for message in state.values["messages"] if isinstance(message, AIMessage)]
                 assert [message.additional_kwargs["reasoning_content"] for message in saved] == ["先查天气", "整理结果"]
                 assert await agent.achat("继续", "a") == "多轮回复"

@@ -8,16 +8,28 @@ from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
 from app.errors.codes import ErrorCode
-from app.errors.exceptions import BusinessError, ServiceError, log_app_error
+from app.errors.exceptions import (
+    BusinessError,
+    RequestError,
+    ServiceError,
+    log_app_error,
+)
 from app.schemas.response import ApiResponse, failure
 
 logger = logging.getLogger(__name__)
 
 HTTP_ERROR_CODES = {
+    401: ErrorCode.UNAUTHENTICATED,
     404: ErrorCode.NOT_FOUND,
     405: ErrorCode.METHOD_NOT_ALLOWED,
     422: ErrorCode.INVALID_ARGUMENT,
 }
+
+
+async def request_error_handler(request: Request, exc: RequestError) -> JSONResponse:
+    """返回认证或会话访问的安全请求错误，401 保留标准 Bearer 认证头。"""
+    headers = {"WWW-Authenticate": "Bearer"} if exc.status_code == 401 else None
+    return _error_response(exc.error_code, exc.status_code, headers)
 
 
 def _error_response(
@@ -92,6 +104,7 @@ def register_exception_handlers(app: FastAPI) -> None:
     未注册的异常最终进入 Exception 兜底，已知子类优先匹配对应处理器。
     """
     app.add_exception_handler(BusinessError, business_error_handler)
+    app.add_exception_handler(RequestError, request_error_handler)
     app.add_exception_handler(ServiceError, service_error_handler)
     app.add_exception_handler(RequestValidationError, validation_error_handler)
     app.add_exception_handler(HTTPException, http_error_handler)
@@ -106,8 +119,10 @@ ERROR_RESPONSES = {
         "content": {"application/json": {"example": failure(error_code).model_dump(mode="json")}},
     }
     for status, error_code in {
+        401: ErrorCode.UNAUTHENTICATED,
         404: ErrorCode.NOT_FOUND,
         405: ErrorCode.METHOD_NOT_ALLOWED,
+        409: ErrorCode.CONVERSATION_BUSY,
         422: ErrorCode.INVALID_ARGUMENT,
         500: ErrorCode.INTERNAL_ERROR,
     }.items()

@@ -1,6 +1,8 @@
 # 知舟后端
 
-使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现异步 SSE FastAPI 聊天接口和可独立运行的智能体示例，通过 LangChain 的 DeepSeek 专用适配调用 `deepseek-flash` 模型，支持公开进度正文、最终回答和工具执行过程事件，不对外返回模型推理，并使用 PostgreSQL 保存对话状态。天气工具返回固定演示内容，不连接真实天气服务。
+使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现账号密码注册、JWT 登录、用户会话隔离、游标读取最近及更早的会话和历史、软删除，以及异步 SSE 聊天与公开工具过程持久化。业务数据使用 SQLAlchemy 2.1 异步 ORM 与 Alembic，模型上下文由 LangGraph 的 PostgreSQL checkpoint 独立保存。通过 DeepSeek 专用适配调用 `deepseek-flash`，不对外返回模型推理。天气工具返回固定演示内容。
+
+前端本期尚未接入认证和业务会话 ID，不能直接使用新聊天接口；可通过 Swagger 或 HTTP 客户端验收，前端接入要求见下文。
 
 项目定位和功能规划见[根 README](../README.md)。
 
@@ -34,10 +36,70 @@ docker compose -f docker-compose-dev.yml up -d postgres
 - `DEEPSEEK_API_KEY`：在根目录 `.env` 中填写实际 API 密钥；示例文件留空。
 - `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB`：数据库连接参数；示例提供本地开发用值。若通过系统环境变量覆盖，确保与数据库启动配置一致。
 - `POSTGRES_PORT`：智能体连接的宿主机端口。Compose 当前固定映射 `5432:5432`，修改此变量时还需要相应修改 Compose 端口映射。
+- `POSTGRES_HOST`：默认 `127.0.0.1`，显式提供时不能为空。
+- `JWT_SECRET`：必填，至少 32 字节的独立随机密钥，没有默认值；不要填写示例密码或提交到 Git。
+- `JWT_TTL_SECONDS`：默认 `7200`，必须为正整数；过期后重新登录，不提供刷新或服务端撤销。
 
-以上配置项均必填且不能仅包含空白；端口必须为 1–65535 之间的整数。当前数据库主机为 `127.0.0.1`，模型地址为 `https://api.deepseek.com`；默认值定义在 `app/config/settings.py`。
+模型密钥、数据库用户、密码、库名、端口及 JWT 密钥必填且不能仅包含空白；端口范围为 1–65535。模型地址为 `https://api.deepseek.com`，默认值定义在 `app/config/settings.py`。可运行 `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成独立随机 JWT 密钥，再保存到本地 `.env`。
 
-配置无效或数据库无法连接时，服务启动失败。服务通过 `AsyncPostgresSaver` 异步连接和初始化 checkpoint 表，复用既有表与对话记录，关闭时等待连接释放。数据库密码等连接参数由 psycopg 转义，支持特殊字符。
+配置无效、业务表未迁移、版本不匹配或数据库无法连接时，服务启动失败。首次启动前在 `backend/` 执行：
+
+```powershell
+uv sync
+uv run alembic upgrade head
+```
+
+Alembic 配置在 `pyproject.toml`，使用异步 Psycopg 引擎，迁移只需要数据库配置，不要求模型或 JWT 密钥。以后修改实体时用 `uv run alembic revision --autogenerate -m "变更说明"` 生成迁移并人工审阅，再执行升级；`uv run alembic check` 检查实体与实际结构是否一致。不要在应用启动时用 `create_all` 代替迁移。
+
+SQLAlchemy 业务引擎和 Session 工厂在生命周期中创建，短事务独立使用 `AsyncSession`，退出时异步释放连接池。`AsyncPostgresSaver` 仍自行初始化和管理 checkpoint 表，Alembic 自动比较明确排除这些第三方表。凭据通过 SQLAlchemy URL 对象或 Psycopg 转义，支持特殊字符，不写入迁移配置。
+
+## 认证与会话接口
+
+所有响应沿用 `{code, message, data}`，成功 `code=0`。除注册和登录外，业务接口要求 `Authorization: Bearer <access_token>`；Swagger 点击 Authorize 后填入登录返回的 JWT 即可。
+
+| 方法与路径 | 输入 | 成功 data |
+| --- | --- | --- |
+| `POST /api/auth/register` | `{username,password,role?}` | `{id,username,role,created_at}` |
+| `POST /api/auth/login` | `{username,password}` | `{access_token,token_type,expires_in,user}` |
+| `GET /api/auth/me` | Bearer JWT | `{id,username,role}` |
+| `GET /api/conversations` | `limit=20&cursor=...` | `{items,next_cursor}` |
+| `GET /api/conversations/{conversation_id}` | `limit=20&cursor=...` | `{conversation,items,next_cursor}` |
+| `DELETE /api/conversations/{conversation_id}` | 无请求体 | `null` |
+| `POST /api/chat` | `{message,conversation_id?}` | SSE，见下一节 |
+
+注册成功后单独登录。用户名去除首尾空白并转小写，限定 3～32 位 ASCII 字母、数字或下划线；密码 8～128 个字符，不去除空格，使用 Argon2 摘要，哈希与校验在线程池执行。角色仅允许 `user` 和 `super_admin`，默认 `user`；两种角色均只能操作自己的会话，当前没有跨用户管理功能。
+
+JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用户 UUID，签发方为 `zhizhou`，受众为 `zhizhou-api`。每次认证都验证固定算法、签名和声明，并从数据库确认账号存在且可用。客户端退出只清除令牌，已签发令牌到期前仍可能有效。
+
+会话 ID 为后端生成的 UUID，统一命名 `conversation_id`。不存在、属于他人或已删除均返回 HTTP 404 和 `40401`，不暴露是否为他人所有。登录失败返回 401 和 `40102`，无效登录状态返回 401 和 `40101`，并保留 `WWW-Authenticate: Bearer`。重名注册返回 HTTP 200 和业务码 `20001`；参数错误为 422；会话忙为 409 和 `40901`。
+
+### 最近记录与向前游标
+
+两个读取接口均不接收页码或 OFFSET，也不返回总数、总页数。首次省略 `cursor`，默认取最近 20 条，`limit` 范围 1～100。`next_cursor` 是继续读取更早记录的版本化 Base64URL 文本，返回 `null` 表示当前没有更多记录；空字符串、非法编码或错误归属返回 422。
+
+目录 `items` 每项含 `conversation_id / title / created_at / last_message_at`，按 `(last_message_at DESC, id DESC)` 排序，同时间使用 UUID 次键。最近消息时间在接受用户输入时更新，标题取首条消息去除首尾空白后的前 24 个字符。游标限定用户，查询始终过滤当前用户和软删除状态；Base64 不是授权或加密机制。目录为实时视图，向前读取期间收到新消息的旧会话可能前移，刷新后重新同步，不提供跨请求快照。
+
+内容 `items` 为问答轮次，每项含 `turn_id / seq / user_content / assistant_content / assistant_message_id / public_events / status / error_code / created_at / updated_at / finished_at`。首次返回最近轮次，再携带游标读取更小的 `seq`；每批按 `seq` 正序返回，游标限定当前用户和当前会话。一个轮次包含一次用户输入、其公开行动与工具过程、最终回答。`status` 为 `running / completed / failed / interrupted`；部分回答保存在公开过程里，不冒充最终回答。
+
+软删除只设置 `deleted_at`，保留轮次和 checkpoint；之后列表隐藏，内容及续聊返回 404。自己的已删除会话重复删除仍成功，他人的会话始终返回 404。生成期间拒绝删除，不自动取消；本期没有恢复、永久清理或单独创建会话接口。
+
+### 业务数据与执行边界
+
+三张业务表的实体定义见 [`app/models/entities.py`](app/models/entities.py)，首版迁移见 [`migrations/versions/0001_auth_conversations.py`](migrations/versions/0001_auth_conversations.py)：
+
+| 表 | 主要字段与约束 |
+| --- | --- |
+| `users` | UUID 主键、唯一 username、password_hash、role、is_active、created_at、updated_at；角色 CHECK 约束 |
+| `conversations` | UUID 主键、user_id 外键、title、last_message_at、created_at、updated_at、deleted_at；未删除会话的用户与复合排序部分索引 |
+| `chat_turns` | UUID 主键、conversation_id 外键、seq、用户与最终助手正文、assistant_message_id、JSONB public_events、状态与错误码、时间；会话内 seq 唯一及状态 CHECK 约束 |
+
+数据库时间为带时区时间，ID 由应用生成。仓储只执行 ORM 查询及 flush，由服务提交事务。公开历史从白名单 SSE 事件构造，`public_events` 是有序 `{event,data}` 数组，不含 start/done 或内部推理；相邻同一消息的 delta 合并，工具事件保持原顺序，成功确认后的最终正文独立保存，不在过程里重复。
+
+聊天先取得跨进程 PostgreSQL advisory lock，再用短事务创建或核验会话、保存用户输入和 running 轮次，提交后发 start。生成期间不保持业务事务，工具边界立即保存快照，正文在收到增量时按一秒或累计 16 KiB 阈值提交。checkpoint 与业务历史分别提交，二者均完成后才发送 done；最终业务写入失败只发 error。
+
+聊天与删除共用执行锁，同会话冲突立即 409，不同会话可并发。锁连接使用异步 SQLAlchemy、自动提交和 NullPool，退出时解锁并关闭物理连接，避免带锁连接返回池。启动和内容读取检查遗留 running 记录，仅在取得执行锁、确认没有活跃生成时标记 interrupted，不自动重放工具。取消尽力保存所有已接收公开内容；进程强制退出可能损失最后一次快照之后的片段。
+
+业务会话通过 Agent 适配为带命名空间的内部 checkpoint key，框架配置键只保留在框架边界。旧的无归属 checkpoint 不删除，也不自动绑定任何用户；新 HTTP API 不开放这些记录。业务表与 checkpoint 不组成跨连接原子事务。
 
 ## 启动与聊天接口
 
@@ -64,12 +126,12 @@ uv run uvicorn app.main:app --loop app.config.event_loop:create_event_loop --rel
 
 此方式的日志在应用生命周期开始时统一，最早几条 Uvicorn 日志仍使用默认样式。
 
-打开 [Swagger UI](http://127.0.0.1:8000/docs)，在“聊天”分组调用 `POST /api/chat`。请求示例：
+打开 [Swagger UI](http://127.0.0.1:8000/docs)，先注册、登录，再通过 Authorize 配置 JWT。首次调用 `POST /api/chat` 时只发送 `{"message":"你好"}`，从 start 保存后端签发的 ID。续聊请求示例：
 
 ```json
 {
   "message": "刚刚聊了什么",
-  "thread_id": "conversation-001"
+  "conversation_id": "00000000-0000-4000-8000-000000000001"
 }
 ```
 
@@ -77,25 +139,25 @@ uv run uvicorn app.main:app --loop app.config.event_loop:create_event_loop --rel
 
 ```text
 event: start
-data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001"}}
+data: {"code":0,"message":"成功","data":{"conversation_id":"00000000-0000-4000-8000-000000000001","turn_id":"00000000-0000-4000-8000-000000000002","is_new":true}}
 
 event: delta
-data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","message_id":"reply-1","text":"你好"}}
+data: {"code":0,"message":"成功","data":{"conversation_id":"00000000-0000-4000-8000-000000000001","message_id":"reply-1","text":"你好"}}
 
 event: done
-data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","reply":"你好","message_id":"reply-1"}}
+data: {"code":0,"message":"成功","data":{"conversation_id":"00000000-0000-4000-8000-000000000001","reply":"你好","message_id":"reply-1"}}
 
 ```
 
 | 事件 | data 字段 | 含义 |
 | --- | --- | --- |
-| `start` | `thread_id` | 请求已接受，可能仍在等待会话锁 |
-| `delta` | `thread_id / message_id / text` | 当前助手消息的一段正文 |
-| `tool_call` | `thread_id / message_id / tool_call_id / name / arguments` | 模型已生成完整工具请求，尚不代表已执行 |
-| `tool_start` | `thread_id / tool_call_id / run_id / name / kind / arguments` | 工具实际开始执行，参数不包含框架注入值 |
-| `tool_end` | `thread_id / tool_call_id / run_id / name / kind / output` | 工具成功执行后的正文结果，不含 artifact |
-| `tool_error` | `thread_id / tool_call_id / run_id / name / kind / message` | 安全工具失败说明；执行前被拒绝时 run_id 为 null |
-| `done` | `thread_id / message_id / reply` | 最终助手完整回复，图执行与 checkpoint 写入已完成 |
+| `start` | `conversation_id / turn_id / is_new` | 用户输入已提交，执行锁已取得 |
+| `delta` | `conversation_id / message_id / text` | 当前助手消息的一段正文 |
+| `tool_call` | `conversation_id / message_id / tool_call_id / name / arguments` | 模型已生成完整工具请求，尚不代表已执行 |
+| `tool_start` | `conversation_id / tool_call_id / run_id / name / kind / arguments` | 工具实际开始执行，参数不包含框架注入值 |
+| `tool_end` | `conversation_id / tool_call_id / run_id / name / kind / output` | 工具成功执行后的正文结果，不含 artifact |
+| `tool_error` | `conversation_id / tool_call_id / run_id / name / kind / message` | 安全工具失败说明；执行前被拒绝时 run_id 为 null |
+| `done` | `conversation_id / message_id / reply` | 最终助手完整回复，checkpoint 与业务最终结果均已提交 |
 | `error` | `null` | 非零错误码和安全解释，本轮失败结束 |
 
 `delta` 按 `message_id` 分组，可能包含工具调用前的助手说明；`done.reply` 是最终权威回答，不能简单把所有消息的增量拼成最终回答。公开进度说明使用普通 `delta`，不再提供 `reasoning_delta`；完整工具参数通过 `tool_call` 和 `tool_start` 输出，公开工具结果通过 `tool_end` 输出；不返回历史快照、模型推理字段、工具 artifact 或内部异常堆栈。图通过原生 `astream` 边生成边输出，并非完整生成后切片。成功事件 `code=0`，正常结束只发送一个 `done` 或 `error`；客户端断开时不保证终止事件。若传输提前结束但未收到终止事件，应视为未确认完成。
@@ -106,16 +168,16 @@ data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","reply
 
 ```text
 event: delta
-data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","message_id":"plan-1","text":"我先查询上海的天气。"}}
+data: {"code":0,"message":"成功","data":{"conversation_id":"00000000-0000-4000-8000-000000000001","message_id":"plan-1","text":"我先查询上海的天气。"}}
 
 event: tool_call
-data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","message_id":"plan-1","tool_call_id":"weather-1","name":"get_weather","arguments":{"city":"上海"}}}
+data: {"code":0,"message":"成功","data":{"conversation_id":"00000000-0000-4000-8000-000000000001","message_id":"plan-1","tool_call_id":"weather-1","name":"get_weather","arguments":{"city":"上海"}}}
 
 event: tool_start
-data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","tool_call_id":"weather-1","run_id":"run-1","name":"get_weather","kind":"tool","arguments":{"city":"上海"}}}
+data: {"code":0,"message":"成功","data":{"conversation_id":"00000000-0000-4000-8000-000000000001","tool_call_id":"weather-1","run_id":"run-1","name":"get_weather","kind":"tool","arguments":{"city":"上海"}}}
 
 event: tool_end
-data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","tool_call_id":"weather-1","run_id":"run-1","name":"get_weather","kind":"tool","output":"上海今天晴天，温度 25°C"}}
+data: {"code":0,"message":"成功","data":{"conversation_id":"00000000-0000-4000-8000-000000000001","tool_call_id":"weather-1","run_id":"run-1","name":"get_weather","kind":"tool","output":"上海今天晴天，温度 25°C"}}
 
 ```
 
@@ -129,9 +191,9 @@ data: {"code":0,"message":"成功","data":{"thread_id":"conversation-001","tool_
 
 模型遗漏正文时，Agent 在 `tool_call` 之前补发同一 `message_id` 的中性说明“我准备调用 … 获取所需信息。”；不声明已经执行或成功，也不改写模型 checkpoint。该兜底仅标明将调用的工具，不替模型编造任务规划或判断依据。最终 `done.message_id` 标识应从过程区移出的最终正文，`done.reply` 为权威完整回答。详细规划和行动说明由提示词引导，当前没有内容完整性强制校验或自动重试机制；无需工具时，必要说明与答案仍属于同一正文，提示词不会创建额外的可折叠消息或阶段事件。
 
-模型内部仍启用 DeepSeek 思考模式，并通过 `DeepSeekChatModel` 回传历史助手 `reasoning_content`，以维持工具后续步骤和多轮请求的兼容性；这些字段只在模型与 checkpoint 内部使用，不编码成 SSE。旧 checkpoint 缺失的字段按空字符串回传。工具及进度正文是当前请求的实时流，本次没有新增事件存储、历史读取或重放接口。
+模型内部仍启用 DeepSeek 思考模式，并通过 `DeepSeekChatModel` 回传历史助手 `reasoning_content`，以维持工具后续步骤和多轮请求的兼容性；这些字段只在模型与 checkpoint 内部使用，不编码成 SSE。旧 checkpoint 缺失的字段按空字符串回传。公开工具及进度正文同时写入轮次快照，历史通过会话内容接口读取；本期不提供 SSE 事件重放或断点续传。
 
-请求中的 `message` 和 `thread_id` 均为必填字符串，空字符串、仅包含空白的字段或非法 JSON 返回 HTTP `422` 和统一 JSON 错误响应。路由或依赖在流建立前发生的框架错误也继续使用 JSON。SSE 开始后，模型、工具或 checkpoint 失败通过 `error` 报告，HTTP 状态保持 `200`，不再转为 JSON 或 HTTP `500`：
+请求中的 `message` 必填且不能仅包含空白；`conversation_id` 是可省略或为 null 的 UUID，提供时必须通过归属校验。旧字段名及未知请求字段会被拒绝，空正文、非法 UUID 或 JSON 返回 HTTP `422` 和统一 JSON 错误响应。路由或依赖在流建立前发生的错误继续使用 JSON。SSE 开始后，模型、工具或持久化失败通过 `error` 报告，HTTP 状态保持 `200`：
 
 ```text
 event: error
@@ -139,11 +201,11 @@ data: {"code":50001,"message":"对话执行失败，请稍后重试","data":null
 
 ```
 
-相同 `thread_id` 继续已有对话，不同标识隔离历史；重启服务后仍可继续持久化的对话。每个会话使用异步锁串行执行完整轮次（包括持久化和清理），不同会话可并发生成；持有者及等待者全部退出后回收锁条目。锁仅在当前进程、当前 Agent 实例内有效，仍请使用单进程运行。尚未提供认证、对话所有权校验或跨进程调度。
+相同业务会话 ID 可继续自己的未删除会话，不同用户或不同会话的历史隔离；服务重启后仍可继续。HTTP 并发由数据库执行锁协调，Agent 内部锁只作为单实例的附加保护。身份、归属和执行冲突在 SSE 响应头发送前校验，流建立后发生的失败通过 error 结束。
 
-客户端断开会取消排队或生成中的任务，等待底层流清理并释放会话锁。取消不记录为聊天失败，不回滚已经写入的 checkpoint。通常用户消息已保存，但正在生成的半段助手回复尚未构成完整模型步骤，不保证保存；若模型已经完成落库、仅传输尚未结束，完整回复可能已经保存。本次没有额外消息表、“已中断”消息状态、自动重试、事件重放或断点续传。
+客户端断开会关闭模型流，尽力保存公开过程并将未完成轮次标记 interrupted，不回滚已经写入的 checkpoint，不自动重试或重放工具。完整的失败和恢复语义见[业务数据与执行边界](#业务数据与执行边界)。
 
-浏览器调用方需要使用 `fetch` 的响应流解析 SSE（接口为 POST，不能直接使用只接受 GET 的原生 `EventSource`）。代理部署时需关闭 SSE 缓冲。仓库前端按时间顺序交错展示进度正文与工具执行，最终回答到达后整体折叠过程，按调用及执行标识更新工具详情，单次工具失败不终止本轮；最终确认和中断内容保留行为也适用于过程记录。界面行为与使用边界见[前端说明](../frontend/README.md#页面与聊天边界)。Swagger 提供事件样例，扩展协议验收可使用前端或其他支持新增事件的流式客户端。
+浏览器调用使用 POST fetch 响应流解析 SSE，代理需要关闭流缓冲。前端后续接入必须：注册登录并携带 JWT；停止自行生成会话 ID；首次请求从 start 取得 conversation_id；之后传回该 ID；从服务端游标加载列表、历史和删除状态。当前前端代码尚未适配新协议，不能直接匿名聊天；本期仅交付后端与接口文档。
 
 ## 分级 API 路由
 
@@ -221,9 +283,9 @@ raise BusinessError(ErrorCode.BUSINESS_ERROR)
 uv run python -m app.agents
 ```
 
-编辑 `app/agents/__main__.py` 中的 `MESSAGE` 和 `THREAD_ID` 后即可运行并打印回复。当前默认使用 `conversation-002` 和“刚刚说什么了”；重复运行沿用同一段对话状态，也可与 HTTP 接口共用对话记录。原命令 `uv run python -m app.agents.agent` 仍可使用。
+编辑 `app/agents/__main__.py` 中的 `MESSAGE` 和 `CONVERSATION_ID` 后即可运行并打印回复。当前默认使用本地演示标识 `conversation-002` 和“刚刚说什么了”；重复运行沿用同一段演示状态，不会建立 HTTP 业务归属。原命令 `uv run python -m app.agents.agent` 仍可使用。
 
-命令行和 HTTP 共用配置、异步数据库管理和 Agent 实现；命令行用同一个异步流聚合最终文本，不额外执行模型。命令行通过 Runner 和同一循环工厂运行，Windows 也使用 Selector 循环。命令行成功时输出纯文本回复，预期的业务或系统失败以退出码 `1` 结束，已记录的异常不会再次由解释器打印堆栈。导入模块不会加载配置、连接数据库或发起模型调用。
+命令行是受信任的开发演示，直接调用 Agent，不通过 HTTP 用户归属层，也不会创建业务会话及轮次，不出现在 HTTP 会话目录中。它与 HTTP 共用配置、异步 checkpoint 管理和 Agent 实现，用同一个异步流聚合最终文本。命令行通过 Runner 和同一循环工厂运行，Windows 也使用 Selector 循环。成功输出纯文本回复，预期失败以退出码 `1` 结束，不重复异常日志。导入模块不连接外部服务。
 
 ## 统一日志
 
@@ -243,7 +305,7 @@ uv run python -m app.agents
 
 ```text
 2026-10-13 15:30:02 INFO app.main 应用启动完成
-2026-10-13 15:30:04 INFO app.agents.agent 对话完成 thread_id='conversation-001' duration_ms=1820.00
+2026-10-13 15:30:04 INFO app.agents.agent 对话完成 conversation_id='00000000-0000-4000-8000-000000000001' duration_ms=1820.00
 ```
 
 应用记录启动完成、启动失败和资源关闭。Agent 记录对话成功或失败、对话标识和耗时，计时包含等待对话锁的排队时间；业务失败无堆栈，系统失败保留堆栈。已知应用异常按“已记录”标识避免重复输出，未知异常由 Uvicorn 记录。默认不主动记录聊天正文、模型回复、思考文本、工具参数、工具输出、密钥或数据库连接串。本阶段不提供请求 ID、日志文件或第三方日志库。
@@ -265,7 +327,9 @@ logger.info("业务事件")
 uv run pytest -q
 ```
 
-默认测试使用模型及数据库替身和内存 checkpoint，无需真实密钥或 PostgreSQL。覆盖配置校验与优先级、特殊字符连接参数、资源释放、接口校验与错误响应、导入无外部副作用，以及真实 LangChain 图的多轮对话、记录隔离和天气工具调用。日志测试额外覆盖级别、访问日志开关、重复初始化、Uvicorn 子进程配置、启动参数以及对话日志的耗时与异常；全局日志配置在独立子进程中验证，保留其他测试的日志捕获能力。
+默认测试使用模型及数据库替身和内存 checkpoint，无需真实密钥或 PostgreSQL。设置环境变量 `ZHIZHOU_TEST_POSTGRES=1` 后执行同一测试命令，即启用真实 PostgreSQL 测试。数据库账号需要 CREATE DATABASE 权限；fixture 创建随机命名的独立测试库，执行正式迁移，结束后仅销毁自己创建的测试库，不修改开发库。
+
+集成测试覆盖注册竞争、JWT 声明与账号状态、ORM 约束和索引、Alembic 排除 checkpoint 表、两种角色所有权隔离、游标边界、公开工具历史、软删除、跨连接锁、取消清理、遗留状态恢复及最终提交失败。模型仍使用本地替身，不访问真实模型。其他测试覆盖配置优先级、资源释放、接口协议、导入无外部副作用，以及真实 LangChain 图的多轮对话和工具调用；日志配置在独立子进程中验证。
 
 路由测试验证 `/api/chat` 的 SSE 事件、响应头、校验及流内错误、旧路径 `404`、错误方法 `405` 及 `Allow` 头、实例复用、依赖覆盖和 OpenAPI 示例。Agent 测试用可控异步事件验证首段先于完成、同会话 FIFO、跨会话并发、取消与异常后恢复、锁回收、最终落库边界，以及真实图取消时保留用户输入但不保存半段助手回复。
 
@@ -275,7 +339,7 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 
 过程事件测试使用真实图验证并行工具独立完成、命令类型标记、工具参数和结果、可恢复及不可恢复错误、执行前拒绝、artifact 排除及工具执行取消。模型适配测试通过 MockTransport 模拟 DeepSeek HTTP SSE，由正式客户端解析内部思考及工具参数碎片，验证推理不外发、缺少正文时的兜底顺序，并核验 checkpoint 和工具后续、多轮请求中的 reasoning_content 回传，不访问真实模型。
 
-真实模型验收使用可逐事件读取 SSE 的客户端依次测试：同一 `thread_id` 告知姓名并追问姓名、更换标识确认无之前的历史、重启服务后使用原标识继续对话。测试模型的实际回复不应作为固定文本断言。
+真实模型验收先注册登录，在首次 start 取得会话 ID，再于同一 `conversation_id` 告知姓名并追问姓名；省略 ID 创建另一会话确认历史隔离，重启服务后使用原标识继续对话。测试模型的实际回复不应作为固定文本断言。
 
 ## 目录职责
 
@@ -283,11 +347,12 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 - `app/main.py`：FastAPI 应用、启动/退出资源管理、全局异常处理器注册和 API 总路由挂载。
 - `app/agents/`：Agent 专属实现；`models.py` 创建支持思考回传的模型，`events.py` 适配工具生命周期，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
 - `app/config/`：通用配置加载与校验、标准 logging 集中配置，以及供 Web/CLI 使用的事件循环工厂。
-- `app/db/`：数据库资源管理，当前包含 PostgreSQL checkpoint 连接和初始化。
+- `app/db/`：异步业务引擎、迁移版本校验、跨进程会话执行锁，以及独立管理的 checkpoint 资源。
 - `app/errors/`：错误码与默认解释、应用异常类型和异常日志责任。
 - `app/schemas/`：聊天请求、聊天数据模型及通用响应模型和构建函数。
 - `app/api/`：API 总路由、公共请求依赖、按业务划分的子路由、SSE 编码与断开清理，以及统一异常处理器和错误响应文档；结构与扩展步骤见[分级 API 路由](#分级-api-路由)。
-- `app/models/`、`app/repositories/`、`app/services/`、`app/utils/`：分别预留给业务数据库模型、数据访问、业务服务和通用辅助函数，当前仍为包占位。
+- `app/models/`：SQLAlchemy 业务实体；`app/repositories/`：无隐式提交的异步 ORM 读写；`app/services/`：认证、所有权、游标及轮次持久化；`app/utils/` 仍为通用辅助函数预留。
+- `migrations/`：Alembic 异步环境和版本迁移，仅管理业务表。
 - `tests/`：配置、数据库生命周期、Agent 和聊天接口测试。
 
 后续开发外部服务接入时，再按需添加 `app/integrations/`。

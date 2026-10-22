@@ -10,6 +10,7 @@ authors = [
 # 同时与 .python-version 保持一致，项目源码使用现代 Python 类型参数语法。
 requires-python = ">=3.14"
 dependencies = [
+    "alembic>=1.20.0",
     "anyio>=4.0",
     "fastapi>=0.143.0",
     "langchain>=1.4.4",
@@ -18,7 +19,10 @@ dependencies = [
     "langgraph-checkpoint-postgres>=3.1.2",
     "pathlib>=1.0.1",
     "psycopg[binary,pool]>=3.3.6",
+    "pwdlib[argon2]>=0.3.1",
+    "pyjwt>=2.15.1",
     "python-dotenv>=1.2.4",
+    "sqlalchemy[asyncio]>=2.1,<2.2",
     "uvicorn[standard]>=0.38.0",
 ]
 
@@ -37,3 +41,10 @@ build-backend = "uv_build"
 # 源码采用 backend/app 平铺布局，不使用 src/app；必须显式指定包位置。
 module-name = "app"
 module-root = ""
+# 源码分发包必须携带正式迁移，部署时才能执行与当前 ORM 对应的结构升级。
+source-include = ["migrations/**"]
+
+[tool.alembic]
+# 使用 UTF-8 TOML，避免 Windows 的 INI 本地编码无法读取中文注释。
+script_location = "%(here)s/migrations"
+prepend_sys_path = ["."]
