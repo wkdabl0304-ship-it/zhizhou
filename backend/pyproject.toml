@@ -48,3 +48,14 @@ source-include = ["migrations/**"]
 # 使用 UTF-8 TOML，避免 Windows 的 INI 本地编码无法读取中文注释。
 script_location = "%(here)s/migrations"
 prepend_sys_path = ["."]
+
+[tool.pytest.ini_options]
+# 从后端根目录导入 tests 支撑包，同名测试文件不会互相覆盖。
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "--import-mode=importlib --strict-markers --strict-config"
+markers = [
+    "postgres: 使用现有 PostgreSQL 实例上的独立临时数据库",
+    "transport: 启动真实回环 HTTP 服务验证传输行为",
+    "subprocess: 在独立 Python 解释器中验证进程级行为",
+]

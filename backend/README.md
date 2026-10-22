@@ -18,6 +18,8 @@ uv run pytest -q
 uv build
 ```
 
+默认测试需要已运行的 PostgreSQL，快速单元测试和专项命令见[测试](#测试)。
+
 使用 `uv run <命令>` 在项目虚拟环境中执行命令。提交 `pyproject.toml`、`uv.lock` 和 `.python-version`；不提交 `.venv/`、本地环境变量及构建产物。
 
 ## 配置与数据库
@@ -323,11 +325,41 @@ logger.info("业务事件")
 
 ## 测试
 
+在 `backend/` 目录执行。默认运行全量测试，包含同一 PostgreSQL 实例上的真实数据库测试：
+
 ```powershell
 uv run pytest -q
 ```
 
-默认测试使用模型及数据库替身和内存 checkpoint，无需真实密钥或 PostgreSQL。设置环境变量 `ZHIZHOU_TEST_POSTGRES=1` 后执行同一测试命令，即启用真实 PostgreSQL 测试。数据库账号需要 CREATE DATABASE 权限；fixture 创建随机命名的独立测试库，执行正式迁移，结束后仅销毁自己创建的测试库，不修改开发库。
+先按[配置与数据库](#配置与数据库)启动 PostgreSQL 并提供有效数据库连接配置，账号需要 CREATE DATABASE 权限。测试通过维护库 `postgres` 连接现有实例，每个数据库用例独享一个 `zhizhou_test_<随机值>` 临时库，执行正式 Alembic 迁移。模型和 JWT 使用测试配置，不需要真实模型密钥。连接、权限或迁移失败均报错，不会自动跳过。
+
+数据库用例结束时先关闭客户端、checkpoint、业务引擎及锁连接，再删除本例成功创建的精确目标库；迁移失败和用例失败同样清理。不清空开发库、不复用固定测试库，也不通过外层事务回滚模拟真实提交。强制终止 Python 进程可能来不及清理临时库，后续测试不复用这些残留库。
+
+| 命令 | 运行范围 |
+| --- | --- |
+| `uv run pytest -q` | 全部单元与集成测试，包含 PostgreSQL |
+| `uv run pytest tests/unit -q` | 快速单元测试，无需数据库 |
+| `uv run pytest tests/integration -q` | 全部集成测试 |
+| `uv run pytest -m postgres -q` | 临时数据库、迁移与业务持久化 |
+| `uv run pytest -m "not postgres" -q` | 显式运行无需数据库的全部测试 |
+| `uv run pytest -m transport -q` | 真实回环 HTTP/SSE |
+| `uv run pytest -m subprocess -q` | 独立解释器、日志及进程场景 |
+| `uv run pytest --collect-only -q` | 仅收集用例，不连接数据库、不建库 |
+
+### 目录与新增测试归属
+
+- [`tests/unit/`](tests/unit/)：按 `core`、`schemas`、`agents`、`services`、`db`、`entrypoints` 划分单模块行为；`support` 验证共享测试支撑的清理与协议边界。
+- [`tests/integration/`](tests/integration/)：按 `api`、`agents`、`services`、`runtime`、`transport`、`postgres` 验证真实组件协作。图使用内存 checkpoint 仍属于集成测试；MockTransport 驱动正式模型客户端也属于集成测试。
+- [`tests/support/`](tests/support/)：可显式导入的应用装配、具名运行环境、SSE 解析、子进程和临时库管理；`fakes/` 放共享替身，`scripts/` 放独立解释器验证脚本。
+- 根 `conftest.py` 仅提供后端路径和事件循环 fixture；子目录 fixture 只影响其实际使用范围，PostgreSQL 配置只在 `integration/postgres/conftest.py` 提供。测试不从 conftest 导入普通函数，不相互导入测试模块。
+
+先确定验证边界，再按被测模块放置用例。同一文件围绕稳定行为组织，场景专属模型或工具留在用例附近，真实共享的辅助代码才进入 support。使用 `tests.support.*` 包路径导入，pytest 的 importlib 模式允许不同目录存在同名测试文件。
+
+异步用例直接写为 `async def test_*` 并标记 `pytest.mark.anyio`。后端只使用 asyncio，由 function scope 的 `anyio_backend` 注入正式 `create_event_loop`，确保 Windows Psycopg、资源创建与释放使用同一循环。同步 CLI 和子进程测试保持同步；并发场景用事件控制时序并明确超时和清理。真实传输用例标记 `transport`，独立解释器标记 `subprocess`，数据库用例标记 `postgres`；未知标记会报错。
+
+API 测试每例独立创建应用和依赖覆盖，生命周期用例复用正式 lifespan；OpenAPI 额外对比测试应用与正式入口，避免辅助装配偏离真实协议。不要用 TestClient 的完整响应断言代替实际 SSE 逐段传输验证。
+
+### 覆盖的关键行为
 
 集成测试覆盖注册竞争、JWT 声明与账号状态、ORM 约束和索引、Alembic 排除 checkpoint 表、两种角色所有权隔离、游标边界、公开工具历史、软删除、跨连接锁、取消清理、遗留状态恢复及最终提交失败。模型仍使用本地替身，不访问真实模型。其他测试覆盖配置优先级、资源释放、接口协议、导入无外部副作用，以及真实 LangChain 图的多轮对话和工具调用；日志配置在独立子进程中验证。
 
@@ -355,7 +387,7 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 - `app/services/`：认证、会话所有权、游标读取及轮次持久化；具体 SQL 查询交给仓储，HTTP/SSE 编码交给 API 层。
 - `app/utils/`：预留不包含业务规则的通用辅助函数，当前尚无具体实现；游标、SSE 编码和数据库锁仍归属各自模块。
 - `migrations/`：Alembic 异步环境和版本迁移，仅管理业务表。
-- `tests/`：配置、数据库生命周期、Agent 和聊天接口测试。
+- `tests/`：按单元与集成层级组织测试，共享支撑位于 `tests/support/`；归属、资源隔离和运行命令见[测试](#测试)。
 
 后续开发外部服务接入时，再按需添加 `app/integrations/`。
 

@@ -107,6 +107,8 @@ pnpm dev
 2. 按[后端配置说明](backend/README.md#配置与数据库)准备模型及 JWT 密钥、启动 PostgreSQL 并执行 Alembic 迁移；已有 `.env` 时直接编辑，不覆盖现有配置。
 3. 按[后端启动说明](backend/README.md#启动与聊天接口)启动服务，先注册登录，在 Swagger Authorize 配置 JWT，再调用聊天接口。
 
+后端默认测试包含真实 PostgreSQL，使用同一实例中自动创建与销毁的独立临时库，无需真实模型密钥；运行方式见[后端测试说明](backend/README.md#测试)。
+
 详细安装、配置、测试与构建命令分别维护在[前端文档](frontend/README.md)和[后端文档](backend/README.md)。完整生产部署尚未提供，生产反向代理需要关闭 SSE 缓冲。
 
 ## 技术方案
