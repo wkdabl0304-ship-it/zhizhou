@@ -44,6 +44,13 @@ export const useChatStore = defineStore('chat', () => {
     activeId.value = null
   }
 
+  /** 清空本页临时聊天展示，供退出或切换账号时隔离界面数据；不调用后端会话接口。 */
+  function clearLocal(): void {
+    conversations.value = []
+    activeId.value = null
+    newThreadId.value = createThreadId()
+  }
+
   /** 选择本页已存在的会话并继续使用其 thread_id；未知标识不改变状态。 */
   function select(id: string): void {
     if (conversations.value.some((item) => item.id === id)) activeId.value = id
@@ -107,5 +114,14 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  return { conversations, activeId, activeConversation, isSending, startNew, select, send }
+  return {
+    conversations,
+    activeId,
+    activeConversation,
+    isSending,
+    startNew,
+    select,
+    send,
+    clearLocal,
+  }
 })

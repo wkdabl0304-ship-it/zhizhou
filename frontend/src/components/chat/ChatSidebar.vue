@@ -1,13 +1,16 @@
 <!-- 聊天侧栏：共用于桌面导航与窄屏抽屉，向上报告选择、新建和折叠事件。 -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowUpRight, PanelLeft, SquarePen } from '@lucide/vue'
+import { ArrowUpRight, LogOut, PanelLeft, SquarePen } from '@lucide/vue'
 import type { Conversation } from '@/types/chat'
 import ThemeMenu from '@/components/ThemeMenu.vue'
 import BrandLogo from '@/components/BrandLogo.vue'
 import UiIconButton from '@/components/ui/UiIconButton.vue'
 import UiTooltip from '@/components/ui/UiTooltip.vue'
 import ConversationItem from './ConversationItem.vue'
+import { useAuthStore } from '@/features/auth/store'
+
+const auth = useAuthStore()
 
 const props = defineProps<{
   conversations: Conversation[]
@@ -71,13 +74,25 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
         <span class="workspace-note-dot" />为每一个好想法，找到方向。
       </div>
       <ThemeMenu :compact="compact" />
+      <button
+        v-if="auth.user"
+        class="logout-button"
+        type="button"
+        aria-label="退出登录"
+        @click="auth.logout"
+      >
+        <LogOut :size="17" /><span v-if="!compact">退出登录</span>
+      </button>
       <RouterLink v-if="isDev && !compact" class="preview-link" to="/dev/ui"
         >组件预览<ArrowUpRight :size="14"
       /></RouterLink>
       <div v-if="!compact" class="sidebar-profile">
         <span class="profile-avatar"><BrandLogo :size="22" /></span>
-        <div><span>知舟工作空间</span><small>让工作，始于一句话</small></div>
-        <span class="profile-status" aria-label="演示模式">DEMO</span>
+        <div>
+          <span>{{ auth.user?.username ?? '知舟工作空间' }}</span
+          ><small>让工作，始于一句话</small>
+        </div>
+        <span v-if="auth.user" class="profile-status">已登录</span>
       </div>
     </div>
   </div>
@@ -188,6 +203,25 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   flex-shrink: 0;
   margin-top: auto;
   padding-top: 20px;
+}
+.logout-button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  text-align: left;
+}
+.logout-button:hover {
+  background: var(--surface-hover);
+  color: var(--text);
 }
 .workspace-note {
   display: flex;

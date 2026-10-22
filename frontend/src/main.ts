@@ -1,6 +1,6 @@
 /**
  * 浏览器应用入口：创建 Vue 实例，注册全局状态和路由，再挂载到 HTML 容器。
- * 装配聊天原型与开发预览所需的基础设施；尚未发起后端 API 请求。
+ * 先安装 Pinia，再启用需要认证状态的路由守卫；身份恢复请求由认证模块执行。
  */
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'

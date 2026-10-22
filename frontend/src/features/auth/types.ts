@@ -1,0 +1,23 @@
+/** 认证模块类型：描述公开身份、账号输入与短期令牌，不包含密码持久化模型。 */
+export type AuthMode = 'login' | 'register'
+
+/** 服务器返回的公开身份；角色只用于身份展示，不作为前端授权依据。 */
+export interface AuthUser {
+  id: string
+  username: string
+  role: 'user' | 'super_admin'
+}
+
+/** 仅在一次提交调用中传递的凭据，不写入浏览器存储。 */
+export interface Credentials {
+  username: string
+  password: string
+}
+
+/** 登录成功数据；有效期以秒计，客户端用于主动结束过期界面状态。 */
+export interface LoginResult {
+  access_token: string
+  token_type: 'bearer'
+  expires_in: number
+  user: AuthUser
+}

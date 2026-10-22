@@ -22,6 +22,36 @@ beforeEach(() => {
 afterEach(() => vi.unstubAllGlobals())
 
 describe('后端聊天状态', () => {
+  // 退出后清理本页会话；迟到的旧流只能更新已脱离列表的对象，不能重新显示到新账号。
+  it('清空临时聊天后，旧请求不能恢复会话或串写新会话', async () => {
+    let resolveReply!: (response: Response) => void
+    fetchMock.mockImplementationOnce(
+      // 暂停首个请求，模拟退出时仍在途的聊天回复。
+      () =>
+        new Promise((resolve) => {
+          resolveReply = resolve
+        }),
+    )
+    const chat = useChatStore()
+    const pending = chat.send('旧账号消息')
+    const oldId = chat.activeId!
+    chat.clearLocal()
+    expect(chat.conversations).toHaveLength(0)
+    expect(chat.activeId).toBeNull()
+    expect(chat.isSending).toBe(false)
+    await chat.send('新账号消息')
+    const newId = chat.activeId
+    expect(newId).not.toBe(oldId)
+    resolveReply(success(oldId, '旧账号迟到内容'))
+    await pending
+    expect(chat.activeId).toBe(newId)
+    expect(chat.conversations).toHaveLength(1)
+    expect(chat.activeConversation?.messages[1]?.blocks).not.toContainEqual({
+      type: 'paragraph',
+      text: '旧账号迟到内容',
+    })
+  })
+
   // 空白不应创建会话，也不应请求服务。
   it('空白发送不改变首页与会话列表', async () => {
     const chat = useChatStore()
