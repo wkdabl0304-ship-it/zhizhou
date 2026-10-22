@@ -2,7 +2,7 @@
 
 from pydantic import BaseModel, Field
 
-from app.errors.codes import ErrorCode
+from app.core.errors.codes import ErrorCode
 
 
 class ApiResponse[T](BaseModel):

@@ -17,8 +17,8 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.runnables import Runnable
 
 from app.agents.events import ToolEventHandler
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import AppError, ServiceError, log_app_error
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import AppError, ServiceError, log_app_error
 from app.schemas.chat import (
     ChatAgentEvent,
     ChatDelta,
@@ -31,7 +31,11 @@ from app.schemas.chat import (
 
 
 def checkpoint_key(conversation_id: str) -> str:
-    """仅在框架边界映射内部状态键，避免旧的无归属 checkpoint 被业务 API 接管。"""
+    """为业务会话生成独立命名空间内的 LangGraph checkpoint 标识。
+
+    在 conversation_id 前添加固定前缀，仅在框架边界进行映射，避免业务
+    会话接管旧的无归属 checkpoint；返回值不作为公开 API 的会话 ID。
+    """
     return f"conversation:{conversation_id}"
 
 
@@ -50,14 +54,20 @@ class ChatAgent:
     """包装异步 Agent 图，提供结构化过程事件及最终回复，不返回历史快照。"""
 
     def __init__(self, agent: Runnable[dict[str, Any], dict[str, Any]]) -> None:
-        """保存图并初始化会话锁表；实例须在一个事件循环内使用。"""
+        """初始化对话执行器，使调用方可以按会话消费 Agent 的流式结果。
+
+        agent 是外部已组装的图，本方法只保存它并建立会话锁表；
+        同一实例须在同一个事件循环内使用，不在此创建模型或数据库资源。
+        """
         self._agent = agent
         self._locks: dict[str, _ConversationLock] = {} # 全局会话锁列表
 
     @asynccontextmanager
     async def _conversation(self, conversation_id: str) -> AsyncIterator[None]:
-        """按进入顺序取得会话锁，取消等待或离开后回收最后一个引用。
+        """串行化当前实例中同一会话的执行，避免历史状态交错读写。
 
+        conversation_id 相同的调用按进入顺序等待，取得锁后 yield 给业务代码，
+        退出或取消时释放引用；最后一个使用者退出后回收锁表条目。
         注册及注销引用之间没有 await，因此事件循环内不需要额外注册表锁。
         等待者先登记引用，避免持有者释放时移除仍被其他请求使用的锁。
         """
@@ -72,8 +82,10 @@ class ChatAgent:
                 del self._locks[conversation_id]
 
     async def astream(self, message: str, conversation_id: str) -> AsyncIterator[ChatAgentEvent]:
-        """发送一轮消息，yield 正文与过程事件，持久化完成后 yield 最终回复。
+        """执行一轮 Agent 对话，向调用方逐步提供公开正文、工具过程和最终回答。
 
+        message 为本轮用户输入，conversation_id 用于关联历史与会话锁；
+        过程事件随生成 yield，最终回复仅在图的 checkpoint 持久化结束后交付。
         同会话排队，不同会话并发；计时包含排队时间。调用方提前结束时
         必须关闭迭代器，才能立即释放图与会话锁。取消不转换为业务失败，
         也不回滚已有 checkpoint；已知应用异常保留，其他失败包装为
@@ -172,7 +184,11 @@ class ChatAgent:
             raise error from exc
 
     async def achat(self, message: str, conversation_id: str) -> str:
-        """消费同一个异步流并返回最终文本，供命令行使用，不重复执行图。"""
+        """执行一轮对话并只返回最终回答文本，供命令行等非流式调用方使用。
+
+        使用与 Web 相同的 astream 消费过程事件，不再额外执行一次图；
+        上下文退出会关闭异步流，生成异常沿用 astream 的错误分类。
+        """
         async with aclosing(self.astream(message, conversation_id)) as stream:
             async for event in stream:
                 if isinstance(event, ChatResponse):

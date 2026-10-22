@@ -18,8 +18,9 @@ def build_agent(
     tools: Sequence[BaseTool],
     checkpointer: BaseCheckpointSaver,
 ):
-    """根据注入依赖返回支持 astream 的 Agent 图。
+    """组装执行聊天与工具调用的 Agent 图，供 Web 和命令行共用。
 
+    返回支持 astream 的图，不在此执行对话。
     model 负责生成和工具选择，tools 定义可调用能力，checkpointer
     负责按 Agent 适配的内部状态键保存消息。调用方须在整个图执行期间保持存储可用。
     统一系统提示词从 prompts 模块读取；组装本身不会发起模型请求。

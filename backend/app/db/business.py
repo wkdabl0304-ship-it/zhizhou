@@ -13,13 +13,17 @@ from sqlalchemy.ext.asyncio import (
 )
 from sqlalchemy.pool import NullPool
 
-from app.config.settings import DatabaseSettings, Settings
+from app.core.settings import DatabaseSettings, Settings
 
 SCHEMA_REVISION = "0001_auth_conversations"
 
 
 def database_url(settings: Settings | DatabaseSettings) -> URL:
-    """通过 URL 对象转义凭据，供 ORM 和迁移复用，不把明文连接串写入日志。"""
+    """构造业务数据库的 SQLAlchemy 连接地址，供 ORM 和迁移复用。
+
+    从 settings 读取 PostgreSQL 配置并交给 URL 对象处理凭据转义，
+    返回地址对象但不连接数据库；调用方不应把含明文凭据的地址写入日志。
+    """
     return URL.create(
         "postgresql+psycopg",
         username=settings.postgres_user,
@@ -40,7 +44,11 @@ class BusinessDatabase:
 
 
 async def check_schema(engine: AsyncEngine) -> None:
-    """拒绝未迁移或版本不匹配的数据库；不在应用启动时隐式修改业务表。"""
+    """检查业务数据库是否已经迁移到当前代码要求的版本。
+
+    通过 engine 读取 Alembic 版本表；表不存在或版本与 SCHEMA_REVISION
+    不符时抛出 RuntimeError，提示先运行迁移。检查只读取版本，不修改业务表。
+    """
     async with engine.connect() as conn:
         exists = await conn.scalar(text("SELECT to_regclass('alembic_version')"))
         if exists is None:
@@ -60,7 +68,12 @@ async def check_schema(engine: AsyncEngine) -> None:
 
 @asynccontextmanager
 async def open_business_database(settings: Settings) -> AsyncIterator[BusinessDatabase]:
-    """创建、校验并释放业务引擎；组装失败也关闭所有已创建连接池。"""
+    """在应用生命周期内提供业务数据库资源，并在退出时释放连接。
+
+    按 settings 创建业务引擎、专用锁引擎和 Session 工厂，版本检查通过后
+    yield BusinessDatabase。模型执行期间锁连接使用自动提交，避免长事务；
+    正常退出或初始化失败都会进入 finally，依次释放两个引擎。
+    """
     url = database_url(settings)
     engine = create_async_engine(url, pool_pre_ping=True, hide_parameters=True)
     # advisory lock 持有期间使用自动提交，避免模型生成期间维持长事务。

@@ -23,7 +23,7 @@ from app.api.dependencies import get_current_user
 from app.api.exception_handlers import register_exception_handlers
 from app.api.router import api_router
 from app.api.routes.chat import chat
-from app.config.event_loop import create_event_loop
+from app.core.event_loop import create_event_loop
 from app.services.conversations import PreparedChat
 
 
@@ -201,7 +201,7 @@ def test_real_uvicorn_delivers_incrementally_and_cancels_disconnected_request():
 @pytest.mark.parametrize("reload", [False, True])
 def test_uvicorn_loop_factory_for_normal_and_reload_startup(reload):
     """验证 Uvicorn 普通与 reload 配置都能导入工厂，在 Windows 创建 Selector 循环。"""
-    config = uvicorn.Config("app.main:app", reload=reload, loop="app.config.event_loop:create_event_loop", log_config=None)
+    config = uvicorn.Config("app.main:app", reload=reload, loop="app.core.event_loop:create_event_loop", log_config=None)
     factory = config.get_loop_factory()
     loop = factory()
     try:

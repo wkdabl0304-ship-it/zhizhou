@@ -4,10 +4,15 @@ import { computed, ref } from 'vue'
 import { renderMarkdown } from '@/utils/markdown'
 
 const props = defineProps<{ source: string }>()
+// 将最新 Markdown 源文渲染为展示 HTML，流式增量到达后自动重新计算。
 const html = computed(() => renderMarkdown(props.source))
 const copyFeedback = ref('')
 
-/** 仅响应本组件代码块中的原生复制按钮；复制 textContent，避免把高亮标签写入剪贴板。 */
+/**
+ * 复制用户点击的 Markdown 代码块，并显示成功或失败反馈。
+ * event 由正文容器委托，仅处理本组件内的代码复制按钮；读取 textContent，
+ * 避免把语法高亮标签写入剪贴板，权限或浏览器限制失败时提示手动复制。
+ */
 async function copyCode(event: MouseEvent): Promise<void> {
   if (!(event.target instanceof Element) || !(event.currentTarget instanceof Element)) return
   const button = event.target.closest('button.markdown-code-copy')

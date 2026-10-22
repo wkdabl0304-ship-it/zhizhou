@@ -32,8 +32,8 @@ from app.api.exception_handlers import register_exception_handlers
 from app.api.router import api_router
 from app.db.business import check_schema, open_business_database
 from app.db.checkpoint import open_checkpointer
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import RequestError
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import RequestError
 from app.models import ChatTurn, Conversation, User
 from app.schemas.auth import LoginRequest, RegisterRequest
 from app.schemas.chat import ChatDelta
@@ -43,7 +43,11 @@ from app.services.conversations import ConversationService
 
 @asynccontextmanager
 async def runtime(settings, model=None):
-    """建立正式业务服务和 PostgreSQL checkpoint，退出时关闭所有异步资源。"""
+    """为集成测试提供连接隔离数据库的完整后端运行环境。
+
+    复用正式业务服务、路由和 PostgreSQL checkpoint，模型使用本地替身；
+    yield 数据库、认证、会话服务、图与 HTTP 客户端，退出时关闭异步资源。
+    """
     async with (
         open_business_database(settings) as database,
         open_checkpointer(settings) as checkpointer,
@@ -101,7 +105,10 @@ async def send(client, headers, message="天气", conversation_id=None):
 
 
 def test_real_migration_orm_constraints_and_checkpoint_exclusion(postgres_settings):
-    """正式迁移建立约束、索引，Alembic check 不将 checkpoint 表视为应删除对象。"""
+    """验证正式数据库迁移与 ORM 一致，并保留第三方 checkpoint 表。
+
+    检查实际约束和索引，以及 Alembic check 不会误报应删除 checkpoint 表。
+    """
 
     async def scenario():
         """创建 checkpoint 后检查 ORM 元数据一致性和数据库唯一约束。"""
@@ -177,7 +184,10 @@ def test_real_migration_orm_constraints_and_checkpoint_exclusion(postgres_settin
 
 
 def test_register_login_jwt_claims_and_disabled_account(postgres_settings):
-    """两类角色均可注册；真实 JWT 验证声明、过期、算法和账号状态。"""
+    """验证两类账号的注册登录，以及真实 JWT 的认证边界。
+
+    覆盖必需声明、有效期、签名算法和账号停用状态，测试账号仅写入隔离库。
+    """
 
     async def scenario():
         """走 HTTP 注册与认证，并用已知测试密钥构造错误令牌验证拒绝路径。"""
@@ -287,7 +297,10 @@ def test_register_login_jwt_claims_and_disabled_account(postgres_settings):
 def test_auto_creation_public_history_ownership_and_soft_delete(
     postgres_settings, owner_role, other_role
 ):
-    """真实 checkpoint 可续聊，超级管理员也不能越权，软删除保留底层历史。"""
+    """验证会话自动创建、历史恢复、所有权隔离与软删除的完整流程。
+
+    使用真实 checkpoint 续聊，核对超级管理员同样不能越权，删除后底层历史仍保留。
+    """
 
     async def scenario():
         """恢复工具过程并检查所有访问入口，确认非法 ID 不会退化为创建。"""
@@ -391,7 +404,10 @@ def test_auto_creation_public_history_ownership_and_soft_delete(
 
 
 def test_recent_and_history_cursors_ties_scope_and_invalid_values(postgres_settings):
-    """目录同时间记录不遗漏，历史向前读取、本批正序，游标不能跨用户或会话。"""
+    """验证会话目录和历史的游标分页不会遗漏同时间记录或突破归属范围。
+
+    检查历史向前读取但批内正序展示，并拒绝跨用户、跨会话及非法游标。
+    """
 
     async def scenario():
         """构造四个目录及五轮历史，分批读取并验证结束游标和错误边界。"""
@@ -489,7 +505,11 @@ def test_recent_and_history_cursors_ties_scope_and_invalid_values(postgres_setti
 def test_cross_connection_busy_delete_recovery_and_parallel_conversations(
     postgres_settings,
 ):
-    """独立服务连接共享互斥，读取不会误中断活跃生成，释放锁后恢复遗留运行状态。"""
+    """验证跨连接会话锁能协调生成、删除和遗留轮次恢复。
+
+    独立服务连接竞争同一锁时互斥，不同会话仍可并发；读取不能误中断
+    活跃生成，执行者释放锁后才允许恢复遗留运行状态。
+    """
 
     async def scenario():
         """显式持有上下文模拟生成，检查 409、跨会话并发和启动恢复行为。"""
@@ -553,7 +573,10 @@ def test_cross_connection_busy_delete_recovery_and_parallel_conversations(
 
 
 def test_cancellation_persists_partial_history_and_releases_lock(postgres_settings):
-    """模型等待期间取消后保存已公开片段，关闭 checkpoint 流并释放数据库执行锁。"""
+    """验证取消聊天会保存已公开的历史片段，并释放流与数据库执行锁。
+
+    在模型等待期间主动取消，通过真实数据库核对中断状态及已收片段。
+    """
 
     class PausedModel(StubChatModel):
         """先输出公开片段再等待取消，entered/cleaned 让生命周期可被准确观察。"""
@@ -616,7 +639,10 @@ def test_cancellation_persists_partial_history_and_releases_lock(postgres_settin
 
 
 def test_final_commit_failure_never_sends_done(postgres_settings, monkeypatch):
-    """checkpoint 成功但业务最终写入失败，HTTP 只发送 error，历史不可标记成功。"""
+    """验证最终业务提交失败时不能向客户端交付成功确认。
+
+    即使 checkpoint 已保存，HTTP 也只能发送 error，业务历史不能标记完成。
+    """
 
     async def scenario():
         """仅使最终提交失败，失败状态仍可正常写入，以检查完成边界。"""

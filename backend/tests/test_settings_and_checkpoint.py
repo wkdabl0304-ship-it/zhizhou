@@ -10,7 +10,7 @@ from dataclasses import replace
 import pytest
 from psycopg.conninfo import conninfo_to_dict
 
-from app.config.settings import Settings, load_database_settings, load_settings
+from app.core.settings import Settings, load_database_settings, load_settings
 from app.db.checkpoint import build_conninfo, open_checkpointer
 
 ENV_VALUES = {

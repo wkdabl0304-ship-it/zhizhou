@@ -9,12 +9,13 @@ from contextlib import asynccontextmanager
 from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
 from psycopg.conninfo import make_conninfo
 
-from app.config.settings import Settings
+from app.core.settings import Settings
 
 
 def build_conninfo(settings: Settings) -> str:
-    """将 settings 转为 psycopg 连接字符串，但不发起数据库连接。
+    """构造 checkpoint 保存器连接 PostgreSQL 所需的驱动连接字符串。
 
+    参数从 settings 取得，构造过程不发起数据库连接。
     使用驱动转义用户名、密码等参数，支持空格、引号和地址特殊字符。
     连接超时为 10 秒；返回值包含凭据，调用方不应将其写入日志。
     """
@@ -30,7 +31,7 @@ def build_conninfo(settings: Settings) -> str:
 
 @asynccontextmanager
 async def open_checkpointer(settings: Settings) -> AsyncIterator[AsyncPostgresSaver]:
-    """在上下文中提供已完成表初始化的 PostgreSQL 状态保存器。
+    """为 Agent 提供可持久化对话状态的 PostgreSQL checkpoint 保存器。
 
     进入时根据 settings 连接数据库并执行可重复的 setup 迁移；yield
     出的保存器必须在 async with 范围内使用。正常退出或发生异常都会关闭连接。

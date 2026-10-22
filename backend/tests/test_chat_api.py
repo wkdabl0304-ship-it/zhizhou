@@ -25,9 +25,9 @@ from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
 from app.agents.tools.weather import get_weather
 from app.api.dependencies import get_chat_agent, get_current_user
-from app.config.settings import LoggingSettings
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import BusinessError
+from app.core.settings import LoggingSettings
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import BusinessError
 
 main = importlib.import_module("app.main")
 
@@ -359,8 +359,8 @@ with patch('dotenv.dotenv_values', forbidden), \\
      patch('logging.config.dictConfig', forbidden), \\
      patch('uvicorn.run', forbidden):
     for name in (
-        'app.config.settings', 'app.config.logging', 'app.db.checkpoint', 'app.agents.models',
-        'app.errors.codes', 'app.errors.exceptions', 'app.schemas.response', 'app.api.exception_handlers',
+        'app.core.settings', 'app.core.logging', 'app.db.checkpoint', 'app.agents.models',
+        'app.core.errors.codes', 'app.core.errors.exceptions', 'app.schemas.response', 'app.api.exception_handlers',
         'app.api.dependencies', 'app.api.routes.chat', 'app.api.router',
         'app.agents.factory', 'app.agents.agent', 'app.agents.__main__', 'app.main', 'app.__main__'
     ):

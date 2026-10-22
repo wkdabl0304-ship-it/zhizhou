@@ -7,8 +7,8 @@ from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, ValidationError
 
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import RequestError
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import RequestError
 
 
 class ConversationCursor(BaseModel):
@@ -34,14 +34,23 @@ class TurnCursor(BaseModel):
 
 
 def encode_cursor(cursor: BaseModel) -> str:
-    """将已校验的游标编码为无填充的 URL 安全文本，不把编码当作访问授权。"""
+    """把分页位置序列化为可放入 URL 的游标字符串。
+
+    cursor 为已校验的分页模型，先转 JSON 再编码为去除填充的 Base64URL。
+    编码不加密、不签名，也不授予访问权限；查询仍须独立限定当前用户。
+    """
     return (
         base64.urlsafe_b64encode(cursor.model_dump_json().encode()).decode().rstrip("=")
     )
 
 
 def decode_cursor[T: BaseModel](value: str, schema: type[T]) -> T:
-    """严格校验长度、Base64URL 和字段结构，失败统一返回参数错误而非内部解析细节。"""
+    """解析客户端分页游标，返回指定 schema 对应的分页位置对象。
+
+    value 须通过长度、字符集、Base64URL 和模型字段校验；任何解析失败
+    均转换为 INVALID_ARGUMENT，不向接口暴露内部解析细节。用户和会话
+    归属还需由调用本函数的服务层校验。
+    """
     try:
         if (
             not value

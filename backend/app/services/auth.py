@@ -8,10 +8,10 @@ from anyio import to_thread
 from pwdlib import PasswordHash
 from sqlalchemy.exc import IntegrityError
 
-from app.config.settings import Settings
+from app.core.settings import Settings
 from app.db.business import BusinessDatabase
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import BusinessError, RequestError
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import BusinessError, RequestError
 from app.models import User
 from app.repositories import users
 from app.schemas.auth import (
@@ -24,10 +24,18 @@ from app.schemas.auth import (
 
 
 class AuthService:
-    """共享配置与线程安全的密码工具；不保存请求 Session 或登录凭证。"""
+    """提供账号注册、登录和令牌认证服务。
+
+    实例复用配置与密码工具，每次数据库操作独立创建 Session，
+    不在服务对象中保存某个请求的事务或登录凭证。
+    """
 
     def __init__(self, database: BusinessDatabase, settings: Settings) -> None:
-        """校验签名密钥，初始化哈希器；实际数据库操作按请求创建独立 Session。"""
+        """初始化认证服务使用的数据库入口、配置和密码哈希工具。
+
+        settings.jwt_secret 少于 32 字节时拒绝创建服务。这里只保存数据库
+        工厂，不打开请求事务；登录前的占位密码摘要由 initialize 准备。
+        """
         if len(settings.jwt_secret.encode("utf-8")) < 32:
             raise ValueError("JWT_SECRET 至少需要 32 个字节")
         self.database = database
@@ -37,13 +45,22 @@ class AuthService:
         self._dummy_hash: str | None = None
 
     async def initialize(self) -> None:
-        """在线程池准备未知账号的校验摘要，避免启动和登录阻塞事件循环。"""
+        """为不存在账号的登录请求准备占位密码摘要。
+
+        未知账号也会执行密码校验，避免与正常账号走明显不同的计算路径；
+        哈希计算在线程池中执行，不阻塞异步服务的事件循环。
+        """
         self._dummy_hash = await to_thread.run_sync( # hash 计算都放进线程池
             self.passwords.hash, "unused-account-password"
         )
 
     async def register(self, body: RegisterRequest) -> RegisteredUser:
-        """哈希后通过唯一约束原子注册；并发重名只返回安全业务错误。"""
+        """注册新账号并返回不含密码摘要的账号信息。
+
+        body 提供已校验的用户名、密码与角色。先在线程池计算密码摘要，
+        再在短事务中创建账号；数据库唯一约束保证并发重名不会重复注册。
+        用户名冲突转换为 USERNAME_EXISTS，其他数据库异常继续向外传播。
+        """
         password_hash = await to_thread.run_sync(self.passwords.hash, body.password)
         try:
             async with self.database.sessions.begin() as session:
@@ -58,7 +75,12 @@ class AuthService:
             raise
 
     async def login(self, body: LoginRequest) -> LoginResponse:
-        """校验账号与密码后签发访问令牌；错误不区分账号不存在、停用或密码错误。"""
+        """验证登录信息并返回访问令牌、有效期和当前用户信息。
+
+        body 提供用户名和密码，密码校验在线程池进行。账号不存在、已停用
+        或密码错误统一抛出 INVALID_CREDENTIALS；成功后签发包含用户 ID、
+        颁发时间、过期时间及签发方和接收方约束的 HS256 JWT。
+        """
         async with self.database.sessions() as session:
             user = await users.by_username(session, body.username)
         if self._dummy_hash is None:
@@ -86,7 +108,12 @@ class AuthService:
         )
 
     async def authenticate(self, token: str) -> User:
-        """验证必需声明、签名和数据库账号状态，拒绝过期或无法归属的令牌。"""
+        """根据访问令牌取得当前仍可使用系统的用户。
+
+        token 必须包含规定的 JWT 声明并通过签名、有效期及签发方和接收方
+        校验；随后查询数据库中的最新账号状态，不只信任令牌本身。
+        令牌无效、账号不存在或已停用时统一抛出 UNAUTHENTICATED。
+        """
         try:
             payload = jwt.decode(
                 token,

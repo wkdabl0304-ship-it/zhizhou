@@ -1,7 +1,11 @@
 /** 响应式媒体查询：监听浏览器断点，并在组件销毁时释放监听。 */
 import { onBeforeUnmount, ref } from 'vue'
 
-/** 返回查询匹配状态；用于窄屏抽屉切换，不以 UA 推断设备种类。 */
+/**
+ * 将浏览器媒体查询转换为可供 Vue 组件使用的响应式匹配状态。
+ * query 为 matchMedia 查询字符串，返回布尔 ref；监听 change 更新状态，
+ * 并在组件卸载时解除监听，适合用于窄屏导航等断点判断。
+ */
 export function useMediaQuery(query: string) {
   const media = window.matchMedia(query)
   const matches = ref(media.matches)

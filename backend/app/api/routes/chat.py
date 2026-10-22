@@ -18,8 +18,8 @@ from app.api.dependencies import (
     get_current_user,
 )
 from app.api.streaming import DisconnectStreamingResponse, encode_event
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import AppError, ServiceError, log_app_error
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import AppError, ServiceError, log_app_error
 from app.models import User
 from app.schemas.chat import (
     ChatDelta,
@@ -125,7 +125,12 @@ async def prepare_chat(
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> AsyncIterator[PreparedChat]:
-    """响应建立前校验归属并提交输入；request scope 保证 SSE 完成后才释放会话锁。"""
+    """为聊天接口准备已经落库的输入和持锁执行上下文。
+
+    使用已认证的 user 与校验后的 body 调用会话服务，yield PreparedChat
+    给路由。依赖采用 request scope，使上下文在 SSE 结束后才退出并释放锁；
+    归属或执行冲突在响应建立前返回普通 JSON 错误。
+    """
     async with service.prepare(user.id, body.message, body.conversation_id) as prepared:
         yield prepared
 
@@ -180,6 +185,8 @@ async def chat(
     chat_agent: Annotated[ChatAgent, Depends(get_chat_agent)],
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> DisconnectStreamingResponse:
+    # 接口用途：将已准备好的本轮聊天作为 SSE 响应交给浏览器，持续传输进度和最终回答。
+    # 下方文档字符串会进入 OpenAPI，阅读补充使用普通注释，保持对外接口描述不变。
     """已提交输入后建立 SSE；身份、会话归属和执行冲突均在响应头发送前校验。
 
     底层图仅执行一次，业务最终结果提交后才发送 done；客户端断开会关闭图，
@@ -187,7 +194,11 @@ async def chat(
     """
 
     async def events() -> AsyncIterator[str]:
-        """编码数据及终止事件，关闭底层异步流并保留取消异常的传播。"""
+        """把会话服务事件转换为浏览器可读取的 SSE 文本流。
+
+        正常事件用 success 包装，应用异常或未知故障转换为终止 error 事件；
+        离开迭代时关闭服务流，取消异常继续传播以触发外层清理。
+        """
         try:
             async with aclosing(service.stream(prepared, chat_agent)) as stream:
                 async for event in stream:

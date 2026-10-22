@@ -9,7 +9,7 @@ from langchain_core.language_models import LanguageModelInput
 from langchain_core.messages import AIMessage
 from langchain_deepseek import ChatDeepSeek
 
-from app.config.settings import Settings
+from app.core.settings import Settings
 
 
 class DeepSeekChatModel(ChatDeepSeek):
@@ -23,8 +23,10 @@ class DeepSeekChatModel(ChatDeepSeek):
         self, input_: LanguageModelInput, *, stop: list[str] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        """构建请求并回填历史助手思考，不修改图中原始消息对象。
+        """生成可延续 DeepSeek 思考历史的模型请求体。
 
+        将 input_ 转换为消息，调用父类完成请求序列化，再把已保存的助手
+        reasoning_content 回填到对应请求消息；不修改图中的原始对象。
         旧 checkpoint 或非思考消息没有此字段时发送空字符串，明确表示
         没有已保存的思考，不能恢复先前已丢弃的内容。保留父类的工具、
         端点及内容序列化规则，仅处理与原消息一一对应的 assistant 字段。
@@ -39,8 +41,10 @@ class DeepSeekChatModel(ChatDeepSeek):
 
 
 def create_model(settings: Settings) -> DeepSeekChatModel:
-    """使用 settings 返回保留 DeepSeek 思考字段的客户端，并显式启用思考模式。
+    """创建供 Agent 调用的 DeepSeek 模型客户端。
 
+    从 settings 装配模型名、密钥和服务地址，显式开启思考模式；返回的
+    客户端补充历史思考字段回传，但不在这里决定哪些字段对外展示。
     仅创建客户端，不主动发送消息。调用方可将此客户端注入 Agent 工厂，
     单元测试则可注入本地模型替身，避免真实网络请求。
     """

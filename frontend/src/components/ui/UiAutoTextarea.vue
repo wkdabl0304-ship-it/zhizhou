@@ -10,7 +10,11 @@ const element = ref<HTMLTextAreaElement>()
 let observer: ResizeObserver | undefined
 let lastWidth = 0
 
-/** 先清除旧高度再测量；最大高度由公共样式限制，超过后使用原生内部滚动。 */
+/**
+ * 根据当前内容调整文本框高度，让草稿在输入区内自然展开。
+ * 等待 DOM 更新后清除旧高度并测量 scrollHeight；最大高度由公共样式限制，
+ * 超出上限后使用文本框内部滚动，不修改输入内容。
+ */
 async function resize(): Promise<void> {
   await nextTick()
   if (!element.value) return
@@ -18,12 +22,13 @@ async function resize(): Promise<void> {
   element.value.style.height = `${element.value.scrollHeight}px`
 }
 
-/** 暴露焦点入口，供示例问题填入后继续输入。 */
+/** 聚焦原生文本框，供上层输入组件在填入建议或切换页面后继续输入。 */
 function focus(): void {
   element.value?.focus()
 }
 
 watch(model, resize)
+// 首次挂载时计算高度并监听宽度变化，补上自动换行导致的高度调整。
 onMounted(() => {
   resize()
   if (typeof ResizeObserver === 'undefined') return

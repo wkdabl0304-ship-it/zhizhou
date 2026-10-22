@@ -11,11 +11,11 @@ from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
 from app.agents.models import create_model
 from app.agents.tools.weather import get_weather
-from app.config.event_loop import create_event_loop
-from app.config.logging import configure_logging
-from app.config.settings import load_logging_settings, load_settings
+from app.core.event_loop import create_event_loop
+from app.core.logging import configure_logging
+from app.core.settings import load_logging_settings, load_settings
 from app.db.checkpoint import open_checkpointer
-from app.errors.exceptions import AppError, log_app_error
+from app.core.errors.exceptions import AppError, log_app_error
 
 logger = logging.getLogger("app.agents.cli")
 
@@ -25,8 +25,10 @@ CONVERSATION_ID = "conversation-002"
 
 
 async def run_chat() -> None:
-    """异步初始化依赖并打印最终文本，连接与 Agent 始终在同一循环内使用。
+    """执行命令行示例对话，并将最终助手文本输出到标准输出。
 
+    读取配置、创建模型和 checkpoint 后调用共享 ChatAgent；连接与 Agent
+    始终在同一事件循环内使用，MESSAGE 与 CONVERSATION_ID 指定本次输入。
     数据库连接在 async with 内保持有效，离开时关闭。已知应用失败记录一次
     日志后以退出码 1 结束，避免解释器再次输出相同堆栈；启动配置或
     数据库初始化失败仍直接抛出，使调用者及时发现环境问题。
@@ -45,7 +47,11 @@ async def run_chat() -> None:
 
 
 def main() -> None:
-    """先配置日志，再用兼容 psycopg 的循环运行示例，退出时关闭循环。"""
+    """启动智能体命令行演示，供 python -m app.agents 调用。
+
+    先配置日志，再用兼容 psycopg 的事件循环运行 run_chat；退出上下文时
+    关闭循环，对话执行与异常退出规则由 run_chat 处理。
+    """
     configure_logging(load_logging_settings())
     with asyncio.Runner(loop_factory=create_event_loop) as runner:
         runner.run(run_chat())

@@ -7,8 +7,8 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.exceptions import HTTPException
 
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import (
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import (
     BusinessError,
     RequestError,
     ServiceError,

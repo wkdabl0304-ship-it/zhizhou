@@ -15,7 +15,7 @@ beforeEach(() => {
 // 撤销网络替身，不影响其他文件中的页面请求。
 afterEach(() => vi.unstubAllGlobals())
 
-/** 完整消费本轮生成器，将已校验事件用于断言；失败继续向调用方传播。 */
+/** 收集一轮聊天的全部业务事件供协议断言使用；完整消费生成器，解析失败继续向测试传播。 */
 async function collect(): Promise<ChatStreamEvent[]> {
   const events: ChatStreamEvent[] = []
   for await (const event of streamChatMessage('测试消息', thread_id)) events.push(event)

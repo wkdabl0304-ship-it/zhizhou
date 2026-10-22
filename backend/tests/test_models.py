@@ -15,7 +15,7 @@ from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
 from app.agents.models import DeepSeekChatModel, create_model
 from app.agents.tools.weather import get_weather
-from app.config.settings import Settings
+from app.core.settings import Settings
 from app.schemas.chat import ChatDelta, ChatToolCall, ChatToolEnd, ChatToolStart
 
 

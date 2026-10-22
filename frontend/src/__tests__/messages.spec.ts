@@ -7,7 +7,7 @@ import MessageItem from '@/components/chat/MessageItem.vue'
 import type { ChatMessage } from '@/types/chat'
 
 const wrappers: VueWrapper[] = []
-/** 提供提示上下文并渲染真实消息组件，不替换文本块渲染过程。 */
+/** 挂载指定消息以测试真实展示与复制行为；提供 Tooltip 上下文，不替换正文渲染逻辑。 */
 function renderMessage(message: ChatMessage) {
   const Host = defineComponent({
     components: { MessageItem, TooltipProvider },

@@ -20,7 +20,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-/** 在真实 Vue 生命周期内使用组合函数，暴露返回状态供测试驱动媒体与文档事件。 */
+/** 创建动效状态测试宿主，返回组件及状态供测试驱动和断言；监听清理使用真实 Vue 生命周期。 */
 function renderMotion() {
   let motion: ReturnType<typeof useMotionPreference> | undefined
   const Host = defineComponent({

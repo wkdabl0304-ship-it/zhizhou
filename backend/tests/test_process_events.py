@@ -16,7 +16,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 
 from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
-from app.errors.exceptions import ServiceError
+from app.core.errors.exceptions import ServiceError
 from app.schemas.chat import (
     ChatDelta,
     ChatResponse,

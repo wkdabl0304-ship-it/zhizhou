@@ -13,7 +13,7 @@ function createThreadId(): string {
   ).join('')
 }
 
-/** 每个应用实例建立独立内存状态；首次加载即预留随机 thread_id。 */
+/** 创建聊天 store，供页面管理本次浏览中的会话与流式请求；首次加载预留随机 thread_id。 */
 export const useChatStore = defineStore('chat', () => {
   // 明确 Ref 的公共类型，避免工具 JSON 的递归结构被类型系统反复做深层 UnwrapRef。
   const conversations: Ref<Conversation[]> = ref([])
@@ -23,6 +23,7 @@ export const useChatStore = defineStore('chat', () => {
   const activeConversation = computed(() =>
     conversations.value.find((item) => item.id === activeId.value),
   )
+  // 判断当前会话是否还有未结束的请求，供输入区阻止同会话重复发送。
   const isSending = computed(
     () =>
       activeConversation.value?.messages.some(
@@ -49,7 +50,8 @@ export const useChatStore = defineStore('chat', () => {
   }
 
   /**
-   * 追加用户消息和等待占位，逐事件更新回复；空白或同会话重复发送返回 false。
+   * 发送用户输入，并把流式回复和过程事件更新到所属会话。
+   * text 去除首尾空白后写入用户消息，并创建助手占位；空白或同会话重复发送返回 false。
    * 每个会话仅允许一个在途请求；捕获原会话引用，切换页面内会话不会串写回复。
    * 失败保留用户消息及已收到的文本并标记未完成，返回 false；不自动重试。
    */
@@ -88,6 +90,7 @@ export const useChatStore = defineStore('chat', () => {
         if (event.type !== 'start') assistant.status = 'streaming'
         if (event.type === 'delta') {
           segments.set(event.messageId, (segments.get(event.messageId) ?? '') + event.text)
+          // 将每段已累积正文映射为消息块，保留不同模型步骤的文本边界。
           assistant.blocks = Array.from(segments.values(), (text) => ({ type: 'paragraph', text }))
           assistant.status = 'streaming'
         } else if (event.type === 'done') {

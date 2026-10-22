@@ -32,7 +32,7 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-/** 用真实 Pinia 与 TooltipProvider 组合页面，只替换无关的路由链接。 */
+/** 挂载聊天工作空间以测试页面级交互；使用独立 Pinia 和真实提示上下文，仅替换路由链接。 */
 function renderWorkspace() {
   const Host = defineComponent({
     components: { TooltipProvider, ChatView },

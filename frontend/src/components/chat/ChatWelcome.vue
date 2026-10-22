@@ -10,13 +10,13 @@ const model = defineModel<string>({ default: '' })
 defineProps<{ sending?: boolean }>()
 defineEmits<{ send: [text: string] }>()
 const composer = ref<InstanceType<typeof ChatComposer>>()
-/** 填入建议但不发送；DOM 同步后将焦点送回输入区，供用户继续编辑。 */
+/** 将建议问题填入聊天草稿，等待 DOM 更新后聚焦输入框；不会直接发送 prompt。 */
 async function fillSuggestion(prompt: string): Promise<void> {
   model.value = prompt
   await nextTick()
   composer.value?.focus()
 }
-/** 暴露与输入区一致的焦点入口，供页面切换后恢复连续输入。 */
+/** 聚焦首页聊天输入区，供父页面在界面切换后恢复连续输入。 */
 function focus(): void {
   composer.value?.focus()
 }

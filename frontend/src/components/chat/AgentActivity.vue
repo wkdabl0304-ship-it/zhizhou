@@ -18,6 +18,7 @@ watch(
 )
 // 汇总工具请求数而非事件数；重复执行仍归属同一操作，整轮状态控制折叠入口。
 const toolCount = computed(() => props.activities.filter((item) => item.type === 'tool').length)
+// 判断整轮是否已经结束，供过程区展示收尾状态，不把某个工具完成当作整轮完成。
 const finished = computed(() => props.status === 'complete' || props.status === 'error')
 const statusLabels: Record<ActivityStatus, string> = {
   queued: '已请求，等待执行',
@@ -27,12 +28,12 @@ const statusLabels: Record<ActivityStatus, string> = {
   interrupted: '未确认完成',
 }
 
-/** 字符串保留换行，其他 JSON 格式化；null、false、0 都是有效结果。 */
+/** 将工具参数或结果转换为可阅读文本；字符串保留原文，其他 JSON 使用缩进格式。 */
 function formatValue(value: JsonValue): string {
   return typeof value === 'string' ? value : JSON.stringify(value, null, 2)
 }
 
-/** 在工具摘要行显示实际命令或输入，未执行的请求不会被标记为正在运行。 */
+/** 生成工具卡片摘要行的输入预览；优先显示最近执行的参数，再回退到请求参数。 */
 function inputPreview(item: ToolActivity): string {
   const input = item.runs[item.runs.length - 1]?.arguments ?? item.arguments
   if (input === undefined) return ''
@@ -40,7 +41,7 @@ function inputPreview(item: ToolActivity): string {
   return typeof input === 'string' ? input : JSON.stringify(input)
 }
 
-/** 用户主动展开或收起完整过程；内容保留在 DOM 中，工具详情的展开状态不丢失。 */
+/** 切换整个过程区的展开状态；内容保留在 DOM 中，不重置各工具详情的展开选择。 */
 function toggleProcess(): void {
   expanded.value = !expanded.value
 }

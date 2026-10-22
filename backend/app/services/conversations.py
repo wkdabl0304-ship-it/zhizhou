@@ -18,8 +18,8 @@ import anyio
 from app.agents.agent import ChatAgent
 from app.db.business import BusinessDatabase
 from app.db.locks import ConversationLocks
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import AppError, RequestError
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import AppError, RequestError
 from app.models import Conversation
 from app.repositories import conversations as repository
 from app.schemas.chat import ChatAgentEvent, ChatDelta, ChatResponse, ChatStart
@@ -55,12 +55,20 @@ class ConversationService:
     """组织会话业务，所有访问都要求传入经过认证的用户 ID。"""
 
     def __init__(self, database: BusinessDatabase) -> None:
-        """保存 Session 工厂与跨进程锁，不在实例中持有请求级数据库事务。"""
+        """初始化会话服务使用的数据库入口和执行锁管理器。
+
+        服务对象可以跨请求复用，但不持有请求级 Session；每次读取或写入
+        分别创建短事务，模型生成期间只保留专用连接上的跨进程会话锁。
+        """
         self.database = database
         self.locks = ConversationLocks(database.lock_engine)
 
     async def require_owned(self, user_id: UUID, conversation_id: UUID) -> None:
-        """在取得执行锁前核验所有权，防止陌生用户用猜测 ID 干扰他人的执行锁。"""
+        """确认指定会话存在、未删除且属于当前用户。
+
+        user_id 来自认证结果。会话不存在、已删除或属于他人时均抛出
+        CONVERSATION_NOT_FOUND；在申请执行锁前调用，避免越权请求干扰他人。
+        """
         async with self.database.sessions() as session:
             if await repository.owned(session, user_id, conversation_id) is None:
                 raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
@@ -68,7 +76,12 @@ class ConversationService:
     async def list_recent(
         self, user_id: UUID, limit: int, cursor: str | None
     ) -> ConversationList:
-        """返回最近会话及继续向前读取的游标，不进行 COUNT 或 OFFSET 查询。"""
+        """分页返回当前用户最近使用的会话列表。
+
+        limit 指定本批数量，cursor 为空时从最新会话开始，否则按其中的
+        时间和 ID 继续读取更早记录。多取一条判断是否还有下一批，不执行
+        COUNT 或 OFFSET 查询；游标属于其他用户时抛出 INVALID_ARGUMENT。
+        """
         before = None
         if cursor is not None:
             parsed = decode_cursor(cursor, ConversationCursor)
@@ -98,7 +111,12 @@ class ConversationService:
     async def content(
         self, user_id: UUID, conversation_id: UUID, limit: int, cursor: str | None
     ) -> ConversationContent:
-        """读取最近轮次；仅在取得非阻塞执行锁时修复遗留运行状态。"""
+        """分页读取当前用户某个会话的公开聊天历史。
+
+        先核验归属，再按 limit 和可选 cursor 读取较早轮次；每批结果按
+        轮次正序展示，并返回会话信息及下一批游标。读取前尝试修复遗留的
+        运行状态，但不等待或干扰活跃生成；跨用户或跨会话游标会被拒绝。
+        """
         await self.require_owned(user_id, conversation_id)
         before_seq = None
         if cursor is not None:
@@ -133,7 +151,12 @@ class ConversationService:
             )
 
     async def delete(self, user_id: UUID, conversation_id: UUID) -> None:
-        """取得同一执行锁后幂等软删除；生成期间拒绝删除，也不移除 checkpoint。"""
+        """将当前用户的指定会话标记为已删除，使其不再出现在正常访问中。
+
+        先核验归属，再取得与生成过程相同的执行锁；生成期间返回
+        CONVERSATION_BUSY。重复删除不产生额外变化，轮次记录与 checkpoint
+        均保留；不存在或不属于该用户的会话统一返回未找到。
+        """
         async with self.database.sessions() as session:
             if (
                 await repository.owned(
@@ -155,7 +178,11 @@ class ConversationService:
                     conversation.deleted_at = datetime.now(UTC)
 
     async def recover_one(self, conversation_id: UUID) -> None:
-        """不会等待活跃生成；只有确实没有执行者时才中断遗留轮次。"""
+        """把指定会话已失去执行者的运行轮次修复为中断状态。
+
+        非阻塞地尝试取得执行锁，只有取得后才更新遗留记录；活跃生成持锁
+        时直接跳过，不等待它结束，也不自动重放模型或工具调用。
+        """
         async with self.locks.hold(conversation_id) as acquired:
             if acquired:
                 async with self.database.sessions.begin() as session:
@@ -164,7 +191,11 @@ class ConversationService:
                     )
 
     async def recover(self) -> None:
-        """启动时检查遗留运行轮次；其他进程正在处理的会话不会被修改。"""
+        """在应用启动时清理上次退出后遗留的运行中轮次。
+
+        先查询含运行轮次的会话，再逐个调用 recover_one；仍由其他进程
+        持锁执行的会话保持原状，避免把正常任务误标为中断。
+        """
         async with self.database.sessions() as session:
             ids = await repository.running_conversations(session)
         for conversation_id in ids:
@@ -174,8 +205,11 @@ class ConversationService:
     async def prepare(
         self, user_id: UUID, message: str, conversation_id: UUID | None
     ) -> AsyncIterator[PreparedChat]:
-        """建立请求级执行上下文，先提交用户输入，再让路由建立 SSE。
+        """为新一轮聊天创建可供 SSE 使用的业务执行上下文。
 
+        user_id 为已认证用户，message 为本轮输入；conversation_id 为空时
+        创建新会话，否则核验已有会话归属。持有执行锁后，在短事务中提交
+        用户输入并 yield PreparedChat，路由随后才建立 SSE 响应。
         FastAPI request scope 在响应发送结束后退出本上下文；即使断开发生在首个
         事件之前，也会标记中断并释放锁。新会话与首轮输入在同一事务中创建。
         """
@@ -230,7 +264,13 @@ class ConversationService:
         response: ChatResponse | None = None,
         error_code: int | None = None,
     ) -> None:
-        """提交公开快照；成功提交终止状态后才改变内存标记，失败不能假称已完成。"""
+        """将本轮已公开的过程、回答和执行状态保存到业务历史中。
+
+        prepared 提供当前轮次与过程缓冲，status 指定运行或终止状态；
+        response 存在时保存最终回答，并移除过程里对应的临时正文。
+        事务成功后才更新内存中的 terminal 标记；写入失败继续抛出异常，
+        不能让调用方把尚未落库的结果当作已完成。
+        """
         now = datetime.now(UTC)
         values = {
             "public_events": deepcopy(prepared.public_events),
@@ -258,7 +298,13 @@ class ConversationService:
     async def stream(
         self, prepared: PreparedChat, agent: ChatAgent
     ) -> AsyncIterator[ChatStart | ChatAgentEvent]:
-        """执行一次 Agent，合并正文快照；工具边界立即保存，done 在业务落库后输出。"""
+        """执行本轮聊天，并向路由逐个提供公开的进度和结果事件。
+
+        prepared 必须来自仍有效的 prepare 上下文。先 yield 开始事件，
+        再执行一次 Agent；相邻正文合并为历史快照，工具边界立即保存，
+        正文按字节数或时间间隔保存。最终回答提交成功后才 yield done。
+        执行异常会尝试保存失败状态后继续传播；取消后的中断保存由 prepare 负责。
+        """
         conversation_id = str(prepared.conversation_id)
         yield ChatStart(
             conversation_id=conversation_id,

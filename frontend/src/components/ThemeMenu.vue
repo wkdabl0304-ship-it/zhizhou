@@ -14,7 +14,7 @@ import UiIconButton from '@/components/ui/UiIconButton.vue'
 defineProps<{ compact?: boolean }>()
 const theme = useThemeStore()
 
-/** 只接收菜单中定义的合法值，避免将未知字符串写入全局主题。 */
+/** 将外观菜单的有效选项应用到全局主题；忽略未知值，避免污染主题状态。 */
 function update(value: unknown): void {
   if (value === 'light' || value === 'dark') theme.setTheme(value as Theme)
 }

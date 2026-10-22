@@ -145,7 +145,12 @@ def load_settings(env_path: Path | None = None) -> Settings:
 
 
 def load_database_settings(env_path: Path | None = None) -> DatabaseSettings:
-    """仅加载迁移和业务引擎需要的数据库配置，不连接数据库或读取其他密钥。"""
+    """读取并校验独立的数据库配置，供迁移命令和业务引擎使用。
+
+    env_path 和环境变量优先级沿用统一读取规则；只提取并校验数据库相关
+    字段，不要求提供模型或 JWT 密钥，也不连接数据库。缺失或非法配置
+    抛出 ValueError，错误解释不回显配置原值。
+    """
     values = _read_environment(env_path)
     names = ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB", "POSTGRES_PORT")
     if any(not (values.get(name) or "").strip() for name in names):

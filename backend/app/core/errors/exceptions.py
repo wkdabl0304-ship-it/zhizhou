@@ -8,15 +8,16 @@ import logging
 from collections.abc import Mapping
 from typing import ClassVar
 
-from app.errors.codes import ErrorCode
+from app.core.errors.codes import ErrorCode
 
 
 class AppError(Exception):
     """保存错误目录条目与日志记录状态，供具体应用异常复用。"""
 
     def __init__(self, error_code: ErrorCode) -> None:
-        """接收已登记的 error_code，初始化安全异常消息和未记录状态。
+        """创建携带中央错误码及日志记录状态的应用异常。
 
+        error_code 决定安全异常消息，logged 初始为 False，供跨层日志去重。
         传入数字或字符串而非目录成员时抛出 TypeError，防止绕过中央维护。
         """
         if not isinstance(error_code, ErrorCode):
@@ -30,7 +31,11 @@ class BusinessError(AppError):
     """可预期业务失败，JSON 或 SSE 边界返回非零业务码，HTTP 状态为 200。"""
 
     def __init__(self, error_code: ErrorCode = ErrorCode.BUSINESS_ERROR) -> None:
-        """接收业务目录成员；码值不在 20000–29999 范围时抛出 ValueError。"""
+        """创建可预期业务失败，供协议边界返回对应业务码。
+
+        error_code 必须是业务目录成员；不在 20000–29999 范围时抛出
+        ValueError，避免把请求错误或系统异常当作普通业务失败。
+        """
         super().__init__(error_code)
         if not error_code.is_business:
             raise ValueError("BusinessError 必须使用 20000–29999 范围内的业务码")
@@ -48,7 +53,11 @@ class RequestError(AppError):
     }
 
     def __init__(self, error_code: ErrorCode) -> None:
-        """仅接受预定义请求错误，不允许调用层随意改变错误码与 HTTP 状态的对应关系。"""
+        """创建认证或资源访问失败，并附上预先约定的 HTTP 状态。
+
+        error_code 必须位于 _statuses 映射中，否则抛出 ValueError；
+        调用层不能自行改变该错误码对应的 HTTP 状态。
+        """
         super().__init__(error_code)
         if error_code not in self._statuses:
             raise ValueError("RequestError 必须使用已登记的请求错误码")
@@ -59,7 +68,11 @@ class ServiceError(AppError):
     """可预期系统失败；JSON 边界返回 500，已建立的 SSE 通过 error 事件报告。"""
 
     def __init__(self, error_code: ErrorCode = ErrorCode.INTERNAL_ERROR) -> None:
-        """接收系统目录成员；成功码、业务码或请求错误码均不允许使用。"""
+        """创建需要作为系统故障处理的应用异常。
+
+        error_code 只能使用 50000–59999 范围内的系统目录成员，
+        成功码、业务码或请求错误码会触发 ValueError。
+        """
         super().__init__(error_code)
         if not 50000 <= error_code.code <= 59999:
             raise ValueError("ServiceError 必须使用系统错误码")

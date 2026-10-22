@@ -11,7 +11,11 @@ depends_on = None
 
 
 def timestamps():
-    """为各表生成独立的创建、更新时间列，避免复用 Column 实例。"""
+    """生成新表共用的创建时间和更新时间列定义。
+
+    返回使用数据库当前时间作为默认值的两个列；每次调用创建独立实例，
+    避免将同一 Column 绑定到多张表。
+    """
     return [
         sa.Column(
             "created_at",
@@ -29,7 +33,11 @@ def timestamps():
 
 
 def upgrade():
-    """建立首版业务结构、所有权外键和游标索引。"""
+    """创建首版用户、会话和问答轮次表，建立认证与历史管理的数据库基础。
+
+    同时建立用户归属外键、轮次序号唯一约束、状态约束和最近会话索引；
+    由 Alembic 执行，不创建或修改 LangGraph checkpoint 表。
+    """
     op.create_table(
         "users",
         sa.Column("id", sa.Uuid(), primary_key=True),
@@ -91,7 +99,11 @@ def upgrade():
 
 
 def downgrade():
-    """按外键依赖倒序移除业务表；不会触碰 checkpoint，执行会删除业务数据。"""
+    """撤销首版业务结构，将数据库降回本迁移之前的状态。
+
+    按外键依赖倒序删除轮次、会话和用户表及相关索引，会删除这些表中的
+    业务数据；不触碰独立管理的 LangGraph checkpoint 表。
+    """
     op.drop_table("chat_turns")
     op.drop_index("idx_conversations_user_recent", table_name="conversations")
     op.drop_table("conversations")

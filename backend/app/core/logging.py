@@ -8,14 +8,18 @@ import logging
 from logging.config import dictConfig
 from typing import Any
 
-from app.config.settings import LoggingSettings
+from app.core.settings import LoggingSettings
 
 
 class NamespaceLevelFilter(logging.Filter):
     """也约束已自行设置级别的 logger，避免第三方 DEBUG 日志淹没输出。"""
 
     def __init__(self, app_level: str, third_party_level: str) -> None:
-        """将已校验的两类级别名称转换为数值，供每条日志快速比较。"""
+        """初始化应用日志与第三方日志各自的最低输出级别。
+
+        app_level 和 third_party_level 须已通过配置校验；将级别名转换为
+        数值缓存，供 filter 判断每条记录是否允许输出。
+        """
         super().__init__()
         levels = logging.getLevelNamesMapping() # 获取日志级别到数字的映射
         self.app_level = levels[app_level]
@@ -23,8 +27,9 @@ class NamespaceLevelFilter(logging.Filter):
 
     # 根据命名空间选择不同的过滤级别
     def filter(self, record: logging.LogRecord) -> bool:
-        """根据 record 的命名空间返回是否允许输出。
+        """判断一条日志是否达到所属类别的输出级别。
 
+        返回 True 时允许 handler 输出 record，否则过滤该条记录。
         app、uvicorn 及其子 logger 使用应用级别，其余使用第三方级别。
         handler 上的过滤还能约束自行设置过级别的子 logger。
         """
@@ -37,8 +42,9 @@ class NamespaceLevelFilter(logging.Filter):
 
 
 def build_logging_config(settings: LoggingSettings) -> dict[str, Any]:
-    """根据 settings 返回 dictConfig 字典，此函数不修改全局日志状态。
+    """生成应用、Uvicorn 和第三方库共用的日志配置。
 
+    根据 settings 返回可供 dictConfig 使用的字典，不修改全局日志状态；
     字典使用可导入的类路径，能够传给 Windows spawn/reload 子进程。
     所有受管日志传播到根 logger 的单个 stderr handler，避免重复输出。
     """
@@ -54,7 +60,7 @@ def build_logging_config(settings: LoggingSettings) -> dict[str, Any]:
         },
         "filters": {
             "namespace_level": {
-                "()": "app.config.logging.NamespaceLevelFilter",
+                "()": "app.core.logging.NamespaceLevelFilter",
                 "app_level": settings.level,
                 "third_party_level": settings.third_party_level,
             },
@@ -88,8 +94,9 @@ def build_logging_config(settings: LoggingSettings) -> dict[str, Any]:
 
 
 def configure_logging(settings: LoggingSettings) -> None:
-    """将 settings 应用到当前进程的 logging 系统，不返回业务数据。
+    """启用当前进程统一的日志格式、输出级别和访问日志开关。
 
+    使用 settings 构造并应用 dictConfig，会修改进程全局的 logging 配置。
     只由启动入口或 lifespan 调用；dictConfig 替换受管 handler，
     因此为兼容启动方式而重复初始化时，不会叠加同一日志的输出次数。
     """

@@ -1,7 +1,11 @@
 /** 通用动效生命周期：减少动态效果和页面可见性分别控制，偏好只保存在当前组件内存中。 */
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useMediaQuery } from './useMediaQuery'
-/** 返回动效请求、系统约束与可见性；页面通过数据属性禁用或暂停 CSS 动画。 */
+/**
+ * 为组件提供是否播放动效及是否暂停后台动画的响应式状态。
+ * 返回组件内的请求开关、系统减少动态效果偏好、页面可见性和最终启用状态；
+ * 页面通过数据属性控制 CSS 动画，本函数在卸载时解除可见性监听。
+ */
 export function useMotionPreference() {
   const requested = ref(true)
   const reduced = useMediaQuery('(prefers-reduced-motion: reduce)')

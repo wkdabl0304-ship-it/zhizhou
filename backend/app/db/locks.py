@@ -12,7 +12,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 
 
 def lock_key(conversation_id: UUID) -> int:
-    """生成跨进程一致的有符号锁键；不用每个 Python 进程随机化的 hash()。"""
+    """将业务会话 ID 转换为 PostgreSQL 会话锁使用的整数键。
+
+    对固定命名空间和 UUID 字节计算 64 位摘要，返回有符号整数；同一会话
+    在不同进程中得到相同键，不使用进程间可能不同的 Python hash()。
+    """
     digest = hashlib.blake2b(
         b"zhizhou:conversation:" + conversation_id.bytes, digest_size=8
     ).digest()
@@ -23,12 +27,22 @@ class ConversationLocks:
     """非阻塞锁管理器；独立 NullPool 引擎确保物理连接关闭时解除服务端锁。"""
 
     def __init__(self, engine: AsyncEngine) -> None:
-        """保存自动提交的专用异步引擎，不借用 ORM 事务连接。"""
+        """初始化跨进程会话锁管理器，供会话服务协调生成与删除操作。
+
+        engine 应为使用自动提交和 NullPool 的专用异步引擎；这里只保存
+        引擎，实际持锁时才打开连接，不借用 ORM 事务连接。
+        """
         self.engine = engine
 
     @asynccontextmanager
     async def hold(self, conversation_id: UUID) -> AsyncIterator[bool]:
-        """尝试持锁并返回是否取得；退出屏蔽取消，解锁失败则失效物理连接。"""
+        """在上下文期间尝试独占指定会话，防止多个执行者同时修改它。
+
+        为 conversation_id 打开专用连接，非阻塞地尝试 advisory lock，
+        yield 的布尔值表示是否取得，未取得时由调用方决定拒绝或跳过。
+        退出时屏蔽取消并尝试解锁；解锁失败会使连接失效并传播异常，
+        最终关闭连接，避免会话锁残留。
+        """
         connection = await self.engine.connect()
         acquired = False
         key = lock_key(conversation_id)

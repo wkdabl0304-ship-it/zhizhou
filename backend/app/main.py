@@ -16,8 +16,8 @@ from app.agents.models import create_model
 from app.agents.tools.weather import get_weather
 from app.api.exception_handlers import ERROR_RESPONSES, register_exception_handlers
 from app.api.router import api_router
-from app.config.logging import configure_logging
-from app.config.settings import load_logging_settings, load_settings
+from app.core.logging import configure_logging
+from app.core.settings import load_logging_settings, load_settings
 from app.db.business import open_business_database
 from app.db.checkpoint import open_checkpointer
 from app.services.auth import AuthService
@@ -28,10 +28,13 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """管理应用从启动到关闭期间共享的 Agent 和数据库连接。
+    """初始化 Web 应用的共享服务，并在应用关闭时释放全部数据库资源。
+
+    依次准备业务数据库、认证服务、会话恢复、模型与 checkpoint；全部成功
+    后才接受请求。退出时先撤销 app.state 中的服务，再关闭底层异步资源。
 
     Args:
-        app: 当前 FastAPI 实例，初始化后的 Agent 存放在 app.state 中。
+        app: 当前 FastAPI 实例，共享 Agent、认证与会话服务存放在 app.state 中。
 
     Yields:
         None: yield 前完成启动，yield 后执行退出清理。

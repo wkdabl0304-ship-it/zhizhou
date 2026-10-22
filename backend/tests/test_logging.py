@@ -11,8 +11,8 @@ from unittest.mock import Mock
 
 import pytest
 
-from app.config.logging import build_logging_config
-from app.config.settings import LoggingSettings, load_logging_settings
+from app.core.logging import build_logging_config
+from app.core.settings import LoggingSettings, load_logging_settings
 
 LOG_ENV = ("LOG_LEVEL", "LOG_THIRD_PARTY_LEVEL", "LOG_ACCESS_ENABLED")
 
@@ -97,8 +97,8 @@ def test_console_format_levels_access_switch_and_repeated_initialization():
     """验证统一格式、分类级别、访问日志开关、重复初始化和输出流分离。"""
     result = run_isolated("""
 import logging
-from app.config.logging import configure_logging
-from app.config.settings import LoggingSettings
+from app.core.logging import configure_logging
+from app.core.settings import LoggingSettings
 
 # 先模拟 Uvicorn 已安装自己的 handler。
 for name in ('uvicorn', 'uvicorn.error', 'uvicorn.access'):
@@ -140,8 +140,8 @@ def test_uvicorn_configuration_is_picklable_and_works_in_spawned_process():
     """验证日志配置可传给 Uvicorn，并能在 spawn 子进程中正常应用。"""
     result = run_isolated("""
 import multiprocessing
-from app.config.logging import build_logging_config
-from app.config.settings import LoggingSettings
+from app.core.logging import build_logging_config
+from app.core.settings import LoggingSettings
 from uvicorn import Config
 
 if __name__ == '__main__':
@@ -180,7 +180,7 @@ def test_web_entry_passes_logging_config_and_arguments(monkeypatch, argv, expect
     run.assert_called_once_with(
         "app.main:app", **expected,
         log_config=build_logging_config(settings), access_log=False,
-        loop="app.config.event_loop:create_event_loop",
+        loop="app.core.event_loop:create_event_loop",
     )
 
 

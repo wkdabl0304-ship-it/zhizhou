@@ -12,14 +12,22 @@ class GraphStub:
     """模拟 messages/updates 图流，记录调用并允许测试注入执行异常。"""
 
     def __init__(self, reply="你好"):
-        """保存固定回复、调用记录、异常开关及底层流关闭状态。"""
+        """初始化可控图替身，供测试模拟一次成功或失败的 Agent 执行。
+
+        reply 指定固定回复；调用记录、异常开关与关闭标记用于断言调用
+        次数、传参、异常传播及异步资源清理，不访问外部模型。
+        """
         self.reply = reply
         self.failure = None
         self.calls = []
         self.closed = False
 
     async def astream(self, inputs, **kwargs):
-        """记录传参，逐字符输出增量和最终更新，finally 标记资源已关闭。"""
+        """模拟 LangGraph 的消息增量和最终状态更新流。
+
+        记录 inputs 与流选项，逐字符 yield 固定回复，再输出完整助手消息；
+        注入 failure 时直接抛出，所有退出路径都在 finally 设置关闭标记。
+        """
         self.calls.append((inputs, kwargs))
         try:
             if self.failure:
@@ -40,11 +48,18 @@ class StubChatModel(BaseChatModel):
         return "test-model"
 
     def bind_tools(self, tools, **kwargs):
-        """返回自身，工具选择由本地生成逻辑模拟。"""
+        """提供模型工厂要求的工具绑定入口，使本地替身可用于真实 Agent 图。
+
+        不实际注册供应商工具，直接返回自身；工具选择由 _generate 模拟。
+        """
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs):
-        """根据历史构造助手文本或天气调用；同步入口仅满足模型抽象契约。"""
+        """生成可预测的模型结果，供测试验证历史延续和工具往返。
+
+        根据 messages 返回工具结果、天气调用或拼接的历次用户输入；
+        这是本地模拟逻辑，返回 ChatResult，同时满足模型的同步抽象契约。
+        """
         if isinstance(messages[-1], ToolMessage):
             reply = AIMessage(content=messages[-1].content)
         elif messages[-1].content == "天气":
@@ -59,7 +74,11 @@ class StubChatModel(BaseChatModel):
         return ChatResult(generations=[ChatGeneration(message=reply)])
 
     async def _astream(self, messages, stop=None, run_manager=None, **kwargs):
-        """逐字符异步返回回复；工具选择只产生工具调用块，不发出工具正文。"""
+        """把本地生成结果转换为真实 Agent 可消费的异步模型流。
+
+        普通回复逐字符 yield ChatGenerationChunk；工具选择只输出调用块，
+        不抢先提供工具正文。每步让出事件循环，便于测试观察增量和取消。
+        """
         reply = self._generate(messages).generations[0].message
         message_id = str(uuid4())
         if reply.tool_calls:

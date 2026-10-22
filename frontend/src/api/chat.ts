@@ -3,7 +3,7 @@
 import type { ChatStreamEvent, JsonValue, ToolKind } from '@/types/chat-events'
 export type { ChatStreamEvent } from '@/types/chat-events'
 
-/** 校验公开 JSON 数据，拒绝数组以外的非 JSON 值及非有限数值。 */
+/** 判断网络数据是否只包含协议允许的 JSON 值；递归校验对象与数组，并拒绝非有限数值。 */
 function isJsonValue(value: unknown): value is JsonValue {
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return true
   if (typeof value === 'number') return Number.isFinite(value)
@@ -18,13 +18,17 @@ function requiredString(data: Record<string, unknown>, key: string): string {
   return value
 }
 
-/** 工具执行类型只接受后端明确声明的 tool/command，不进行名称推断。 */
+/** 读取并校验工具的展示类型；只接受后端声明的 tool/command，非法值抛出异常。 */
 function toolKind(data: Record<string, unknown>): ToolKind {
   if (data.kind !== 'tool' && data.kind !== 'command') throw new Error('聊天工具类型无效')
   return data.kind
 }
 
-/** 校验并转换除 start 外的事件；工具执行事件不要求不存在的 message_id 字段。 */
+/**
+ * 将后端业务事件转换为前端聊天状态使用的类型化事件。
+ * type 指定事件种类，data 提供已解析的字段；校验失败时抛出异常。
+ * start 由调用方单独处理，工具执行事件只读取实际存在的调用和运行标识。
+ */
 function decodeEvent(
   type: string,
   data: Record<string, unknown>,
@@ -98,7 +102,9 @@ interface EventFrame {
 }
 
 /**
- * 增量解码 UTF-8 并按 SSE 空行分帧，兼容跨网络块的字符、CRLF、CR 和多行 data。
+ * 从 HTTP 响应体逐个读取完整的 SSE 传输帧。
+ * body 提供原始字节流；增量解码 UTF-8，再按 SSE 空行分帧，yield 事件名和原始 data。
+ * 兼容跨网络块的字符、CRLF、CR 和多行 data，业务字段留给调用方校验。
  * 退出迭代或解析失败时取消读取并释放锁；未以空行结束的帧不作为完整事件交付。
  */
 async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<EventFrame> {
@@ -108,7 +114,7 @@ async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<Eve
   let event = ''
   let data: string[] = []
 
-  /** 接收一行协议字段；空行提交事件，注释、id 和 retry 不参与本接口的业务数据。 */
+  /** 解析一行 SSE 文本并组装当前帧；空行返回完整帧，其他行更新缓冲或被忽略。 */
   function consumeLine(line: string): EventFrame | undefined {
     if (line === '') {
       const frame = data.length ? { event, data: data.join('\n') } : undefined
@@ -152,7 +158,9 @@ async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<Eve
 }
 
 /**
- * 发送一轮消息，依次 yield 已校验事件；收到 done 后结束，不等待网络连接关闭。
+ * 向后端发送一轮聊天，并向 store 逐个提供可用于更新界面的业务事件。
+ * message 为正文，threadId 为当前前端协议的会话标识；依次 yield 已校验事件，
+ * 收到 done 后结束，不等待网络连接关闭。
  * HTTP/流内错误、格式错误、会话不匹配或缺少终止事件均抛出异常；不自动重试请求。
  * 同源 /api 路径开发时由 Vite 代理，部署时由反向代理转发且需关闭流缓冲。
  */

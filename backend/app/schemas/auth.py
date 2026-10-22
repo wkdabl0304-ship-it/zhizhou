@@ -18,7 +18,11 @@ class LoginRequest(BaseModel):
     @field_validator("username")
     @classmethod
     def normalize_username(cls, value: str) -> str:
-        """去除首尾空白后转为小写，并拒绝非 ASCII 账号或非法长度。"""
+        """将登录或注册账号标准化为数据库查询使用的用户名。
+
+        对 value 去除首尾空白并转为小写，返回 3～32 位 ASCII 字母、数字
+        或下划线组成的字符串；不符合格式时抛出 ValueError 交给模型校验。
+        """
         value = value.strip().lower()
         if re.fullmatch(r"[a-z0-9_]{3,32}", value) is None:
             raise ValueError("用户名须为 3～32 位字母、数字或下划线")

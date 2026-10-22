@@ -40,7 +40,7 @@ docker compose -f docker-compose-dev.yml up -d postgres
 - `JWT_SECRET`：必填，至少 32 字节的独立随机密钥，没有默认值；不要填写示例密码或提交到 Git。
 - `JWT_TTL_SECONDS`：默认 `7200`，必须为正整数；过期后重新登录，不提供刷新或服务端撤销。
 
-模型密钥、数据库用户、密码、库名、端口及 JWT 密钥必填且不能仅包含空白；端口范围为 1–65535。模型地址为 `https://api.deepseek.com`，默认值定义在 `app/config/settings.py`。可运行 `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成独立随机 JWT 密钥，再保存到本地 `.env`。
+模型密钥、数据库用户、密码、库名、端口及 JWT 密钥必填且不能仅包含空白；端口范围为 1–65535。模型地址为 `https://api.deepseek.com`，默认值定义在 `app/core/settings.py`。可运行 `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成独立随机 JWT 密钥，再保存到本地 `.env`。
 
 配置无效、业务表未迁移、版本不匹配或数据库无法连接时，服务启动失败。首次启动前在 `backend/` 执行：
 
@@ -121,7 +121,7 @@ uv run python -m app --reload --host 0.0.0.0 --port 8080
 直接调用 Uvicorn 时，使用相同工厂，尤其不要在 Windows 普通启动时使用默认的 Proactor 循环：
 
 ```powershell
-uv run uvicorn app.main:app --loop app.config.event_loop:create_event_loop --reload
+uv run uvicorn app.main:app --loop app.core.event_loop:create_event_loop --reload
 ```
 
 此方式的日志在应用生命周期开始时统一，最早几条 Uvicorn 日志仍使用默认样式。
@@ -256,11 +256,11 @@ HTTP `200` 包含成功和业务失败，调用方必须以 `code === 0` 判断�
 }
 ```
 
-错误码名称、数字及默认解释的唯一维护位置是[错误码目录](app/errors/codes.py)。业务码使用 `20000–29999`，新增真实功能时在该目录业务分组中添加唯一条目，再从业务逻辑抛出 `BusinessError`：
+错误码名称、数字及默认解释的唯一维护位置是[错误码目录](app/core/errors/codes.py)。业务码使用 `20000–29999`，新增真实功能时在该目录业务分组中添加唯一条目，再从业务逻辑抛出 `BusinessError`：
 
 ```python
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import BusinessError
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import BusinessError
 
 raise BusinessError(ErrorCode.BUSINESS_ERROR)
 ```
@@ -289,7 +289,7 @@ uv run python -m app.agents
 
 ## 统一日志
 
-项目统一使用 Python 标准库 `logging`。配置位于 `app/config/logging.py`，环境读取与校验位于 `app/config/settings.py`；Web 启动入口、应用生命周期和智能体命令行入口显式初始化，导入模块不配置全局日志。
+项目统一使用 Python 标准库 `logging`。配置位于 `app/core/logging.py`，环境读取与校验位于 `app/core/settings.py`；Web 启动入口、应用生命周期和智能体命令行入口显式初始化，导入模块不配置全局日志。
 
 以下配置项均可选，读取仓库根目录 `.env`，系统环境变量优先。未配置时使用默认值；修改后需重启启动入口。
 
@@ -346,16 +346,20 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 - `app/__main__.py`：统一 Web 启动入口，处理地址、端口、reload 参数并向 Uvicorn 传递日志配置。
 - `app/main.py`：FastAPI 应用、启动/退出资源管理、全局异常处理器注册和 API 总路由挂载。
 - `app/agents/`：Agent 专属实现；`models.py` 创建支持思考回传的模型，`events.py` 适配工具生命周期，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
-- `app/config/`：通用配置加载与校验、标准 logging 集中配置，以及供 Web/CLI 使用的事件循环工厂。
+- `app/core/`：Web、CLI 与其他后端模块共用的基础能力；`settings.py` 读取和校验配置，`logging.py` 集中配置标准日志，`event_loop.py` 创建兼容 Psycopg 的事件循环，`errors/` 维护错误码、应用异常和异常日志责任。
 - `app/db/`：异步业务引擎、迁移版本校验、跨进程会话执行锁，以及独立管理的 checkpoint 资源。
-- `app/errors/`：错误码与默认解释、应用异常类型和异常日志责任。
 - `app/schemas/`：聊天请求、聊天数据模型及通用响应模型和构建函数。
 - `app/api/`：API 总路由、公共请求依赖、按业务划分的子路由、SSE 编码与断开清理，以及统一异常处理器和错误响应文档；结构与扩展步骤见[分级 API 路由](#分级-api-路由)。
-- `app/models/`：SQLAlchemy 业务实体；`app/repositories/`：无隐式提交的异步 ORM 读写；`app/services/`：认证、所有权、游标及轮次持久化；`app/utils/` 仍为通用辅助函数预留。
+- `app/models/`：SQLAlchemy 业务实体。
+- `app/repositories/`：无隐式提交的异步 ORM 读写，事务提交由业务服务负责。
+- `app/services/`：认证、会话所有权、游标读取及轮次持久化；具体 SQL 查询交给仓储，HTTP/SSE 编码交给 API 层。
+- `app/utils/`：预留不包含业务规则的通用辅助函数，当前尚无具体实现；游标、SSE 编码和数据库锁仍归属各自模块。
 - `migrations/`：Alembic 异步环境和版本迁移，仅管理业务表。
 - `tests/`：配置、数据库生命周期、Agent 和聊天接口测试。
 
 后续开发外部服务接入时，再按需添加 `app/integrations/`。
+
+`core` 不反向依赖 API、业务服务或具体 Agent；各入口显式调用配置和日志初始化函数，导入核心模块不会连接数据库或调用模型。HTTP 异常响应转换仍由 `app/api/exception_handlers.py` 负责。新增代码优先放在职责明确的模块中，不因被多个位置调用就移入 `core` 或 `utils`。
 
 接口和智能体工具应复用业务服务，由服务执行文件访问与知识检索的权限校验。
 

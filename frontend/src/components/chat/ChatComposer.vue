@@ -16,7 +16,11 @@ const canSend = computed(
   () => !props.disabled && !props.sending && !composing.value && Boolean(model.value.trim()),
 )
 
-/** 同步交出当前内容；业务层接收后由该输入区清空草稿。 */
+/**
+ * 提交当前输入，通知父页面开始发送聊天。
+ * 仅在 canSend 允许时同步发出去空白后的正文，再清空草稿并聚焦输入框；
+ * 本组件不等待或判断后端执行结果，业务状态由父页面和 store 管理。
+ */
 function submit(): void {
   if (!canSend.value) return
   emit('send', model.value.trim())
@@ -24,7 +28,11 @@ function submit(): void {
   input.value?.focus()
 }
 
-/** Enter 发送；组合输入、兼容性 keyCode 229 和 Shift 换行均交还输入法/浏览器。 */
+/**
+ * 处理输入区的 Enter 快捷发送，避免误发中文输入法确认或换行操作。
+ * 普通 Enter 阻止默认换行并调用 submit；Shift、组合输入及兼容性 keyCode 229
+ * 交还输入法或浏览器处理，其他按键不干预。
+ */
 function onKeydown(event: KeyboardEvent): void {
   if (
     event.key !== 'Enter' ||
@@ -38,7 +46,7 @@ function onKeydown(event: KeyboardEvent): void {
   submit()
 }
 
-/** 供首页建议按钮在填入草稿后将焦点送回文本框。 */
+/** 将焦点移回内部文本框，供父页面或首页建议按钮恢复连续输入。 */
 function focus(): void {
   input.value?.focus()
 }

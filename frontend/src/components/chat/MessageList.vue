@@ -11,13 +11,13 @@ let observer: ResizeObserver | undefined
 let scroller: HTMLElement | null = null
 let followingEnd = true
 
-/** DOM 更新后定位末尾；初次挂载以及消息变化时调用，尺寸变化由跟随状态决定。 */
+/** 将消息列表滚动到最新内容；等待 DOM 更新后定位末尾，供挂载、消息和尺寸变化调用。 */
 async function scrollToEnd(): Promise<void> {
   await nextTick()
   end.value?.scrollIntoView?.({ block: 'end', behavior: 'instant' })
 }
 
-/** 记录用户是否在末尾阅读，调整窗口或展开代码块时不打断旧消息浏览。 */
+/** 更新列表是否应跟随最新消息的状态；距底部不足 48px 时视为正在末尾阅读。 */
 function updateFollowing(): void {
   if (scroller)
     followingEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48
@@ -33,6 +33,7 @@ watch(
   { immediate: true },
 )
 
+// 挂载后接入滚动监听和尺寸观察，让已在末尾的用户持续看到新增内容。
 onMounted(() => {
   scroller = list.value?.parentElement ?? null
   scroller?.addEventListener('scroll', updateFollowing, { passive: true })

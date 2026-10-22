@@ -14,7 +14,7 @@ const copyState = ref<'idle' | 'copied' | 'failed'>('idle')
 // 两类消息共用复制逻辑和按钮样式，标签区分用户内容与助手回复。
 const copyTarget = computed(() => (props.message.role === 'user' ? '内容' : '回复'))
 
-/** 过程事件和正文分别呈现，底部提示仅描述当前活动阶段，不将工具失败当作整轮失败。 */
+/** 生成消息底部的当前进度文案；根据活动阶段提示等待、工具执行或回复，不推断整轮成败。 */
 const progressLabel = computed(() => {
   const activities = props.message.activities ?? []
   const runningTool = activities.find((item) => item.type === 'tool' && item.status === 'running')
@@ -26,7 +26,7 @@ const progressLabel = computed(() => {
   return activities.length ? '正在整理结果…' : '正在整理思路…'
 })
 
-/** 流式和失败正文已在时间线显示；仅最终正文或没有时间线的兼容消息使用独立正文区。 */
+/** 判断是否展示独立正文区；最终回答或没有正文时间线的消息才展示，避免重复呈现增量。 */
 const showBody = computed(
   () =>
     props.message.blocks.length > 0 &&

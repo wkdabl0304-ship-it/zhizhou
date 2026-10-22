@@ -12,8 +12,8 @@ from pydantic import ValidationError
 from service_fakes import MemoryConversationService
 
 from app.agents.agent import ChatAgent
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import RequestError
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import RequestError
 from app.schemas.auth import RegisterRequest
 from app.schemas.chat import ChatDelta, ChatRequest, ChatResponse
 from app.services.conversations import PreparedChat
@@ -26,7 +26,10 @@ from app.services.cursors import (
 
 
 def test_registration_normalizes_username_but_preserves_password():
-    """账号去空格并转小写，密码空格保留，默认普通用户且不泄露密码 repr。"""
+    """验证注册输入能正确标准化账号，同时保留密码原文并隐藏敏感字段。
+
+    检查账号去空格和转小写、默认普通用户，以及密码不会出现在模型 repr 中。
+    """
     body = RegisterRequest(username="  ALIce_1 ", password=" secret with spaces ")
     assert body.username == "alice_1" and body.password == " secret with spaces "
     assert body.role == "user" and body.password not in repr(body)
@@ -47,13 +50,19 @@ def test_registration_normalizes_username_but_preserves_password():
     ],
 )
 def test_chat_rejects_legacy_names_and_invalid_business_id(body):
-    """旧字段不能被静默忽略并意外创建新会话，非法业务标识和空正文必须拒绝。"""
+    """验证聊天输入会拒绝旧协议字段、非法会话标识和空白正文。
+
+    防止旧字段被静默忽略后意外按首次聊天创建新会话。
+    """
     with pytest.raises(ValidationError):
         ChatRequest.model_validate(body)
 
 
 def test_new_chat_optional_id_and_scoped_cursor_roundtrip():
-    """首次聊天允许缺省 ID，目录及历史游标保留版本、类型、归属和排序键。"""
+    """验证首次聊天允许省略会话 ID，且两类分页游标能完整往返编码。
+
+    核对版本、类型、用户归属、会话归属和排序键均保留，错误游标类型会被拒绝。
+    """
     assert ChatRequest(message="你好").conversation_id is None
     assert ChatRequest(message="你好", conversation_id=None).conversation_id is None
     user_id, conversation_id = uuid4(), uuid4()
@@ -84,14 +93,20 @@ def test_new_chat_optional_id_and_scoped_cursor_roundtrip():
     ],
 )
 def test_invalid_cursor_has_only_safe_error(value):
-    """编码、长度及结构错误均转成中央参数错误，不把解析细节返回接口。"""
+    """验证非法分页游标统一转换为安全的参数错误。
+
+    覆盖字符编码、长度和模型结构错误，确保不向接口泄露内部解析细节。
+    """
     with pytest.raises(RequestError) as error:
         decode_cursor(value, TurnCursor)
     assert error.value.error_code is ErrorCode.INVALID_ARGUMENT
 
 
 def test_stream_waits_for_final_business_commit_and_coalesces_text():
-    """done 必须等待业务提交；相邻正文合并，不能逐 token 形成历史记录。"""
+    """验证聊天只有在最终业务提交完成后才确认成功，并合并相邻正文快照。
+
+    使用可控提交屏障观察 done 的交付时机，避免每个 token 都形成独立历史事件。
+    """
 
     async def scenario():
         """阻塞最终提交，验证已看到增量但看不到完成事件，随后放行。"""
@@ -100,7 +115,11 @@ def test_stream_waits_for_final_business_commit_and_coalesces_text():
         entered, release = asyncio.Event(), asyncio.Event()
 
         async def persist(prepared, **kwargs):
-            """在成功提交前暂停，模拟数据库提交尚未确认。"""
+            """为测试提供可暂停的提交替身，以观察最终结果未落库时的流状态。
+
+            completed 提交先通知测试并等待放行，再委托原内存保存逻辑；
+            其他状态不阻塞，不访问真实数据库。
+            """
             if kwargs.get("status") == "completed":
                 entered.set()
                 await release.wait()
@@ -133,7 +152,10 @@ def test_stream_waits_for_final_business_commit_and_coalesces_text():
 
 
 def test_openapi_exposes_only_business_conversation_ids_and_bearer_auth():
-    """正式 OpenAPI 不再承诺旧字段，首次聊天不要求 ID，也不暴露创建会话接口。"""
+    """验证公开接口文档采用业务会话标识和 Bearer 认证约定。
+
+    检查旧 thread_id 不再暴露、首次聊天只要求正文，且没有独立创建会话接口。
+    """
     from app.main import app
 
     schema = app.openapi()

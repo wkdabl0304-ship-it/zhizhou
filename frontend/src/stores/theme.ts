@@ -5,10 +5,15 @@ import { defineStore } from 'pinia'
 export type Theme = 'light' | 'dark'
 export const THEME_STORAGE_KEY = 'zhizhou-theme'
 
+/** 创建全局主题状态，供页面和 Teleport 弹层共享同一外观偏好。 */
 export const useThemeStore = defineStore('theme', () => {
   const theme = ref<Theme>('light')
 
-  /** 应用合法主题；存储不可用时仍允许切换，聊天内容不会写入存储。 */
+  /**
+   * 切换页面主题并保存外观偏好。
+   * value 由调用方限定为合法主题，更新根元素和浏览器色彩方案后写入 localStorage；
+   * 存储不可用时仍完成当前页面切换，不保存聊天内容。
+   */
   function setTheme(value: Theme): void {
     theme.value = value
     document.documentElement.dataset.theme = value
@@ -20,7 +25,7 @@ export const useThemeStore = defineStore('theme', () => {
     }
   }
 
-  /** 在应用挂载时恢复偏好；缺失、非法值或读取失败均回退到浅色。 */
+  /** 从浏览器存储恢复主题并应用到页面；缺失、非法值或读取失败均回退到浅色。 */
   function initialize(): void {
     let saved: string | null = null
     try {

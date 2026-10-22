@@ -19,8 +19,8 @@ from langgraph.checkpoint.memory import InMemorySaver
 from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
 from app.agents.tools.weather import get_weather
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import BusinessError, ServiceError
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import BusinessError, ServiceError
 from app.schemas.chat import ChatDelta, ChatResponse, ChatToolCall
 
 

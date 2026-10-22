@@ -1,11 +1,11 @@
 /** SSE 测试辅助：编码后端事件并构造可控字节流，不连接网络或模型。 */
 
-/** 编码统一响应事件；JSON 保留真实换行转义，空行作为 SSE 帧边界。 */
+/** 构造测试使用的一个 SSE 事件帧；统一包装 code/message/data，并以空行终止。 */
 export function eventFrame(event: string, data: unknown, code = 0): string {
   return `event: ${event}\ndata: ${JSON.stringify({ code, message: code ? '生成失败' : '成功', data })}\n\n`
 }
 
-/** 返回 SSE 类型响应；文本作为浏览器可逐字节读取的 UTF-8 响应体。 */
+/** 将事件文本包装成测试用 SSE 响应；正文由浏览器响应流按 UTF-8 编码读取。 */
 export function sseResponse(text: string): Response {
   return new Response(text, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } })
 }
@@ -21,7 +21,9 @@ export function success(threadId: string, reply = '后端真实格式的回复')
 }
 
 /**
- * 创建由测试主动推进的流，模拟首段提前到达、生成等待和断开；终止测试时须 close/fail。
+ * 创建测试可手动推进的 SSE 响应，用于断言生成过程中的中间状态。
+ * 返回响应和 push/close/fail 等控制方法，模拟首段提前到达、生成等待和断开；
+ * 终止测试时须 close/fail，避免留下未完成的生产流。
  * cancel 由消费方执行，用于确认 done/error 后即释放读取，不依赖服务端主动关连接。
  */
 export function controlledStream() {

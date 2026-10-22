@@ -9,8 +9,8 @@ from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.agents.agent import ChatAgent
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import RequestError
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import RequestError
 from app.models import User
 from app.services.auth import AuthService
 from app.services.conversations import ConversationService
@@ -19,12 +19,20 @@ bearer = HTTPBearer(auto_error=False)
 
 
 def get_auth_service(request: Request) -> AuthService:
-    """取得生命周期内创建的认证服务，不在请求中重建密码工具或引擎。"""
+    """为接口注入应用共享的认证服务。
+
+    从 request.app.state 取回启动时创建的实例，不在请求中重建密码工具
+    或数据库引擎；应用资源缺失时异常继续向外传播。
+    """
     return request.app.state.auth_service
 
 
 def get_conversation_service(request: Request) -> ConversationService:
-    """取得会话服务，其自身仅持有工厂，每次操作都创建独立短事务。"""
+    """为接口注入应用共享的会话业务服务。
+
+    服务从 request.app.state 取得，可跨请求复用；各次操作自行创建短事务，
+    此依赖不创建或关闭数据库 Session。
+    """
     return request.app.state.conversation_service
 
 
@@ -32,7 +40,12 @@ async def get_current_user(
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(bearer)],
     auth: Annotated[AuthService, Depends(get_auth_service)],
 ) -> User:
-    """要求 Bearer JWT 并查询最新账号状态，角色不绕过会话所有权检查。"""
+    """识别当前请求的已认证用户，供业务接口判断资源归属。
+
+    credentials 由 HTTPBearer 提取，缺少凭证时抛出 UNAUTHENTICATED；
+    认证服务验证 JWT 并查询最新账号状态。取得用户并不代表已授权访问
+    任意会话，后续仍须执行所有权检查。
+    """
     if credentials is None:
         raise RequestError(ErrorCode.UNAUTHENTICATED)
     return await auth.authenticate(credentials.credentials)

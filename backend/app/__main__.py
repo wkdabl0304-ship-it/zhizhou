@@ -8,8 +8,8 @@ from collections.abc import Sequence
 
 import uvicorn
 
-from app.config.logging import build_logging_config
-from app.config.settings import load_logging_settings
+from app.core.logging import build_logging_config
+from app.core.settings import load_logging_settings
 
 
 def main(argv: Sequence[str] | None = None) -> None:
@@ -37,7 +37,7 @@ def main(argv: Sequence[str] | None = None) -> None:
         host=args.host,
         port=args.port,
         reload=args.reload,
-        loop="app.config.event_loop:create_event_loop",
+        loop="app.core.event_loop:create_event_loop",
         log_config=build_logging_config(settings),
         access_log=settings.access_enabled,
     )

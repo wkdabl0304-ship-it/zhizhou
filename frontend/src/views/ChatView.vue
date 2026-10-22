@@ -32,13 +32,17 @@ function navigate(id?: string): void {
   draft.value = ''
   drawerOpen.value = false
 }
-/** 启动异步请求后及时聚焦新的输入实例，完成时不干扰用户已切换的会话。 */
+/** 提交聊天输入并将焦点移回当前输入区；后台请求由 store 管理，不等待整轮生成结束。 */
 async function send(text: string): Promise<void> {
   void chat.send(text)
   await nextTick()
   composer.value?.focus()
 }
-/** 窄屏正常关闭由 Reka 恢复触发器焦点，跨断点卸载则聚焦仍存在的页头。 */
+/**
+ * 在侧栏抽屉关闭时恢复合适的键盘焦点。
+ * 窄屏关闭交给 Reka 回到触发器；若已切到桌面布局，阻止默认恢复，
+ * 等待 DOM 更新后聚焦仍存在的页头，避免引用已卸载的抽屉入口。
+ */
 async function restoreFocus(event: Event): Promise<void> {
   if (!narrow.value) {
     event.preventDefault()

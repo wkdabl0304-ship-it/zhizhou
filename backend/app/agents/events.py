@@ -13,7 +13,7 @@ from langchain_core.callbacks import AsyncCallbackHandler
 from langchain_core.messages import ToolMessage
 from langgraph.config import get_stream_writer
 
-from app.errors.codes import ErrorCode
+from app.core.errors.codes import ErrorCode
 from app.schemas.chat import ChatToolEnd, ChatToolError, ChatToolStart
 
 
@@ -34,7 +34,11 @@ class ToolEventHandler(AsyncCallbackHandler):
     raise_error = True
 
     def __init__(self, conversation_id: str) -> None:
-        """保存会话标识，创建按运行 ID 区分的并行工具上下文。"""
+        """初始化本轮工具事件适配器，使工具执行结果能关联到正确会话。
+
+        conversation_id 标识本轮所属的业务会话；每个适配器独立记录按
+        run_id 区分的工具上下文，避免并行工具或不同轮次互相覆盖。
+        """
         self._conversation_id = conversation_id
         self._runs: dict[UUID, _ToolRun] = {}
 
@@ -43,8 +47,10 @@ class ToolEventHandler(AsyncCallbackHandler):
         run_id: UUID, inputs: dict[str, Any] | None = None,
         metadata: dict[str, Any] | None = None, **kwargs: Any,
     ) -> None:
-        """在工具实际执行前发送名称和公开参数；框架已过滤注入参数。
+        """向公开过程流报告某次工具执行已经开始。
 
+        记录 run_id 对应的调用上下文，再发送工具名称、公开输入和展示类型；
+        框架已过滤注入参数，本方法不执行工具本身。
         命令工具可声明 metadata.display_kind=command；没有声明则作为普通工具。
         无模型调用标识的嵌套工具以 run_id 作为独立标识，避免与其他运行混淆。
         """
@@ -62,7 +68,11 @@ class ToolEventHandler(AsyncCallbackHandler):
         ))
 
     async def on_tool_end(self, output: Any, *, run_id: UUID, **kwargs: Any) -> None:
-        """发送工具正文或可恢复的工具错误，不暴露 artifact 和工具对象表示。"""
+        """向公开过程流报告某次工具执行的结果，并清除对应运行上下文。
+
+        根据 run_id 关联开始事件。成功时仅发送工具正文，不暴露 artifact；
+        ToolMessage 表示可恢复失败时发送安全错误，未知或已移除的运行直接忽略。
+        """
         run = self._runs.pop(run_id, None)
         if run is None:
             return
@@ -76,13 +86,21 @@ class ToolEventHandler(AsyncCallbackHandler):
         ))
 
     async def on_tool_error(self, error: BaseException, *, run_id: UUID, **kwargs: Any) -> None: # 处理 raise 出来的错误
-        """报告真实执行失败；底层异常及异常链交给 Agent 日志和错误分类处理。"""
+        """向公开过程流报告工具抛出的执行异常。
+
+        移除 run_id 对应的运行上下文，并转换为安全工具错误事件；
+        不直接展示 error，底层异常及异常链由 Agent 统一分类和记录。
+        """
         run = self._runs.pop(run_id, None)
         if run is not None:
             self._write_error(run_id, run)
 
     def _write_error(self, run_id: UUID, run: _ToolRun) -> None:
-        """统一编码安全工具失败事件，不把异常字符串混入客户端过程流。"""
+        """为指定工具运行发送包含固定安全解释的失败事件。
+
+        run 提供调用标识、工具名与展示类型，run_id 标识实际执行；
+        只使用中央错误码的解释，不把异常字符串写入客户端过程流。
+        """
         get_stream_writer()(ChatToolError(
             conversation_id=self._conversation_id, tool_call_id=run.tool_call_id,
             run_id=str(run_id), name=run.name, kind=run.kind,

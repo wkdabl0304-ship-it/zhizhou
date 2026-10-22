@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 from starlette.exceptions import HTTPException
 
 from app.api.exception_handlers import ERROR_RESPONSES, register_exception_handlers
-from app.errors.codes import ErrorCode
-from app.errors.exceptions import BusinessError, ServiceError, log_app_error
+from app.core.errors.codes import ErrorCode
+from app.core.errors.exceptions import BusinessError, ServiceError, log_app_error
 from app.schemas.chat import ChatResponse
 from app.schemas.response import ApiResponse, success
 
@@ -191,9 +191,9 @@ import urllib.request
 import uvicorn
 from fastapi import FastAPI
 from app.api.exception_handlers import register_exception_handlers
-from app.config.logging import build_logging_config
-from app.config.settings import LoggingSettings
-from app.errors.exceptions import BusinessError, ServiceError
+from app.core.logging import build_logging_config
+from app.core.settings import LoggingSettings
+from app.core.errors.exceptions import BusinessError, ServiceError
 from app.schemas.chat import ChatResponse
 from app.schemas.response import ApiResponse
 
