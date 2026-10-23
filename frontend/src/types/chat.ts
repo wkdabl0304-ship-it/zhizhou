@@ -51,12 +51,27 @@ export interface ChatMessage {
   status?: 'complete' | 'pending' | 'streaming' | 'error'
   demo?: boolean
   activities?: ChatActivity[]
+  /** 请求或历史状态的安全说明，不包含底层异常或认证凭据。 */
+  error?: string
 }
 
-/** 会话仅保存在当前页面内存中；id 同时作为后端 thread_id，刷新后不恢复。 */
+/** 会话展示缓存；persisted 时 id 为服务端 ID，否则仅是尚未收到 start 的本地展示键。 */
 export interface Conversation {
   id: string
   title: string
   group: string
   messages: ChatMessage[]
+  persisted?: boolean
+  createdAt?: string
+  lastMessageAt?: string
+  loaded?: boolean
+  nextCursor?: string | null
+  loading?: boolean
+  historyError?: string
+  running?: boolean
+  remoteRunning?: boolean
+  deleting?: boolean
+  unavailable?: boolean
+  /** 本地消息的变更序号，防止较早发出的目录刷新覆盖刚创建或更新的会话。 */
+  localRevision?: number
 }

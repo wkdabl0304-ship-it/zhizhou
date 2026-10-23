@@ -1,7 +1,11 @@
 /** 工作空间集成回归：验证示例填入、发送后的焦点和会话切换；不连接网络或数据库。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
-import { createPinia } from 'pinia'
+import { createPinia, disposePinia, type Pinia } from 'pinia'
+import { useChatStore } from '@/stores/chat'
+import { authenticate } from './helpers/auth'
+let pinia: Pinia
+let serverSequence = 0
 import { defineComponent } from 'vue'
 import { TooltipProvider } from 'reka-ui'
 import ChatView from '@/views/ChatView.vue'
@@ -11,14 +15,22 @@ import { controlledStream, eventFrame, success } from './helpers/chatStream'
 const wrappers: VueWrapper[] = []
 const fetchMock = vi.fn<typeof fetch>()
 // jsdom 没有真实视口断点；桌面替身只提供组件实际使用的媒体查询监听接口。
-beforeEach(() => {
+beforeEach(async () => {
   fetchMock.mockReset()
-  // 回显实际 thread_id，验证页面经过真实 API 适配层更新消息，替身不连接模型。
+  // 回显实际 conversation_id，验证页面经过真实 API 适配层更新消息，替身不连接模型。
   fetchMock.mockImplementation(async (_url, init) => {
-    const { thread_id } = JSON.parse(init!.body as string) as { thread_id: string }
-    return success(thread_id, '来自后端的回复')
+    const { conversation_id } = JSON.parse(init!.body as string) as { conversation_id?: string }
+    return success(
+      conversation_id ?? `server-${++serverSequence}`,
+      '来自后端的回复',
+      !conversation_id,
+    )
   })
   vi.stubGlobal('fetch', fetchMock)
+  pinia = createPinia()
+  await authenticate(pinia, fetchMock)
+  // 此组聚焦流式交互，使用已加载的空目录；真实首次目录读取另由会话页面集成测试覆盖。
+  useChatStore(pinia).listInitialized = true
   vi.stubGlobal('matchMedia', () => ({
     matches: false,
     addEventListener: vi.fn<() => void>(),
@@ -28,6 +40,7 @@ beforeEach(() => {
 // 卸载组件后再恢复全局替身，确保监听清理调用仍能访问原替身。
 afterEach(() => {
   wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  disposePinia(pinia)
   vi.unstubAllGlobals()
   document.body.innerHTML = ''
 })
@@ -40,7 +53,7 @@ function renderWorkspace() {
   })
   const wrapper = mount(Host, {
     attachTo: document.body,
-    global: { plugins: [createPinia()], stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    global: { plugins: [pinia], stubs: { RouterLink: { template: '<a><slot /></a>' } } },
   })
   wrappers.push(wrapper)
   return wrapper
@@ -117,12 +130,14 @@ describe('聊天工作空间', () => {
     const wrapper = renderWorkspace()
     await wrapper.get('textarea').setValue('流式回复测试')
     await wrapper.get('form').trigger('submit')
-    const { thread_id } = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as {
-      thread_id: string
+    const { conversation_id = 'server-session-a' } = JSON.parse(
+      fetchMock.mock.calls[0]![1]!.body as string,
+    ) as {
+      conversation_id: string
     }
     stream.push(
-      eventFrame('start', { thread_id }) +
-        eventFrame('delta', { thread_id, message_id: 'reply-1', text: '**首段已经显示**' }),
+      eventFrame('start', { conversation_id }) +
+        eventFrame('delta', { conversation_id, message_id: 'reply-1', text: '**首段已经显示**' }),
     )
     await flushPromises()
     expect(wrapper.text()).toContain('首段已经显示')
@@ -145,13 +160,15 @@ describe('聊天工作空间', () => {
     const wrapper = renderWorkspace()
     await wrapper.get('textarea').setValue('执行测试任务')
     await wrapper.get('form').trigger('submit')
-    const { thread_id } = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as {
-      thread_id: string
+    const { conversation_id = 'server-session-a' } = JSON.parse(
+      fetchMock.mock.calls[0]![1]!.body as string,
+    ) as {
+      conversation_id: string
     }
     stream.push(
-      eventFrame('start', { thread_id }) +
+      eventFrame('start', { conversation_id }) +
         eventFrame('delta', {
-          thread_id,
+          conversation_id,
           message_id: 'plan',
           text: '模型实际提供的进度正文文本',
         }),
@@ -161,7 +178,7 @@ describe('聊天工作空间', () => {
     expect(wrapper.get('[role="status"]').text()).toContain('正在回复')
     stream.push(
       eventFrame('tool_start', {
-        thread_id,
+        conversation_id,
         tool_call_id: 'cmd',
         run_id: 'run',
         name: 'runner',
@@ -174,7 +191,7 @@ describe('聊天工作空间', () => {
     expect(wrapper.get('[aria-label="执行过程"]').text()).toContain('命令执行')
     stream.push(
       eventFrame('tool_error', {
-        thread_id,
+        conversation_id,
         tool_call_id: 'cmd',
         run_id: 'run',
         name: 'runner',
@@ -186,7 +203,7 @@ describe('聊天工作空间', () => {
     expect(wrapper.find('.message-error').exists()).toBe(false)
     await wrapper.get('textarea').setValue('下一条草稿')
     expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
-    stream.push(eventFrame('done', { thread_id, message_id: 'reply', reply: '**最终回答**' }))
+    stream.push(eventFrame('done', { conversation_id, message_id: 'reply', reply: '**最终回答**' }))
     await flushPromises()
     expect(wrapper.get('.markdown-content strong').text()).toBe('最终回答')
     expect(wrapper.get('[aria-label="执行过程"]').text()).toContain('工具执行失败')
@@ -205,22 +222,24 @@ describe('聊天工作空间', () => {
     const wrapper = renderWorkspace()
     await wrapper.get('textarea').setValue('查询北京天气')
     await wrapper.get('form').trigger('submit')
-    const { thread_id } = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as {
-      thread_id: string
+    const { conversation_id = 'server-session-a' } = JSON.parse(
+      fetchMock.mock.calls[0]![1]!.body as string,
+    ) as {
+      conversation_id: string
     }
     stream.push(
       [
-        eventFrame('start', { thread_id }),
-        eventFrame('delta', { thread_id, message_id: 'first', text: '我先查询北京天气。' }),
+        eventFrame('start', { conversation_id }),
+        eventFrame('delta', { conversation_id, message_id: 'first', text: '我先查询北京天气。' }),
         eventFrame('tool_call', {
-          thread_id,
+          conversation_id,
           message_id: 'first',
           tool_call_id: 'weather',
           name: 'get_weather',
           arguments: { city: '北京' },
         }),
         eventFrame('tool_start', {
-          thread_id,
+          conversation_id,
           tool_call_id: 'weather',
           run_id: 'r1',
           name: 'get_weather',
@@ -228,23 +247,23 @@ describe('聊天工作空间', () => {
           arguments: { city: '北京' },
         }),
         eventFrame('tool_end', {
-          thread_id,
+          conversation_id,
           tool_call_id: 'weather',
           run_id: 'r1',
           name: 'get_weather',
           kind: 'tool',
           output: '晴天',
         }),
-        eventFrame('delta', { thread_id, message_id: 'next', text: '我接着核对温度。' }),
+        eventFrame('delta', { conversation_id, message_id: 'next', text: '我接着核对温度。' }),
         eventFrame('tool_call', {
-          thread_id,
+          conversation_id,
           message_id: 'next',
           tool_call_id: 'temperature',
           name: 'check_temperature',
           arguments: {},
         }),
         eventFrame('tool_start', {
-          thread_id,
+          conversation_id,
           tool_call_id: 'temperature',
           run_id: 'r2',
           name: 'check_temperature',
@@ -252,7 +271,7 @@ describe('聊天工作空间', () => {
           arguments: {},
         }),
         eventFrame('tool_end', {
-          thread_id,
+          conversation_id,
           tool_call_id: 'temperature',
           run_id: 'r2',
           name: 'check_temperature',
@@ -260,7 +279,7 @@ describe('聊天工作空间', () => {
           output: '25°C',
         }),
         // 同文不同标识必须保留，不能靠字符串去重误删进度；done 会替换最终消息的增量。
-        eventFrame('delta', { thread_id, message_id: 'answer', text: '我接着核对温度。' }),
+        eventFrame('delta', { conversation_id, message_id: 'answer', text: '我接着核对温度。' }),
       ].join(''),
     )
     await flushPromises()
@@ -277,7 +296,7 @@ describe('聊天工作空间', () => {
     // 工具详情是独立原生折叠，整体收起后再次展开应保留用户先前的选择。
     wrapper.get('details').element.setAttribute('open', '')
     stream.push(
-      eventFrame('done', { thread_id, message_id: 'answer', reply: '**北京晴天，25°C。**' }),
+      eventFrame('done', { conversation_id, message_id: 'answer', reply: '**北京晴天，25°C。**' }),
     )
     await flushPromises()
     expect(wrapper.get('.process-toggle').attributes('aria-expanded')).toBe('false')
@@ -305,13 +324,15 @@ describe('聊天工作空间', () => {
     const wrapper = renderWorkspace()
     await wrapper.get('textarea').setValue('你好')
     await wrapper.get('form').trigger('submit')
-    const { thread_id } = JSON.parse(fetchMock.mock.calls[0]![1]!.body as string) as {
-      thread_id: string
+    const { conversation_id = 'server-session-a' } = JSON.parse(
+      fetchMock.mock.calls[0]![1]!.body as string,
+    ) as {
+      conversation_id: string
     }
     stream.push(
-      eventFrame('start', { thread_id }) +
-        eventFrame('delta', { thread_id, message_id: 'answer', text: '你好' }) +
-        eventFrame('done', { thread_id, message_id: 'answer', reply: '你好。' }),
+      eventFrame('start', { conversation_id }) +
+        eventFrame('delta', { conversation_id, message_id: 'answer', text: '你好' }) +
+        eventFrame('done', { conversation_id, message_id: 'answer', reply: '你好。' }),
     )
     await flushPromises()
     expect(wrapper.find('.agent-activity').exists()).toBe(false)
@@ -322,8 +343,8 @@ describe('聊天工作空间', () => {
     await wrapper.get('textarea').setValue('继续')
     await wrapper.get('form').trigger('submit')
     failed.push(
-      eventFrame('start', { thread_id }) +
-        eventFrame('delta', { thread_id, message_id: 'partial', text: '我先检查。' }),
+      eventFrame('start', { conversation_id, turn_id: 'second-turn', is_new: false }) +
+        eventFrame('delta', { conversation_id, message_id: 'partial', text: '我先检查。' }),
     )
     failed.close()
     await flushPromises()

@@ -1,6 +1,6 @@
 <!-- 青蓝水墨聊天工作空间：复用正式会话 store 与 Reka 导航，首页品牌视觉与消息阅读区独立布局。 -->
 <script setup lang="ts">
-import { nextTick, ref, watch } from 'vue'
+import { nextTick, onMounted, ref, watch } from 'vue'
 import { PanelLeft, SquarePen } from '@lucide/vue'
 import { useChatStore } from '@/stores/chat'
 import { useMediaQuery } from '@/composables/useMediaQuery'
@@ -21,13 +21,24 @@ const drawerOpen = ref(false)
 const draft = ref('')
 const composer = ref<InstanceType<typeof ChatComposer> | InstanceType<typeof ChatWelcome>>()
 const headerTitle = ref<HTMLElement>()
+// 切换或删除当前会话时清空草稿；仅绑定服务端 ID 时对象不变，不打断等待中的新草稿。
+watch(
+  () => chat.activeConversation,
+  () => {
+    draft.value = ''
+  },
+)
+// 目录在身份恢复后的工作区挂载时加载，开发组件预览不会触发真实会话请求。
+onMounted(() => {
+  if (!chat.listInitialized) void chat.loadConversations()
+})
 // 断点回到桌面后移除模态内容，交给 Reka 释放焦点约束与背景滚动锁。
 watch(narrow, (value) => {
   if (!value) drawerOpen.value = false
 })
 /** 新建或选择会话时清空草稿并关闭抽屉，防止跨会话误发。 */
 function navigate(id?: string): void {
-  if (id) chat.select(id)
+  if (id) void chat.select(id)
   else chat.startNew()
   draft.value = ''
   drawerOpen.value = false
@@ -63,6 +74,13 @@ async function restoreFocus(event: Event): Promise<void> {
         :conversations="chat.conversations"
         :active-id="chat.activeId"
         :compact="collapsed"
+        :loading="chat.listing"
+        :error="chat.listError"
+        :action-error="chat.actionError"
+        :has-more="Boolean(chat.nextCursor)"
+        @refresh="chat.loadConversations()"
+        @more="chat.loadConversations(true)"
+        @delete="chat.remove"
         @new="navigate()"
         @select="navigate"
         @toggle="collapsed = !collapsed"
@@ -84,6 +102,13 @@ async function restoreFocus(event: Event): Promise<void> {
               :conversations="chat.conversations"
               :active-id="chat.activeId"
               drawer
+              :loading="chat.listing"
+              :error="chat.listError"
+              :action-error="chat.actionError"
+              :has-more="Boolean(chat.nextCursor)"
+              @refresh="chat.loadConversations()"
+              @more="chat.loadConversations(true)"
+              @delete="chat.remove"
               @new="navigate()"
               @select="navigate"
           /></UiDrawer>
@@ -105,6 +130,31 @@ async function restoreFocus(event: Event): Promise<void> {
       </div>
       <template v-else
         ><section class="conversation-scroll" aria-label="对话内容">
+          <div class="history-controls">
+            <button
+              v-if="chat.activeConversation.nextCursor"
+              type="button"
+              :disabled="chat.activeConversation.loading || chat.isSending"
+              @click="chat.loadEarlier"
+            >
+              加载更早消息
+            </button>
+            <button
+              v-if="chat.activeConversation.persisted"
+              type="button"
+              :disabled="chat.activeConversation.loading || chat.isSending"
+              @click="chat.refreshHistory"
+            >
+              刷新会话
+            </button>
+            <span v-if="chat.activeConversation.loading" role="status">正在加载历史…</span>
+          </div>
+          <p v-if="chat.activeConversation.historyError" class="history-error" role="alert">
+            {{ chat.activeConversation.historyError }}
+          </p>
+          <p v-if="chat.activeConversation.remoteRunning" class="history-notice" role="status">
+            此会话正在其他页面生成，刷新会话后查看最新结果。
+          </p>
           <MessageList
             :messages="chat.activeConversation.messages"
             :conversation-id="chat.activeConversation.id"
@@ -112,7 +162,13 @@ async function restoreFocus(event: Event): Promise<void> {
         </section>
         <footer class="conversation-footer">
           <div class="composer-container">
-            <ChatComposer ref="composer" v-model="draft" :sending="chat.isSending" @send="send" />
+            <ChatComposer
+              ref="composer"
+              v-model="draft"
+              :sending="chat.isSending"
+              :disabled="chat.inputBlocked"
+              @send="send"
+            />
             <p class="composer-disclaimer">AI 回复仅供参考，请核实重要信息。</p>
           </div>
         </footer></template
@@ -121,6 +177,34 @@ async function restoreFocus(event: Event): Promise<void> {
   </div>
 </template>
 <style scoped>
+.history-controls {
+  display: flex;
+  justify-content: center;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  max-width: var(--content-width);
+  margin: 0 auto 18px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.history-controls button {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 5px 10px;
+  background: var(--surface);
+  color: var(--brand);
+}
+.history-error,
+.history-notice {
+  max-width: var(--content-width);
+  margin: 12px auto;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+.history-error {
+  color: var(--danger);
+}
 /* 视口只约束工作空间外壳，内容区独立滚动，底部输入区始终参与布局。 */
 .chat-shell {
   display: grid;

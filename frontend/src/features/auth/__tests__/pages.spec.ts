@@ -21,6 +21,8 @@ beforeEach(() => {
   sessionStorage.clear()
   localStorage.clear()
   fetchMock.mockReset()
+  // 认证成功进入真实工作区后允许读取空会话目录，不把该请求误当成认证调用。
+  fetchMock.mockResolvedValue(response({ items: [], next_cursor: null }))
   vi.stubGlobal('fetch', fetchMock)
   vi.stubGlobal('matchMedia', () => ({
     matches: false,
@@ -102,6 +104,7 @@ describe('认证页面与工作区边界', () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/auth/register',
       '/api/auth/login',
+      '/api/conversations?limit=20',
     ])
   })
 
@@ -111,14 +114,17 @@ describe('认证页面与工作区边界', () => {
       AUTH_STORAGE_KEY,
       JSON.stringify({ token: LOGIN.access_token, expiresAt: Date.now() + 60_000 }),
     )
-    fetchMock.mockResolvedValue(response(USER))
+    fetchMock.mockResolvedValueOnce(response(USER))
     const page = await open('/login?redirect=https://evil.test')
     expect(router.currentRoute.value.name).toBe('chat')
     expect(page.text()).toContain(USER.username)
-    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/auth/me'])
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/auth/me',
+      '/api/conversations?limit=20',
+    ])
     await router.push('/register')
     expect(router.currentRoute.value.name).toBe('chat')
-    expect(fetchMock).toHaveBeenCalledTimes(1)
+    expect(fetchMock).toHaveBeenCalledTimes(2)
   })
 
   // 账号重复属于字段错误；凭据错误属于登录请求失败，均保留表单重试入口。

@@ -1,24 +1,28 @@
 /** Agent 过程回归：以真实 SSE 消费验证状态归并、执行隔离和卡片文本安全，不调用模型或命令。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
+import { createPinia, disposePinia, type Pinia } from 'pinia'
 import { mount, type VueWrapper } from '@vue/test-utils'
 import { useChatStore } from '@/stores/chat'
 import AgentActivity from '@/components/chat/AgentActivity.vue'
 import type { ToolActivity } from '@/types/chat'
 import { controlledStream, eventFrame, sseResponse, success } from './helpers/chatStream'
+import { authenticate } from './helpers/auth'
+let pinia: Pinia
 
 const fetchMock = vi.fn<typeof fetch>()
 const wrappers: VueWrapper[] = []
 
 // 每例重建 Pinia 和网络替身，真实 Response/ReadableStream 保留协议到状态的完整调用路径。
-beforeEach(() => {
-  setActivePinia(createPinia())
+beforeEach(async () => {
+  pinia = createPinia()
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
+  await authenticate(pinia, fetchMock)
 })
 // 移除 DOM 和替身，不触发系统剪贴板、数据库或真实工具调用。
 afterEach(() => {
   wrappers.splice(0).forEach((wrapper) => wrapper.unmount())
+  disposePinia(pinia)
   vi.unstubAllGlobals()
 })
 
@@ -36,11 +40,11 @@ describe('Agent 过程状态', () => {
     fetchMock.mockResolvedValueOnce(stream.response)
     const chat = useChatStore()
     const pending = chat.send('比较两个城市的天气')
-    const thread_id = chat.activeId!
+    const conversation_id = 'server-session-a'
     stream.push(
-      eventFrame('start', { thread_id }) +
-        eventFrame('delta', { thread_id, message_id: 'plan', text: '先查询' }) +
-        eventFrame('delta', { thread_id, message_id: 'plan', text: '两个城市。' }),
+      eventFrame('start', { conversation_id }) +
+        eventFrame('delta', { conversation_id, message_id: 'plan', text: '先查询' }) +
+        eventFrame('delta', { conversation_id, message_id: 'plan', text: '两个城市。' }),
     )
     await vi.waitFor(() =>
       expect(chat.activeConversation?.messages[1]?.activities?.[0]).toMatchObject({
@@ -55,14 +59,14 @@ describe('Agent 过程状态', () => {
     expect(chat.isSending).toBe(true)
     stream.push(
       eventFrame('tool_call', {
-        thread_id,
+        conversation_id,
         message_id: 'plan',
         tool_call_id: 'a',
         name: 'weather',
         arguments: { city: '上海' },
       }) +
         eventFrame('tool_call', {
-          thread_id,
+          conversation_id,
           message_id: 'plan',
           tool_call_id: 'b',
           name: 'weather',
@@ -74,7 +78,7 @@ describe('Agent 过程状态', () => {
     expect(chat.activeConversation?.messages[1]?.activities?.[0]?.status).toBe('complete')
     stream.push(
       eventFrame('tool_start', {
-        thread_id,
+        conversation_id,
         tool_call_id: 'a',
         run_id: 'ra',
         name: 'weather',
@@ -82,7 +86,7 @@ describe('Agent 过程状态', () => {
         arguments: { city: '上海' },
       }) +
         eventFrame('tool_start', {
-          thread_id,
+          conversation_id,
           tool_call_id: 'b',
           run_id: 'rb',
           name: 'weather',
@@ -90,7 +94,7 @@ describe('Agent 过程状态', () => {
           arguments: { city: '北京' },
         }) +
         eventFrame('tool_end', {
-          thread_id,
+          conversation_id,
           tool_call_id: 'b',
           run_id: 'rb',
           name: 'weather',
@@ -105,13 +109,13 @@ describe('Agent 过程状态', () => {
     expect(tools()[1]?.runs[0]?.output).toBe('北京晴天')
     stream.push(
       eventFrame('tool_end', {
-        thread_id,
+        conversation_id,
         tool_call_id: 'a',
         run_id: 'ra',
         name: 'weather',
         kind: 'tool',
         output: '上海小雨',
-      }) + eventFrame('done', { thread_id, message_id: 'reply', reply: '**天气对比**' }),
+      }) + eventFrame('done', { conversation_id, message_id: 'reply', reply: '**天气对比**' }),
     )
     expect(await pending).toBe(true)
     expect(tools().map((item) => item.status)).toEqual(['complete', 'complete'])
@@ -123,13 +127,13 @@ describe('Agent 过程状态', () => {
 
   // 一次工具失败不应终止本轮；相同请求的多次执行分别保存，执行前拒绝不伪造 run。
   it('区分命令多次执行、执行前拒绝与整轮完成', async () => {
-    fetchMock.mockImplementationOnce(async (_url, init) => {
-      const { thread_id } = JSON.parse(init!.body as string) as { thread_id: string }
+    fetchMock.mockImplementationOnce(async (_url, _init) => {
+      const conversation_id = 'server-session-a'
       return sseResponse(
         [
-          eventFrame('start', { thread_id }),
+          eventFrame('start', { conversation_id }),
           eventFrame('tool_start', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'cmd',
             run_id: 'first',
             name: 'runner',
@@ -137,7 +141,7 @@ describe('Agent 过程状态', () => {
             arguments: 'pwd',
           }),
           eventFrame('tool_error', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'cmd',
             run_id: 'first',
             name: 'runner',
@@ -145,7 +149,7 @@ describe('Agent 过程状态', () => {
             message: '首次执行失败',
           }),
           eventFrame('tool_start', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'cmd',
             run_id: 'second',
             name: 'runner',
@@ -153,7 +157,7 @@ describe('Agent 过程状态', () => {
             arguments: { command: 'pwd' },
           }),
           eventFrame('tool_end', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'cmd',
             run_id: 'second',
             name: 'runner',
@@ -161,14 +165,14 @@ describe('Agent 过程状态', () => {
             output: null,
           }),
           eventFrame('tool_error', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'rejected',
             run_id: null,
             name: 'missing',
             kind: 'tool',
             message: '未知工具',
           }),
-          eventFrame('done', { thread_id, message_id: 'reply', reply: '已处理执行失败。' }),
+          eventFrame('done', { conversation_id, message_id: 'reply', reply: '已处理执行失败。' }),
         ].join(''),
       )
     })
@@ -192,11 +196,11 @@ describe('Agent 过程状态', () => {
     fetchMock.mockResolvedValueOnce(stream.response)
     const chat = useChatStore()
     const pending = chat.send('测试中断')
-    const thread_id = chat.activeId!
+    const conversation_id = 'server-session-a'
     stream.push(
-      eventFrame('start', { thread_id }) +
+      eventFrame('start', { conversation_id }) +
         eventFrame('tool_start', {
-          thread_id,
+          conversation_id,
           tool_call_id: 'active',
           run_id: 'r',
           name: 'runner',
@@ -204,14 +208,14 @@ describe('Agent 过程状态', () => {
           arguments: 'echo test',
         }) +
         eventFrame('tool_end', {
-          thread_id,
+          conversation_id,
           tool_call_id: 'finished',
           run_id: 'ok',
           name: 'lookup',
           kind: 'tool',
           output: false,
         }) +
-        eventFrame('delta', { thread_id, message_id: 'plan', text: '仍在整理' }),
+        eventFrame('delta', { conversation_id, message_id: 'plan', text: '仍在整理' }),
     )
     await vi.waitFor(() => expect(chat.activeConversation?.messages[1]?.activities).toHaveLength(3))
     if (kind === 'error') stream.push(eventFrame('error', null, 50000))
@@ -238,16 +242,14 @@ describe('Agent 过程状态', () => {
     fetchMock.mockResolvedValueOnce(stream.response)
     const chat = useChatStore()
     const pending = chat.send('旧任务')
-    const oldId = chat.activeId!
+    const oldId = 'server-session-a'
     chat.startNew()
-    fetchMock.mockImplementationOnce(async (_url, init) =>
-      success((JSON.parse(init!.body as string) as { thread_id: string }).thread_id),
-    )
+    fetchMock.mockImplementationOnce(async (_url, _init) => success('server-session-b'))
     await chat.send('新任务')
     stream.push(
-      eventFrame('start', { thread_id: oldId }) +
-        eventFrame('delta', { thread_id: oldId, message_id: 'old', text: '旧会话进度正文' }) +
-        eventFrame('done', { thread_id: oldId, message_id: 'reply', reply: '旧回答' }),
+      eventFrame('start', { conversation_id: oldId }) +
+        eventFrame('delta', { conversation_id: oldId, message_id: 'old', text: '旧会话进度正文' }) +
+        eventFrame('done', { conversation_id: oldId, message_id: 'reply', reply: '旧回答' }),
     )
     await pending
     expect(chat.activeConversation?.messages[1]?.activities).toEqual([])
@@ -260,27 +262,27 @@ describe('Agent 过程状态', () => {
 
   // 最终回答只确认整轮完成，不能代替丢失的工具执行确认；前端不据此补造成功状态。
   it('done 不把缺少执行结果的请求或运行标记为成功', async () => {
-    fetchMock.mockImplementationOnce(async (_url, init) => {
-      const { thread_id } = JSON.parse(init!.body as string) as { thread_id: string }
+    fetchMock.mockImplementationOnce(async (_url, _init) => {
+      const conversation_id = 'server-session-a'
       return sseResponse(
         [
-          eventFrame('start', { thread_id }),
+          eventFrame('start', { conversation_id }),
           eventFrame('tool_call', {
-            thread_id,
+            conversation_id,
             message_id: 'plan',
             tool_call_id: 'queued',
             name: 'lookup',
             arguments: {},
           }),
           eventFrame('tool_start', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'running',
             run_id: 'run',
             name: 'runner',
             kind: 'command',
             arguments: 'pwd',
           }),
-          eventFrame('done', { thread_id, message_id: 'reply', reply: '已有信息已整理。' }),
+          eventFrame('done', { conversation_id, message_id: 'reply', reply: '已有信息已整理。' }),
         ].join(''),
       )
     })

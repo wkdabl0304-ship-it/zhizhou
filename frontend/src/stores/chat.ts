@@ -1,105 +1,321 @@
-/** 聊天状态：管理当前页面的临时会话与流式请求，不持久化或恢复会话标识和正文。 */
-import { computed, ref, type Ref } from 'vue'
+/** 聊天状态：管理服务端会话目录、游标历史和流式续聊；缓存随账号退出清除。 */
+import { computed, onScopeDispose, ref, watch, type Ref } from 'vue'
 import { defineStore } from 'pinia'
 import { streamChatMessage } from '@/api/chat'
+import { ApiError } from '@/api/authenticated'
+import { useAuthStore } from '@/features/auth/store'
+import {
+  listConversations,
+  conversationHistory,
+  deleteConversation,
+  type ConversationInfo,
+} from '@/features/conversations/api'
+import { turnMessages } from '@/features/conversations/history'
 import type { ChatMessage, Conversation } from '@/types/chat'
 import { finishActivities, updateActivity } from '@/utils/chatActivity'
 
-/** 生成随机会话标识；普通 HTTP 环境没有 randomUUID 时使用浏览器随机字节。 */
-function createThreadId(): string {
-  if (typeof crypto.randomUUID === 'function') return crypto.randomUUID()
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('')
+/** 将安全接口错误转换为页面说明；取消与未知异常不泄露底层细节。 */
+function explain(error: unknown): string {
+  return error instanceof ApiError ? error.message : '请求未完成，请稍后重试'
 }
-
-/** 创建聊天 store，供页面管理本次浏览中的会话与流式请求；首次加载预留随机 thread_id。 */
+/** 按用户本地日期分组目录，使用日期边界而非固定 24 小时处理夏令时。 */
+function group(at: string): string {
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  const time = Date.parse(at)
+  return time >= +today ? '今天' : time >= +yesterday ? '昨天' : '更早'
+}
+/** 创建聊天业务状态；公开入口保持集中，HTTP 和历史展示转换各自放在独立模块。 */
 export const useChatStore = defineStore('chat', () => {
-  // 明确 Ref 的公共类型，避免工具 JSON 的递归结构被类型系统反复做深层 UnwrapRef。
+  const auth = useAuthStore()
   const conversations: Ref<Conversation[]> = ref([])
   const activeId = ref<string | null>(null)
-  const newThreadId = ref(createThreadId())
-  // 当前会话可能不存在；空值统一表示首页，避免展示其他会话的残留消息。
+  const listing = ref(false)
+  const listError = ref('')
+  const listInitialized = ref(false)
+  const nextCursor = ref<string | null>(null)
+  const actionError = ref('')
   const activeConversation = computed(() =>
     conversations.value.find((item) => item.id === activeId.value),
   )
-  // 判断当前会话是否还有未结束的请求，供输入区阻止同会话重复发送。
-  const isSending = computed(
-    () =>
-      activeConversation.value?.messages.some(
-        (message) => message.status === 'pending' || message.status === 'streaming',
-      ) ?? false,
-  )
+  const isSending = computed(() => !!activeConversation.value?.running)
+  const inputBlocked = computed(() => {
+    const row = activeConversation.value
+    return (
+      !!row &&
+      (!!row.loading ||
+        !!row.deleting ||
+        !!row.remoteRunning ||
+        !!row.unavailable ||
+        row.loaded === false)
+    )
+  })
+  const controllers = new Set<AbortController>()
+  const histories = new Map<Conversation, AbortController>()
+  let epoch = 0
   let sequence = 0
+  let mutation = 0
 
-  /** 返回当前 store 内唯一的消息展示标识，与后端 thread_id 无关。 */
-  function nextMessageId(): string {
-    sequence += 1
-    return `message-${sequence}`
+  /** 为一次业务操作分配取消控制器，退出账号或销毁 store 时统一释放。 */
+  function controller(): AbortController {
+    const value = new AbortController()
+    controllers.add(value)
+    return value
   }
-
-  /** 返回首页并预留新的会话标识；待用户发送后才把会话加入侧栏。 */
-  function startNew(): void {
-    newThreadId.value = createThreadId()
-    activeId.value = null
+  /** 判断响应仍属于当前账号和现存会话，阻止迟到结果复活已删除的数据。 */
+  function current(version: number, row?: Conversation): boolean {
+    return version === epoch && (!row || conversations.value.includes(row))
   }
-
-  /** 清空本页临时聊天展示，供退出或切换账号时隔离界面数据；不调用后端会话接口。 */
+  /** 按最近消息时间排序，相同时间使用服务端 ID 次键。 */
+  function sort(): void {
+    conversations.value.sort(
+      (a, b) =>
+        (Date.parse(b.lastMessageAt ?? '') || 0) - (Date.parse(a.lastMessageAt ?? '') || 0) ||
+        b.id.localeCompare(a.id),
+    )
+  }
+  /** 将服务端元数据写入展示缓存，不丢失已有正文、分页与请求状态。 */
+  function metadata(row: Conversation, info: ConversationInfo): void {
+    row.title = info.title
+    row.createdAt = info.created_at
+    row.lastMessageAt = info.last_message_at
+    row.group = group(info.last_message_at)
+    row.persisted = true
+  }
+  /** 创建尚未读取正文的服务端目录条目，只有选中后才请求历史。 */
+  function entry(info: ConversationInfo): Conversation {
+    return {
+      id: info.conversation_id,
+      title: info.title,
+      group: group(info.last_message_at),
+      messages: [],
+      persisted: true,
+      createdAt: info.created_at,
+      lastMessageAt: info.last_message_at,
+      loaded: false,
+    }
+  }
+  /** 清空账号缓存并取消全部在途请求；这里只清理浏览器状态，不删除服务端会话。 */
   function clearLocal(): void {
+    epoch += 1
+    for (const pending of controllers) pending.abort()
+    controllers.clear()
+    histories.clear()
     conversations.value = []
     activeId.value = null
-    newThreadId.value = createThreadId()
+    listing.value = false
+    nextCursor.value = null
+    listError.value = ''
+    actionError.value = ''
+    listInitialized.value = false
   }
+  // 账号隔离属于业务 store，不依赖某个页面是否仍挂载；退出会同时取消模型流和目录读取。
+  watch(
+    () => auth.user?.id,
+    (identity, previous) => {
+      if (previous && previous !== identity) clearLocal()
+    },
+    { flush: 'sync' },
+  )
+  onScopeDispose(clearLocal)
 
-  /** 选择本页已存在的会话并继续使用其 thread_id；未知标识不改变状态。 */
-  function select(id: string): void {
-    if (conversations.value.some((item) => item.id === id)) activeId.value = id
+  /** 读取最近或更早会话，合并重叠页；刷新保留当前会话及请求后新增的数据。 */
+  async function loadConversations(more = false): Promise<void> {
+    if (listing.value || !auth.isAuthenticated || (more && !nextCursor.value)) return
+    const version = epoch
+    const stamp = mutation
+    const request = controller()
+    const cursor = more ? nextCursor.value : null
+    listing.value = true
+    listError.value = ''
+    try {
+      const page = await listConversations(request.signal, cursor)
+      if (!current(version)) return
+      if (cursor && page.nextCursor === cursor) throw new ApiError('会话游标未推进，请刷新目录')
+      const existing = new Map(conversations.value.map((row) => [row.id, row]))
+      const incoming = page.items.map((info) => {
+        const row = existing.get(info.conversation_id) ?? entry(info)
+        if ((row.localRevision ?? 0) <= stamp && !row.running) metadata(row, info)
+        return row
+      })
+      const retained = more
+        ? conversations.value
+        : conversations.value.filter(
+            (row) =>
+              row.id === activeId.value ||
+              row.running ||
+              !row.persisted ||
+              (row.localRevision ?? 0) > stamp,
+          )
+      conversations.value = [
+        ...new Map([...retained, ...incoming].map((row) => [row.id, row])).values(),
+      ]
+      sort()
+      nextCursor.value = page.nextCursor
+      listInitialized.value = true
+    } catch (error) {
+      if (current(version)) listError.value = explain(error)
+    } finally {
+      controllers.delete(request)
+      if (current(version)) listing.value = false
+    }
   }
-
+  /** 读取选中会话的最近历史或更早轮次；生成期间不允许历史响应覆盖正在接收的消息。 */
+  async function loadHistory(row: Conversation, more = false): Promise<void> {
+    if (!row.persisted || row.loading || row.running || row.deleting || (more && !row.nextCursor))
+      return
+    const version = epoch
+    const request = controller()
+    histories.set(row, request)
+    const cursor = more ? row.nextCursor : null
+    row.loading = true
+    row.historyError = ''
+    try {
+      const page = await conversationHistory(row.id, request.signal, cursor)
+      if (!current(version, row)) return
+      if (cursor && page.nextCursor === cursor) throw new ApiError('历史游标未推进，请刷新会话')
+      const older = page.items.flatMap(turnMessages)
+      row.messages = more
+        ? [...new Map([...older, ...row.messages].map((message) => [message.id, message])).values()]
+        : older
+      row.nextCursor = page.nextCursor
+      row.loaded = true
+      row.unavailable = false
+      row.remoteRunning =
+        (more && row.remoteRunning) || page.items.some((turn) => turn.status === 'running')
+      metadata(row, page.conversation)
+      sort()
+    } catch (error) {
+      if (current(version, row)) {
+        row.historyError = explain(error)
+        if (error instanceof ApiError && error.status === 404) row.unavailable = true
+      }
+    } finally {
+      histories.delete(row)
+      controllers.delete(request)
+      if (current(version, row)) row.loading = false
+    }
+  }
+  /** 选中目录条目，首次按需读取历史；已加载或正在生成的会话直接使用当前缓存。 */
+  async function select(id: string): Promise<void> {
+    const row = conversations.value.find((item) => item.id === id)
+    if (!row) return
+    activeId.value = id
+    actionError.value = ''
+    if (!row.loaded) await loadHistory(row)
+  }
+  /** 回到新对话首页，不分配业务 ID，也不创建服务端空会话。 */
+  function startNew(): void {
+    activeId.value = null
+    actionError.value = ''
+  }
+  /** 加载当前会话更早记录，供页面在顶部保留阅读位置后插入旧消息。 */
+  async function loadEarlier(): Promise<void> {
+    if (activeConversation.value) await loadHistory(activeConversation.value, true)
+  }
+  /** 显式刷新当前会话，恢复其他窗口生成、失败或服务重启后的最新状态。 */
+  async function refreshHistory(): Promise<void> {
+    if (activeConversation.value) await loadHistory(activeConversation.value)
+  }
+  /** 软删除会话，失败保留目录和正文；本地生成中拒绝删除，跨窗口冲突交由后端确认。 */
+  async function remove(id: string): Promise<void> {
+    const row = conversations.value.find((item) => item.id === id)
+    if (!row || row.running || row.deleting || !row.persisted) return
+    const version = epoch
+    const request = controller()
+    row.deleting = true
+    actionError.value = ''
+    try {
+      try {
+        await deleteConversation(id, request.signal)
+      } catch (error) {
+        if (!(error instanceof ApiError && error.status === 404)) throw error
+      }
+      if (!current(version, row)) return
+      histories.get(row)?.abort()
+      conversations.value = conversations.value.filter((item) => item !== row)
+      if (activeId.value === id) activeId.value = null
+    } catch (error) {
+      if (current(version, row)) actionError.value = explain(error)
+    } finally {
+      controllers.delete(request)
+      if (current(version, row)) row.deleting = false
+    }
+  }
   /**
-   * 发送用户输入，并把流式回复和过程事件更新到所属会话。
-   * text 去除首尾空白后写入用户消息，并创建助手占位；空白或同会话重复发送返回 false。
-   * 每个会话仅允许一个在途请求；捕获原会话引用，切换页面内会话不会串写回复。
-   * 失败保留用户消息及已收到的文本并标记未完成，返回 false；不自动重试。
+   * 发送一轮消息，首次省略会话 ID，收到 start 后绑定服务器身份，再更新公开过程及最终回答。
+   * 每个会话允许一个在途请求；切换会话继续更新原对象，退出账号取消流并丢弃迟到结果。
+   * 不自动重试可能已落库的输入；HTTP 冲突或不存在明确提示，部分回复保留为未完成。
    */
   async function send(text: string): Promise<boolean> {
     const content = text.trim()
-    if (!content || isSending.value) return false
+    if (!content || isSending.value || inputBlocked.value || !auth.isAuthenticated) return false
     if (!activeConversation.value) {
-      const id = newThreadId.value
+      // draft 只作为尚未收到 start 的界面键，绝不放进网络请求。
+      const id = `draft-${++sequence}`
       conversations.value.unshift({
         id,
         title: Array.from(content).slice(0, 24).join(''),
         group: '今天',
         messages: [],
+        loaded: true,
+        persisted: false,
       })
       activeId.value = id
     }
-    const conversation = activeConversation.value!
+    const row = activeConversation.value!
+    const version = epoch
+    const request = controller()
+    const before = row.id
     const user: ChatMessage = {
-      id: nextMessageId(),
+      id: `user-${++sequence}`,
       role: 'user',
       blocks: [{ type: 'paragraph', text: content }],
     }
-    conversation.messages.push(user, {
-      id: nextMessageId(),
+    row.messages.push(user, {
+      id: `assistant-${sequence}`,
       role: 'assistant',
       status: 'pending',
       blocks: [],
     })
-    // 从响应式数组取得占位，保证异步更新能够触发组件重新渲染。
-    const assistant = conversation.messages[conversation.messages.length - 1]!
-    // blocks 保留临时正文便于失败诊断；可见顺序由 activities 维护，done 只替换最终正文。
+    const assistant = row.messages[row.messages.length - 1]!
+    row.running = true
+    row.localRevision = ++mutation
     const segments = new Map<string, string>()
     try {
-      for await (const event of streamChatMessage(content, conversation.id)) {
+      for await (const event of streamChatMessage(
+        content,
+        row.persisted ? row.id : undefined,
+        request.signal,
+      )) {
+        if (!current(version, row)) return false
+        if (event.type === 'start') {
+          // 目录可能先于 SSE 返回同一条会话；绑定时移除重复条目，保留当前流的对象。
+          conversations.value = conversations.value.filter(
+            (item) => item === row || item.id !== event.conversationId,
+          )
+          row.id = event.conversationId
+          row.persisted = true
+          row.loaded = true
+          user.id = `${event.turnId}-user`
+          assistant.id = `${event.turnId}-assistant`
+          if (activeId.value === before) activeId.value = row.id
+          row.lastMessageAt = new Date().toISOString()
+          row.group = group(row.lastMessageAt)
+          row.localRevision = ++mutation
+          sort()
+          continue
+        }
         updateActivity(assistant, event)
-        if (event.type !== 'start') assistant.status = 'streaming'
+        assistant.status = 'streaming'
         if (event.type === 'delta') {
           segments.set(event.messageId, (segments.get(event.messageId) ?? '') + event.text)
-          // 将每段已累积正文映射为消息块，保留不同模型步骤的文本边界。
-          assistant.blocks = Array.from(segments.values(), (text) => ({ type: 'paragraph', text }))
-          assistant.status = 'streaming'
+          assistant.blocks = Array.from(segments.values(), (value) => ({
+            type: 'paragraph',
+            text: value,
+          }))
         } else if (event.type === 'done') {
           assistant.blocks = [{ type: 'paragraph', text: event.reply }]
           assistant.status = 'complete'
@@ -107,21 +323,37 @@ export const useChatStore = defineStore('chat', () => {
         }
       }
       return true
-    } catch {
+    } catch (error) {
+      if (!current(version, row)) return false
       finishActivities(assistant, false)
       assistant.status = 'error'
+      assistant.error = explain(error)
+      if (error instanceof ApiError && error.status === 404) row.unavailable = true
+      if (error instanceof ApiError && error.status === 409) row.remoteRunning = true
       return false
+    } finally {
+      controllers.delete(request)
+      if (current(version, row)) row.running = false
     }
   }
-
   return {
     conversations,
     activeId,
     activeConversation,
     isSending,
-    startNew,
+    inputBlocked,
+    listing,
+    listError,
+    listInitialized,
+    nextCursor,
+    actionError,
+    loadConversations,
     select,
-    send,
+    startNew,
     clearLocal,
+    send,
+    loadEarlier,
+    refreshHistory,
+    remove,
   }
 })

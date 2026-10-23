@@ -17,8 +17,19 @@ const props = defineProps<{
   activeId: string | null
   compact?: boolean
   drawer?: boolean
+  loading?: boolean
+  error?: string
+  actionError?: string
+  hasMore?: boolean
 }>()
-defineEmits<{ select: [id: string]; new: []; toggle: [] }>()
+defineEmits<{
+  select: [id: string]
+  new: []
+  toggle: []
+  more: []
+  refresh: []
+  delete: [id: string]
+}>()
 const isDev = import.meta.env.DEV
 // 根据本页会话自身分组，新增会话自动进入“今天”。
 const groups = computed(() => [...new Set(props.conversations.map((item) => item.group))])
@@ -57,7 +68,22 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
       ><span class="new-chat-plus" aria-hidden="true">＋</span>
     </button>
     <nav v-if="!compact" class="conversation-nav" aria-label="会话记录">
-      <div class="sidebar-section-label">你的对话<span>仅本次浏览</span></div>
+      <div class="sidebar-section-label">
+        你的对话<button
+          type="button"
+          class="directory-action"
+          :disabled="loading"
+          @click="$emit('refresh')"
+        >
+          刷新
+        </button>
+      </div>
+      <p v-if="error" class="directory-error" role="alert">{{ error }}</p>
+      <p v-if="actionError" class="directory-error" role="alert">{{ actionError }}</p>
+      <p v-if="loading" class="directory-hint" role="status">正在加载会话…</p>
+      <p v-else-if="!conversations.length && !error" class="directory-hint">
+        还没有对话，开启一次新的思考。
+      </p>
       <section v-for="group in groups" :key="group" class="conversation-group" :aria-label="group">
         <h2>{{ group }}</h2>
         <template v-for="conversation in conversations" :key="conversation.id"
@@ -65,9 +91,21 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
             v-if="conversation.group === group"
             :title="conversation.title"
             :active="conversation.id === activeId"
+            :removable="conversation.persisted"
+            :busy="conversation.running || conversation.deleting"
             @select="$emit('select', conversation.id)"
+            @delete="$emit('delete', conversation.id)"
         /></template>
       </section>
+      <button
+        v-if="hasMore"
+        class="directory-action directory-more"
+        type="button"
+        :disabled="loading"
+        @click="$emit('more')"
+      >
+        加载更早会话
+      </button>
     </nav>
     <div class="sidebar-bottom">
       <div v-if="!compact" class="workspace-note">
@@ -99,6 +137,28 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
 </template>
 
 <style scoped>
+.directory-action {
+  border: 0;
+  border-radius: 6px;
+  padding: 4px 6px;
+  background: transparent;
+  color: var(--brand);
+  font: inherit;
+  font-size: 12px;
+}
+.directory-more {
+  display: block;
+  margin: 12px auto;
+}
+.directory-hint,
+.directory-error {
+  margin: 12px 8px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+.directory-error {
+  color: var(--danger);
+}
 /* 导航占满宿主高度，只有会话列表滚动，底部外观与工作空间入口始终可达。 */
 .chat-sidebar {
   display: flex;

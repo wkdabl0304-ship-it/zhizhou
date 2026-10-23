@@ -21,6 +21,7 @@ export const useAuthStore = defineStore('auth', () => {
   const notice = ref('')
   const registeredUsername = ref('')
   const isAuthenticated = computed(() => user.value !== null && session.value !== null)
+  const accessToken = computed(() => session.value?.token ?? '')
   let timer: ReturnType<typeof setTimeout> | undefined
   let restoring: Promise<void> | undefined
   let revision = 0
@@ -146,6 +147,18 @@ export const useAuthStore = defineStore('auth', () => {
     initialized.value = true
   }
 
+  /** 为业务请求取得尚未到期的令牌；不向接口层暴露存储结构或密码。 */
+  function requireToken(): string {
+    scheduleExpiry()
+    if (!isAuthenticated.value) throw new AuthApiError('登录已过期，请重新登录', 401)
+    return accessToken.value
+  }
+
+  /** 接受当前令牌的服务端失效通知；旧请求的 401 不能退出后来登录的新账号。 */
+  function invalidate(token: string): void {
+    if (accessToken.value === token) clearSession('登录状态无效或已过期，请重新登录')
+  }
+
   /** 将新注册账号带回登录表单，仅保存用户名；注册响应不会建立认证状态。 */
   function prepareLogin(username: string): void {
     registeredUsername.value = username
@@ -161,6 +174,9 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     user,
     isAuthenticated,
+    accessToken,
+    requireToken,
+    invalidate,
     initialized,
     restoreError,
     notice,

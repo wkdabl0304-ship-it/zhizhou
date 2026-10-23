@@ -1,8 +1,14 @@
 /** SSE 测试辅助：编码后端事件并构造可控字节流，不连接网络或模型。 */
+let turnSequence = 0
 
 /** 构造测试使用的一个 SSE 事件帧；统一包装 code/message/data，并以空行终止。 */
 export function eventFrame(event: string, data: unknown, code = 0): string {
-  return `event: ${event}\ndata: ${JSON.stringify({ code, message: code ? '生成失败' : '成功', data })}\n\n`
+  // 默认模拟首次聊天的 start；续聊和协议损坏用例可显式覆盖字段。
+  const payload =
+    event === 'start' && data && typeof data === 'object'
+      ? { turn_id: 'test-turn', is_new: true, ...data }
+      : data
+  return `event: ${event}\ndata: ${JSON.stringify({ code, message: code ? '生成失败' : '成功', data: payload })}\n\n`
 }
 
 /** 将事件文本包装成测试用 SSE 响应；正文由浏览器响应流按 UTF-8 编码读取。 */
@@ -11,12 +17,20 @@ export function sseResponse(text: string): Response {
 }
 
 /** 构造完整成功轮次，回显会话标识并提供 start、delta、done 三类事件。 */
-export function success(threadId: string, reply = '后端真实格式的回复'): Response {
+export function success(
+  conversationId: string,
+  reply = '后端真实格式的回复',
+  isNew = true,
+): Response {
   const message_id = 'reply-1'
   return sseResponse(
-    eventFrame('start', { thread_id: threadId }) +
-      eventFrame('delta', { thread_id: threadId, message_id, text: reply }) +
-      eventFrame('done', { thread_id: threadId, message_id, reply }),
+    eventFrame('start', {
+      conversation_id: conversationId,
+      turn_id: `server-turn-${++turnSequence}`,
+      is_new: isNew,
+    }) +
+      eventFrame('delta', { conversation_id: conversationId, message_id, text: reply }) +
+      eventFrame('done', { conversation_id: conversationId, message_id, reply }),
   )
 }
 

@@ -1,7 +1,8 @@
 /** 消息富文本与复制回归：区分助手 Markdown 和用户纯文本，并隔离浏览器剪贴板替身。 */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
-import { defineComponent } from 'vue'
+import { defineComponent, nextTick, shallowRef } from 'vue'
+import MessageList from '@/components/chat/MessageList.vue'
 import { TooltipProvider } from 'reka-ui'
 import MessageItem from '@/components/chat/MessageItem.vue'
 import type { ChatMessage } from '@/types/chat'
@@ -27,6 +28,43 @@ afterEach(() => {
 })
 
 describe('消息展示', () => {
+  // 以 DOM 中实际消息数量模拟高度，验证前插历史维持原位置，而非跳到末尾。
+  it('前插更早消息时按高度差保持阅读位置', async () => {
+    // 测试只替换整页消息，浅层引用避免递归工具 JSON 参与 Vue 深层类型展开。
+    const messages = shallowRef<ChatMessage[]>([
+      { id: 'recent', role: 'user', blocks: [{ type: 'paragraph', text: '最近消息' }] },
+    ])
+    const Host = defineComponent({
+      components: { TooltipProvider, MessageList },
+      // 保持真实列表生命周期，使父滚动容器在 DOM 更新前后产生可测量的高度差。
+      setup: () => ({ messages }),
+      template:
+        '<TooltipProvider><section><MessageList :messages="messages" conversation-id="server-session" /></section></TooltipProvider>',
+    })
+    const wrapper = mount(Host)
+    wrappers.push(wrapper)
+    await nextTick()
+    const scroller = wrapper.get('section').element
+    // jsdom 没有排版引擎；用已渲染节点数量提供高度，避免测试绑定 Vue 更新实现。
+    Object.defineProperty(scroller, 'scrollHeight', {
+      configurable: true,
+      get: () => scroller.querySelectorAll('article').length * 200,
+    })
+    scroller.scrollTop = 80
+    messages.value = [
+      { id: 'older', role: 'user', blocks: [{ type: 'paragraph', text: '较早消息' }] },
+      ...messages.value,
+    ]
+    await flushPromises()
+    expect(scroller.scrollTop).toBe(280)
+    expect(wrapper.findAll('article').map((article) => article.text())).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('较早消息'),
+        expect.stringContaining('最近消息'),
+      ]),
+    )
+  })
+
   // 模型的原始 HTML 不作为网页执行，结构化预览代码中的标签也不创建元素。
   it('段落、列表和代码安全呈现为文本', () => {
     const wrapper = renderMessage({

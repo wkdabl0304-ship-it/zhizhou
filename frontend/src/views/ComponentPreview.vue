@@ -69,7 +69,7 @@ const richMessage: ChatMessage = {
         '| --- | --- | --- |',
         '| 整理需求 | 项目团队 | **进行中** |',
         '',
-        '使用 `thread_id` 关联对话。代码块支持独立复制：',
+        '使用服务端签发的 `conversation_id` 关联对话。代码块支持独立复制：',
         '',
         '```python',
         'def greet(name):',

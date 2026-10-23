@@ -37,9 +37,9 @@ def main(argv: Sequence[str] | None = None) -> None:
         host=args.host,
         port=args.port,
         reload=args.reload,
-        loop="app.core.event_loop:create_event_loop",
-        log_config=build_logging_config(settings),
-        access_log=settings.access_enabled,
+        loop="app.core.event_loop:create_event_loop", # 自定义事件循环
+        log_config=build_logging_config(settings), # 配置日志
+        access_log=settings.access_enabled, # 是否启用访问日志
     )
 
 

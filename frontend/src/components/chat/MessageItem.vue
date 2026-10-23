@@ -96,7 +96,7 @@ async function copy(): Promise<void> {
         {{
           message.blocks.length || message.activities?.length ? '回复未完成' : '暂时无法获取回复'
         }}
-        <p>请稍后再试，已接收的内容仍然保留。</p>
+        <p>{{ message.error || '请稍后再试，已接收的内容仍然保留。' }}</p>
       </div>
     </div>
     <div

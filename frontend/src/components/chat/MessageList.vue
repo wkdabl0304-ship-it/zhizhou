@@ -23,12 +23,28 @@ function updateFollowing(): void {
     followingEnd = scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 48
 }
 
-// 新会话和新消息始终展示末尾，独立于上一个会话的滚动位置。
+// 新会话或新消息显示末尾；向前分页则以高度差保持原阅读位置，不跳到最新消息。
 watch(
-  () => [props.conversationId, props.messages.length],
-  () => {
+  () => [props.conversationId, props.messages.length, props.messages[0]?.id] as const,
+  async (value, previous) => {
+    if (
+      previous &&
+      value[0] === previous[0] &&
+      value[1] > previous[1] &&
+      previous[2] &&
+      value[2] !== previous[2] &&
+      scroller
+    ) {
+      const target = scroller
+      const top = target.scrollTop
+      const height = target.scrollHeight
+      followingEnd = false
+      await nextTick()
+      if (props.conversationId === value[0]) target.scrollTop = top + target.scrollHeight - height
+      return
+    }
     followingEnd = true
-    scrollToEnd()
+    await scrollToEnd()
   },
   { immediate: true },
 )

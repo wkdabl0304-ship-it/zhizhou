@@ -1,234 +1,172 @@
-/** 聊天请求回归：用 fetch 替身验证接口契约、临时会话、并发隔离及失败恢复，不调用模型。 */
+/** 聊天业务回归：验证服务端签发 ID、Bearer 续聊、并发归属、退出取消及失败保留。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, setActivePinia } from 'pinia'
+import { createPinia, disposePinia, type Pinia } from 'pinia'
+import { flushPromises } from '@vue/test-utils'
 import { useChatStore } from '@/stores/chat'
+import { useAuthStore } from '@/features/auth/store'
+import { authenticate } from './helpers/auth'
 import { controlledStream, eventFrame, sseResponse, success } from './helpers/chatStream'
 
 const fetchMock = vi.fn<typeof fetch>()
-
-// 每个测试隔离 Pinia 和网络替身，不访问真实后端或共享可变状态。
-beforeEach(() => {
-  setActivePinia(createPinia())
+let pinia: Pinia
+let serverSequence: number
+const OTHER = '00000000-0000-4000-8000-000000000099'
+// 服务器替身生成 ID，前端请求不能预先携带首次 ID；认证准备不计入聊天请求数。
+beforeEach(async () => {
+  pinia = createPinia()
+  serverSequence = 0
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
-  // 默认回显实际请求标识，同时断言请求体确实是合法 JSON。
-  fetchMock.mockImplementation(async (_url, init) => {
-    const body = JSON.parse(init!.body as string) as { thread_id: string }
-    return success(body.thread_id)
+  await authenticate(pinia, fetchMock)
+  fetchMock.mockImplementation(async (_url, options) => {
+    const body = JSON.parse(options!.body as string) as { conversation_id?: string }
+    return success(
+      body.conversation_id ??
+        `00000000-0000-4000-8000-${String(++serverSequence).padStart(12, '0')}`,
+      '后端真实格式的回复',
+      !body.conversation_id,
+    )
   })
 })
+// 销毁请求和令牌定时器，测试不连接真实服务。
+afterEach(() => {
+  disposePinia(pinia)
+  vi.unstubAllGlobals()
+  sessionStorage.clear()
+})
 
-// 撤销全局替身，避免影响其他组件测试。
-afterEach(() => vi.unstubAllGlobals())
-
-describe('后端聊天状态', () => {
-  // 退出后清理本页会话；迟到的旧流只能更新已脱离列表的对象，不能重新显示到新账号。
-  it('清空临时聊天后，旧请求不能恢复会话或串写新会话', async () => {
-    let resolveReply!: (response: Response) => void
-    fetchMock.mockImplementationOnce(
-      // 暂停首个请求，模拟退出时仍在途的聊天回复。
-      () =>
-        new Promise((resolve) => {
-          resolveReply = resolve
-        }),
-    )
+describe('服务端聊天会话', () => {
+  // 空输入或仅点击新建都不创建后端空会话。
+  it('空白与新建不发送请求、不生成业务 ID', async () => {
     const chat = useChatStore()
-    const pending = chat.send('旧账号消息')
-    const oldId = chat.activeId!
-    chat.clearLocal()
-    expect(chat.conversations).toHaveLength(0)
-    expect(chat.activeId).toBeNull()
-    expect(chat.isSending).toBe(false)
-    await chat.send('新账号消息')
-    const newId = chat.activeId
-    expect(newId).not.toBe(oldId)
-    resolveReply(success(oldId, '旧账号迟到内容'))
-    await pending
-    expect(chat.activeId).toBe(newId)
-    expect(chat.conversations).toHaveLength(1)
-    expect(chat.activeConversation?.messages[1]?.blocks).not.toContainEqual({
-      type: 'paragraph',
-      text: '旧账号迟到内容',
-    })
-  })
-
-  // 空白不应创建会话，也不应请求服务。
-  it('空白发送不改变首页与会话列表', async () => {
-    const chat = useChatStore()
-    expect(await chat.send(' \n\t ')).toBe(false)
+    chat.startNew()
+    expect(await chat.send(' \n ')).toBe(false)
     expect(chat.activeId).toBeNull()
     expect(chat.conversations).toHaveLength(0)
     expect(fetchMock).not.toHaveBeenCalled()
   })
 
-  // 同一会话的多轮消息复用随机标识，展示来自后端的文本而非演示回复。
-  it('POST 消息和 thread_id，多轮对话复用标识', async () => {
+  // 只有 start 返回的 ID 可用于后续请求，令牌随每次请求发送。
+  it('首次省略 ID，收到 start 后多轮复用服务端 ID', async () => {
     const chat = useChatStore()
-    expect(await chat.send('  请帮我整理工作计划  ')).toBe(true)
+    expect(await chat.send('  工作计划  ')).toBe(true)
     const id = chat.activeId!
-    expect(id).toMatch(/^[a-f0-9-]{32,36}$/)
-    expect(fetchMock).toHaveBeenLastCalledWith('/api/chat', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-      body: JSON.stringify({ message: '请帮我整理工作计划', thread_id: id }),
-    })
-    expect(chat.activeConversation?.title).toBe('请帮我整理工作计划')
-    expect(chat.activeConversation?.messages[1]).toMatchObject({
-      status: 'complete',
-      blocks: [{ type: 'paragraph', text: '后端真实格式的回复' }],
-    })
-    expect(chat.activeConversation?.messages[1]?.demo).toBeUndefined()
-    await chat.send('继续聊聊')
-    expect(chat.activeId).toBe(id)
-    expect(chat.activeConversation?.messages).toHaveLength(4)
-    expect(JSON.parse(fetchMock.mock.calls[1]![1]!.body as string).thread_id).toBe(id)
-  })
-
-  // 新建会话和新页面分别获得随机标识；切换旧会话不改变其后端历史标识。
-  it('新建和刷新后使用新标识，已有会话仍可切回', async () => {
-    const chat = useChatStore()
-    await chat.send('旧话题')
-    const oldId = chat.activeId!
-    chat.startNew()
-    expect(chat.activeConversation).toBeUndefined()
-    await chat.send('新话题')
-    expect(chat.activeId).not.toBe(oldId)
-    chat.select(oldId)
-    chat.select('missing')
-    expect(chat.activeId).toBe(oldId)
-    await chat.send('继续旧话题')
-    expect(chat.activeConversation?.messages).toHaveLength(4)
-    setActivePinia(createPinia())
-    const fresh = useChatStore()
-    expect(fresh.conversations).toHaveLength(0)
-    await fresh.send('页面重载')
-    expect(fresh.activeId).not.toBe(oldId)
-  })
-
-  // 可控 Promise 模拟慢请求；释放后验证回复落在原会话，且等待中重复发送不会调用服务。
-  it('阻止同会话并发，并在切换后更新原会话占位', async () => {
-    let resolveReply!: (response: Response) => void
-    fetchMock.mockImplementationOnce(
-      () =>
-        new Promise((resolve) => {
-          resolveReply = resolve
-        }),
+    expect(id).toBe('00000000-0000-4000-8000-000000000001')
+    expect(JSON.parse(fetchMock.mock.calls[0]![1]!.body as string)).toEqual({ message: '工作计划' })
+    expect(new Headers(fetchMock.mock.calls[0]![1]!.headers).get('authorization')).toBe(
+      'Bearer test-access-token',
     )
-    const chat = useChatStore()
-    const pending = chat.send('慢消息')
-    const oldId = chat.activeId!
-    expect(chat.isSending).toBe(true)
-    expect(chat.activeConversation?.messages[1]?.status).toBe('pending')
-    expect(await chat.send('重复发送')).toBe(false)
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    chat.startNew()
-    await chat.send('另一个会话')
-    const newId = chat.activeId
-    chat.select(oldId)
-    expect(chat.isSending).toBe(true)
-    chat.select(newId!)
-    resolveReply(success(oldId, '迟到的回复'))
-    await pending
-    expect(chat.activeId).toBe(newId)
-    expect(chat.activeConversation?.messages[1]?.blocks).not.toContainEqual({
-      type: 'paragraph',
-      text: '迟到的回复',
+    expect(await chat.send('继续')).toBe(true)
+    expect(JSON.parse(fetchMock.mock.calls[1]![1]!.body as string)).toEqual({
+      message: '继续',
+      conversation_id: id,
     })
-    chat.select(oldId)
-    expect(chat.activeConversation?.messages[1]?.blocks).toEqual([
-      { type: 'paragraph', text: '迟到的回复' },
-    ])
-    expect(chat.isSending).toBe(false)
+    expect(chat.activeConversation?.messages).toHaveLength(4)
+    expect(chat.activeConversation?.messages[3]?.status).toBe('complete')
+    chat.startNew()
+    await chat.send('另一个话题')
+    expect(chat.activeId).not.toBe(id)
+    await chat.select(id)
+    expect(chat.activeId).toBe(id)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
-  // 覆盖 HTTP 错误、HTTP 200 业务失败、协议格式错误与断网；均保留用户消息并允许继续发送。
-  it.each([
-    'http',
-    'business',
-    'invalid-json',
-    'invalid-data',
-    'wrong-thread',
-    'network',
-    'early-eof',
-  ])('%s 失败后显示失败占位并释放发送状态', async (kind) => {
-    if (kind === 'http') fetchMock.mockResolvedValueOnce(new Response('', { status: 500 }))
-    if (kind === 'business')
-      fetchMock.mockResolvedValueOnce(sseResponse(eventFrame('error', null, 20000)))
-    if (kind === 'invalid-json')
-      fetchMock.mockResolvedValueOnce(sseResponse('event: start\ndata: not json\n\n'))
-    if (kind === 'invalid-data')
-      fetchMock.mockResolvedValueOnce(sseResponse(eventFrame('delta', { reply: 123 })))
-    if (kind === 'wrong-thread') fetchMock.mockResolvedValueOnce(success('other-thread'))
-    if (kind === 'network') fetchMock.mockRejectedValueOnce(new TypeError('Failed to fetch'))
-    if (kind === 'early-eof') fetchMock.mockResolvedValueOnce(sseResponse(''))
-    const chat = useChatStore()
-    expect(await chat.send('保留这条消息')).toBe(false)
-    expect(chat.isSending).toBe(false)
-    expect(chat.activeConversation?.messages).toHaveLength(2)
-    expect(chat.activeConversation?.messages[0]?.blocks).toEqual([
-      { type: 'paragraph', text: '保留这条消息' },
-    ])
-    expect(chat.activeConversation?.messages[1]?.status).toBe('error')
-    expect(await chat.send('再次发送')).toBe(true)
-  })
-
-  // 保持连接打开，在最终事件到来前验证可见增量；done 替换全部临时消息，不混入工具前说明。
-  it('按 message_id 累积增量，并以 done 的权威回答替换临时文本', async () => {
+  // 每会话只允许一轮，但用户可以切到另一会话；迟到的旧 start 不应抢回当前选择。
+  it('阻止同会话并发，切换后旧流只写回原会话', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
     const chat = useChatStore()
-    const pending = chat.send('查一下天气')
-    const thread_id = chat.activeId!
+    const pending = chat.send('慢任务')
+    expect(await chat.send('重复任务')).toBe(false)
+    chat.startNew()
+    await chat.send('新任务')
+    const newer = chat.activeId
     stream.push(
-      eventFrame('start', { thread_id }) +
-        eventFrame('delta', { thread_id, message_id: 'tool-preface', text: '先查询天气' }),
-    )
-    await vi.waitFor(() => expect(chat.activeConversation?.messages[1]?.status).toBe('streaming'))
-    expect(chat.isSending).toBe(true)
-    expect(await chat.send('不能并发')).toBe(false)
-    stream.push(
-      eventFrame('delta', { thread_id, message_id: 'final', text: '今天' }) +
-        eventFrame('delta', { thread_id, message_id: 'final', text: '晴天' }),
-    )
-    await vi.waitFor(() =>
-      expect(chat.activeConversation?.messages[1]?.blocks).toEqual([
-        { type: 'paragraph', text: '先查询天气' },
-        { type: 'paragraph', text: '今天晴天' },
-      ]),
-    )
-    stream.push(
-      eventFrame('done', { thread_id, message_id: 'final', reply: '最终确认：今天晴天。' }),
+      eventFrame('start', { conversation_id: OTHER }) +
+        eventFrame('delta', { conversation_id: OTHER, message_id: 'old', text: '旧进度' }) +
+        eventFrame('done', { conversation_id: OTHER, message_id: 'final', reply: '旧回答' }),
     )
     expect(await pending).toBe(true)
+    expect(chat.activeId).toBe(newer)
+    expect(chat.activeConversation?.messages[1]?.blocks).not.toContainEqual({
+      type: 'paragraph',
+      text: '旧回答',
+    })
+    await chat.select(OTHER)
     expect(chat.activeConversation?.messages[1]?.blocks).toEqual([
-      { type: 'paragraph', text: '最终确认：今天晴天。' },
+      { type: 'paragraph', text: '旧回答' },
     ])
-    expect(chat.isSending).toBe(false)
     expect(stream.isCancelled()).toBe(true)
   })
 
-  // 三种中断边界都不能把已出现的增量误判为成功；失败不抹掉可见内容，也不自动重试。
-  it.each(['error', 'eof', 'disconnect'])('部分输出后 %s 保留文本并标记失败', async (kind) => {
+  // 账号退出必须取消等待中的流，而非仅清空 DOM；之后旧响应不能恢复目录。
+  it('退出账号清空状态并取消流式读取', async () => {
+    const stream = controlledStream()
+    fetchMock.mockResolvedValueOnce(stream.response)
+    const chat = useChatStore()
+    const pending = chat.send('旧账号任务')
+    stream.push(eventFrame('start', { conversation_id: OTHER }))
+    await flushPromises()
+    const signal = fetchMock.mock.calls[0]![1]!.signal
+    useAuthStore().logout()
+    expect(await pending).toBe(false)
+    expect(signal?.aborted).toBe(true)
+    expect(stream.isCancelled()).toBe(true)
+    expect(chat.conversations).toHaveLength(0)
+    expect(chat.activeId).toBeNull()
+  })
+
+  // 无法确认完成时保留用户消息和可见正文；禁止隐式重放可能已落库的用户输入。
+  it.each(['error', 'eof', 'disconnect'])('%s 中断保留正文，不自动重试', async (kind) => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
     const chat = useChatStore()
     const pending = chat.send('请继续')
-    const thread_id = chat.activeId!
     stream.push(
-      eventFrame('start', { thread_id }) +
-        eventFrame('delta', { thread_id, message_id: 'partial', text: '未完成的回复' }),
+      eventFrame('start', { conversation_id: OTHER }) +
+        eventFrame('delta', { conversation_id: OTHER, message_id: 'partial', text: '部分内容' }),
     )
-    await vi.waitFor(() => expect(chat.activeConversation?.messages[1]?.status).toBe('streaming'))
+    await flushPromises()
+    expect(chat.activeConversation?.messages[1]?.status).toBe('streaming')
     if (kind === 'error') stream.push(eventFrame('error', null, 50000))
     if (kind === 'eof') stream.close()
     if (kind === 'disconnect') stream.fail()
     expect(await pending).toBe(false)
     expect(chat.activeConversation?.messages[1]).toMatchObject({
       status: 'error',
-      blocks: [{ type: 'paragraph', text: '未完成的回复' }],
+      blocks: [{ type: 'paragraph', text: '部分内容' }],
     })
     expect(chat.isSending).toBe(false)
     expect(fetchMock).toHaveBeenCalledTimes(1)
-    expect(await chat.send('新的消息')).toBe(true)
+  })
+
+  // 首次请求未收到 start 时只留下本地未完成展示，下一次显式发送仍不能带本地 draft 键。
+  it('首轮失败后重试仍不发送本地展示键', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('offline'))
+    const chat = useChatStore()
+    expect(await chat.send('失败任务')).toBe(false)
+    expect(chat.activeConversation?.persisted).toBe(false)
+    expect(await chat.send('明确重试')).toBe(true)
+    expect(JSON.parse(fetchMock.mock.calls[1]![1]!.body as string)).toEqual({ message: '明确重试' })
+    expect(chat.activeConversation?.persisted).toBe(true)
+  })
+
+  // done 的权威最终正文替换部分增量，进度和工具时间线由原有专用回归继续覆盖。
+  it('最终回答替换增量正文并结束等待', async () => {
+    fetchMock.mockResolvedValueOnce(
+      sseResponse(
+        eventFrame('start', { conversation_id: OTHER }) +
+          eventFrame('delta', { conversation_id: OTHER, message_id: 'a', text: '临时内容' }) +
+          eventFrame('done', { conversation_id: OTHER, message_id: 'a', reply: '最终正文' }),
+      ),
+    )
+    const chat = useChatStore()
+    expect(await chat.send('消息')).toBe(true)
+    expect(chat.activeConversation?.messages[1]).toMatchObject({
+      status: 'complete',
+      blocks: [{ type: 'paragraph', text: '最终正文' }],
+      activities: [],
+    })
+    expect(chat.isSending).toBe(false)
   })
 })

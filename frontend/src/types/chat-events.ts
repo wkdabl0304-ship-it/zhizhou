@@ -7,9 +7,9 @@ export type JsonValue =
 /** 后端声明的工具展示类型；前端不根据工具名或参数猜测是否为命令。 */
 export type ToolKind = 'tool' | 'command'
 
-/** 事件在 API 层已完成类型与 thread_id 校验；顶层 error 由异常通道交付。 */
+/** 事件在 API 层完成会话及字段校验；start 返回服务端签发的会话和轮次标识。 */
 export type ChatStreamEvent =
-  | { type: 'start'; threadId: string }
+  | { type: 'start'; conversationId: string; turnId: string; isNew: boolean }
   | { type: 'delta'; messageId: string; text: string }
   | { type: 'done'; messageId: string; reply: string }
   | {

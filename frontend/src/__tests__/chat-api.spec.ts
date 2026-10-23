@@ -2,33 +2,51 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { streamChatMessage, type ChatStreamEvent } from '@/api/chat'
 import { controlledStream, eventFrame, sseResponse } from './helpers/chatStream'
+import { createPinia, disposePinia, type Pinia } from 'pinia'
+import { authenticate } from './helpers/auth'
+let pinia: Pinia
 
 const fetchMock = vi.fn<typeof fetch>()
-const thread_id = 'test-thread'
+const conversation_id = 'test-thread'
 const message_id = 'reply-1'
 
 // 每个用例重置网络替身；Response/ReadableStream 使用真实实现以覆盖分帧过程。
-beforeEach(() => {
+beforeEach(async () => {
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
+  pinia = createPinia()
+  await authenticate(pinia, fetchMock)
 })
 // 撤销网络替身，不影响其他文件中的页面请求。
-afterEach(() => vi.unstubAllGlobals())
+afterEach(() => {
+  disposePinia(pinia)
+  vi.unstubAllGlobals()
+})
 
 /** 收集一轮聊天的全部业务事件供协议断言使用；完整消费生成器，解析失败继续向测试传播。 */
 async function collect(): Promise<ChatStreamEvent[]> {
   const events: ChatStreamEvent[] = []
-  for await (const event of streamChatMessage('测试消息', thread_id)) events.push(event)
+  for await (const event of streamChatMessage('测试消息', conversation_id)) events.push(event)
   return events
 }
 
 describe('POST SSE 解析', () => {
+  // 轮次信息和 is_new 必须与请求一致，不允许错误 start 把新输入绑定到其他业务上下文。
+  it.each([
+    { turn_id: null, is_new: false },
+    { turn_id: 'turn', is_new: true },
+    { turn_id: 'turn', is_new: 'false' },
+  ])('拒绝损坏的 start 元数据 %#', async (data) => {
+    fetchMock.mockResolvedValueOnce(sseResponse(eventFrame('start', { conversation_id, ...data })))
+    await expect(collect()).rejects.toThrow('聊天开始事件轮次无效')
+  })
+
   // 每字节拆包同时覆盖中文多字节、JSON 与 CRLF 边界，避免把网络块误认为事件。
   it.each(['\n', '\r\n', '\r'])('兼容 %j 换行、注释、多行 data 和 UTF-8 拆包', async (newline) => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
     const multiline = JSON.stringify(
-      { code: 0, data: { thread_id, message_id, text: '你好🌊\n第二行' } },
+      { code: 0, data: { conversation_id, message_id, text: '你好🌊\n第二行' } },
       null,
       2,
     )
@@ -37,9 +55,9 @@ describe('POST SSE 解析', () => {
       .join('\n')
     const wire = (
       ': 心跳\nid: ignored\nretry: 1000\n\n' +
-      eventFrame('start', { thread_id }) +
+      eventFrame('start', { conversation_id, is_new: false }) +
       `event: delta\n${multiline}\n\n` +
-      eventFrame('done', { thread_id, message_id, reply: '最终回答' })
+      eventFrame('done', { conversation_id, message_id, reply: '最终回答' })
     )
       .split('\n')
       .join(newline)
@@ -48,7 +66,7 @@ describe('POST SSE 解析', () => {
     // CR 单独作为末尾换行时，EOF 才能确认它不是下一块 CRLF 的前半段。
     stream.close()
     expect(await pending).toEqual([
-      { type: 'start', threadId: thread_id },
+      { type: 'start', conversationId: conversation_id, turnId: 'test-turn', isNew: false },
       { type: 'delta', messageId: message_id, text: '你好🌊\n第二行' },
       { type: 'done', messageId: message_id, reply: '最终回答' },
     ])
@@ -58,16 +76,21 @@ describe('POST SSE 解析', () => {
   it('首段早于 done 交付，完成后释放保持打开的连接', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
-    const events = streamChatMessage('测试', thread_id)
-    stream.push(eventFrame('start', { thread_id }))
-    expect((await events.next()).value).toEqual({ type: 'start', threadId: thread_id })
-    stream.push(eventFrame('delta', { thread_id, message_id, text: '第一段' }))
+    const events = streamChatMessage('测试', conversation_id)
+    stream.push(eventFrame('start', { conversation_id, is_new: false }))
+    expect((await events.next()).value).toEqual({
+      type: 'start',
+      conversationId: conversation_id,
+      turnId: 'test-turn',
+      isNew: false,
+    })
+    stream.push(eventFrame('delta', { conversation_id, message_id, text: '第一段' }))
     expect((await events.next()).value).toEqual({
       type: 'delta',
       messageId: message_id,
       text: '第一段',
     })
-    stream.push(eventFrame('done', { thread_id, message_id, reply: '完整回复' }))
+    stream.push(eventFrame('done', { conversation_id, message_id, reply: '完整回复' }))
     expect((await events.next()).value).toMatchObject({ type: 'done', reply: '完整回复' })
     expect((await events.next()).done).toBe(true)
     expect(stream.isCancelled()).toBe(true)
@@ -77,8 +100,8 @@ describe('POST SSE 解析', () => {
   it('提前退出消费会关闭流', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
-    stream.push(eventFrame('start', { thread_id }))
-    for await (const event of streamChatMessage('测试', thread_id)) {
+    stream.push(eventFrame('start', { conversation_id, is_new: false }))
+    for await (const event of streamChatMessage('测试', conversation_id)) {
       expect(event.type).toBe('start')
       break
     }
@@ -89,8 +112,8 @@ describe('POST SSE 解析', () => {
   it('支持没有 delta 的完整回答', async () => {
     fetchMock.mockResolvedValueOnce(
       sseResponse(
-        eventFrame('start', { thread_id }) +
-          eventFrame('done', { thread_id, message_id, reply: '仅最终文本' }),
+        eventFrame('start', { conversation_id, is_new: false }) +
+          eventFrame('done', { conversation_id, message_id, reply: '仅最终文本' }),
       ),
     )
     expect(await collect()).toHaveLength(2)
@@ -100,8 +123,8 @@ describe('POST SSE 解析', () => {
   it('拒绝旧的推理事件，不把推理解释为进度正文', async () => {
     fetchMock.mockResolvedValueOnce(
       sseResponse(
-        eventFrame('start', { thread_id }) +
-          eventFrame('reasoning_delta', { thread_id, message_id, text: '内部推理' }),
+        eventFrame('start', { conversation_id, is_new: false }) +
+          eventFrame('reasoning_delta', { conversation_id, message_id, text: '内部推理' }),
       ),
     )
     await expect(collect()).rejects.toThrow(/聊天/)
@@ -121,20 +144,20 @@ describe('POST SSE 解析', () => {
     'wrong-content-type',
     'http-error',
   ])('%s 不得作为成功响应', async (kind) => {
-    const start = eventFrame('start', { thread_id })
-    const done = eventFrame('done', { thread_id, message_id, reply: '最终回答' })
+    const start = eventFrame('start', { conversation_id, is_new: false })
+    const done = eventFrame('done', { conversation_id, message_id, reply: '最终回答' })
     let text = start
     if (kind === 'missing-start') text = done
     if (kind === 'duplicate-start') text += start
     if (kind === 'truncated-done') text += done.trimEnd()
     if (kind === 'wrong-thread')
-      text += eventFrame('delta', { thread_id: 'other', message_id, text: '串线' })
+      text += eventFrame('delta', { conversation_id: 'other', message_id, text: '串线' })
     if (kind === 'wrong-message')
-      text += eventFrame('delta', { thread_id, message_id: '', text: '无标识' })
+      text += eventFrame('delta', { conversation_id, message_id: '', text: '无标识' })
     if (kind === 'invalid-json') text += 'event: delta\ndata: {\n\n'
-    if (kind === 'unknown-event') text += eventFrame('other', { thread_id, message_id })
+    if (kind === 'unknown-event') text += eventFrame('other', { conversation_id, message_id })
     if (kind === 'business-code')
-      text += eventFrame('delta', { thread_id, message_id, text: '失败' }, 50000)
+      text += eventFrame('delta', { conversation_id, message_id, text: '失败' }, 50000)
     fetchMock.mockResolvedValueOnce(
       kind === 'wrong-content-type'
         ? new Response('{}')
@@ -142,15 +165,25 @@ describe('POST SSE 解析', () => {
           ? new Response('{}', { status: 422 })
           : sseResponse(text),
     )
-    await expect(collect()).rejects.toThrow(kind === 'invalid-json' ? /JSON/ : /聊天/)
+    await expect(collect()).rejects.toThrow(
+      kind === 'invalid-json'
+        ? /JSON/
+        : kind === 'http-error'
+          ? /服务响应/
+          : kind === 'business-code'
+            ? /生成失败/
+            : /聊天/,
+    )
   })
 
   // error 为终止事件且 data=null；客户端应立即停止读取，不必等待后端关闭连接。
   it('流内 error 后取消响应体并抛出异常', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
-    stream.push(eventFrame('start', { thread_id }) + eventFrame('error', null, 50000))
-    await expect(collect()).rejects.toThrow('聊天生成失败')
+    stream.push(
+      eventFrame('start', { conversation_id, is_new: false }) + eventFrame('error', null, 50000),
+    )
+    await expect(collect()).rejects.toThrow('生成失败')
     expect(stream.isCancelled()).toBe(true)
   })
 
@@ -159,17 +192,17 @@ describe('POST SSE 解析', () => {
     fetchMock.mockResolvedValueOnce(
       sseResponse(
         [
-          eventFrame('start', { thread_id }),
-          eventFrame('delta', { thread_id, message_id, text: '先读取工作目录。' }),
+          eventFrame('start', { conversation_id, is_new: false }),
+          eventFrame('delta', { conversation_id, message_id, text: '先读取工作目录。' }),
           eventFrame('tool_call', {
-            thread_id,
+            conversation_id,
             message_id,
             tool_call_id: 'call-1',
             name: 'runner',
             arguments: { command: 'pwd' },
           }),
           eventFrame('tool_start', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'call-1',
             run_id: 'run-1',
             name: 'runner',
@@ -177,7 +210,7 @@ describe('POST SSE 解析', () => {
             arguments: 'pwd',
           }),
           eventFrame('tool_error', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'call-1',
             run_id: 'run-1',
             name: 'runner',
@@ -185,7 +218,7 @@ describe('POST SSE 解析', () => {
             message: '执行失败，请稍后重试',
           }),
           eventFrame('tool_error', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'rejected',
             run_id: null,
             name: 'unknown',
@@ -193,19 +226,19 @@ describe('POST SSE 解析', () => {
             message: '工具不可用',
           }),
           eventFrame('tool_end', {
-            thread_id,
+            conversation_id,
             tool_call_id: 'other',
             run_id: 'run-2',
             name: 'lookup',
             kind: 'tool',
             output: { value: null, ok: false, count: 0, items: [] },
           }),
-          eventFrame('done', { thread_id, message_id, reply: '已整理现有信息。' }),
+          eventFrame('done', { conversation_id, message_id, reply: '已整理现有信息。' }),
         ].join(''),
       ),
     )
     expect(await collect()).toEqual([
-      { type: 'start', threadId: thread_id },
+      { type: 'start', conversationId: conversation_id, turnId: 'test-turn', isNew: false },
       { type: 'delta', messageId: message_id, text: '先读取工作目录。' },
       {
         type: 'tool_call',
@@ -272,12 +305,15 @@ describe('POST SSE 解析', () => {
         kind: 'tool',
         run_id: 'run',
         arguments: {},
-        thread_id: 'wrong',
+        conversation_id: 'wrong',
       },
     ],
   ])('拒绝不合法的 %s 过程事件', async (type, data) => {
     fetchMock.mockResolvedValueOnce(
-      sseResponse(eventFrame('start', { thread_id }) + eventFrame(type, { thread_id, ...data })),
+      sseResponse(
+        eventFrame('start', { conversation_id, is_new: false }) +
+          eventFrame(type, { conversation_id, ...data }),
+      ),
     )
     await expect(collect()).rejects.toThrow(/聊天/)
   })

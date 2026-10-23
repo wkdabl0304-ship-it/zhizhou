@@ -1,6 +1,7 @@
 /** 聊天 SSE 适配：通过 POST fetch 逐事件读取响应，校验会话、事件顺序及终止状态。 */
 
 import type { ChatStreamEvent, JsonValue, ToolKind } from '@/types/chat-events'
+import { authenticatedFetch, readEnvelope, ApiError } from './authenticated'
 export type { ChatStreamEvent } from '@/types/chat-events'
 
 /** 判断网络数据是否只包含协议允许的 JSON 值；递归校验对象与数组，并拒绝非有限数值。 */
@@ -29,7 +30,7 @@ function toolKind(data: Record<string, unknown>): ToolKind {
  * type 指定事件种类，data 提供已解析的字段；校验失败时抛出异常。
  * start 由调用方单独处理，工具执行事件只读取实际存在的调用和运行标识。
  */
-function decodeEvent(
+export function decodeEvent(
   type: string,
   data: Record<string, unknown>,
 ): Exclude<ChatStreamEvent, { type: 'start' }> {
@@ -107,12 +108,23 @@ interface EventFrame {
  * 兼容跨网络块的字符、CRLF、CR 和多行 data，业务字段留给调用方校验。
  * 退出迭代或解析失败时取消读取并释放锁；未以空行结束的帧不作为完整事件交付。
  */
-async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<EventFrame> {
+async function* readEvents(
+  body: ReadableStream<Uint8Array>,
+  signal?: AbortSignal,
+): AsyncGenerator<EventFrame> {
   const reader = body.getReader()
   const decoder = new TextDecoder('utf-8', { fatal: true })
   let buffer = ''
   let event = ''
   let data: string[] = []
+  /** 取消在途读取，使退出账号不必等待模型的下一段输出。 */
+  function abort(): void {
+    void reader.cancel().catch(() => {
+      /* 不覆盖原始取消原因。 */
+    })
+  }
+  signal?.addEventListener('abort', abort, { once: true })
+  if (signal?.aborted) abort()
 
   /** 解析一行 SSE 文本并组装当前帧；空行返回完整帧，其他行更新缓冲或被忽略。 */
   function consumeLine(line: string): EventFrame | undefined {
@@ -133,6 +145,7 @@ async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<Eve
     let ended = false
     while (!ended) {
       const chunk = await reader.read()
+      if (signal?.aborted) throw new DOMException('请求已取消', 'AbortError')
       ended = chunk.done
       buffer += ended ? decoder.decode() : decoder.decode(chunk.value, { stream: true })
       while (true) {
@@ -147,6 +160,7 @@ async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<Eve
       }
     }
   } finally {
+    signal?.removeEventListener('abort', abort)
     // 即使已收到终止事件，服务端也可能尚未关闭连接；主动取消，避免保留在途读取。
     try {
       await reader.cancel()
@@ -159,21 +173,29 @@ async function* readEvents(body: ReadableStream<Uint8Array>): AsyncGenerator<Eve
 
 /**
  * 向后端发送一轮聊天，并向 store 逐个提供可用于更新界面的业务事件。
- * message 为正文，threadId 为当前前端协议的会话标识；依次 yield 已校验事件，
+ * message 为正文，conversationId 可省略以新建会话；start 确认服务端签发的 ID。
  * 收到 done 后结束，不等待网络连接关闭。
  * HTTP/流内错误、格式错误、会话不匹配或缺少终止事件均抛出异常；不自动重试请求。
  * 同源 /api 路径开发时由 Vite 代理，部署时由反向代理转发且需关闭流缓冲。
  */
 export async function* streamChatMessage(
   message: string,
-  threadId: string,
+  conversationId?: string,
+  signal?: AbortSignal,
 ): AsyncGenerator<ChatStreamEvent> {
-  const response = await fetch('/api/chat', {
+  const response = await authenticatedFetch('/api/chat', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
-    body: JSON.stringify({ message, thread_id: threadId }),
+    body: JSON.stringify({
+      message,
+      ...(conversationId ? { conversation_id: conversationId } : {}),
+    }),
+    ...(signal ? { signal } : {}),
   })
-  if (!response.ok) throw new Error('聊天请求失败')
+  if (!response.ok) {
+    await readEnvelope(response)
+    throw new ApiError('聊天请求失败', response.status)
+  }
   if (
     response.headers.get('content-type')?.split(';')[0]?.trim() !== 'text/event-stream' ||
     !response.body
@@ -183,28 +205,50 @@ export async function* streamChatMessage(
   }
 
   let started = false
-  for await (const frame of readEvents(response.body)) {
+  let confirmedId = conversationId
+  for await (const frame of readEvents(response.body, signal)) {
     const payload: unknown = JSON.parse(frame.data)
     if (!payload || typeof payload !== 'object' || !('code' in payload))
       throw new Error('聊天事件格式无效')
-    if (frame.event === 'error' || payload.code !== 0) throw new Error('聊天生成失败')
+    if (frame.event === 'error' || payload.code !== 0)
+      throw new ApiError(
+        'message' in payload && typeof payload.message === 'string'
+          ? payload.message
+          : '聊天生成失败',
+        200,
+        typeof payload.code === 'number' ? payload.code : undefined,
+      )
     const data = 'data' in payload ? payload.data : null
     if (
       !data ||
       typeof data !== 'object' ||
       Array.isArray(data) ||
-      !('thread_id' in data) ||
-      data.thread_id !== threadId
+      !('conversation_id' in data) ||
+      typeof data.conversation_id !== 'string' ||
+      !data.conversation_id.trim()
     )
       throw new Error('聊天事件会话标识无效')
 
     if (frame.event === 'start') {
       if (started) throw new Error('聊天开始事件重复')
+      if (confirmedId && data.conversation_id !== confirmedId)
+        throw new Error('聊天事件会话标识无效')
+      if (
+        !('turn_id' in data) ||
+        typeof data.turn_id !== 'string' ||
+        !data.turn_id.trim() ||
+        !('is_new' in data) ||
+        typeof data.is_new !== 'boolean' ||
+        data.is_new !== !conversationId
+      )
+        throw new Error('聊天开始事件轮次无效')
+      confirmedId = data.conversation_id
       started = true
-      yield { type: 'start', threadId }
+      yield { type: 'start', conversationId: confirmedId, turnId: data.turn_id, isNew: data.is_new }
       continue
     }
     if (!started) throw new Error('缺少聊天开始事件')
+    if (data.conversation_id !== confirmedId) throw new Error('聊天事件会话标识无效')
     const event = decodeEvent(frame.event, data)
     yield event
     if (event.type === 'done') return
