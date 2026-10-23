@@ -1,20 +1,45 @@
-/**
- * Vitest 单元测试配置：复用 Vite 的插件和别名，再设置模拟浏览器环境。
- * 测试根目录固定为前端目录，排除默认产物和独立端到端测试目录。
- */
+/** Vitest 总配置：模块测试就近维护，应用集成测试集中收集，两者默认一并执行。 */
 import { fileURLToPath } from 'node:url'
-import { mergeConfig, defineConfig, configDefaults } from 'vitest/config'
+import { mergeConfig, defineConfig } from 'vitest/config'
 import viteConfig from './vite.config.ts'
 
 export default mergeConfig(
-  // 合并配置确保 .vue 测试采用与真实应用一致的组件编译规则。
   viteConfig,
   defineConfig({
+    resolve: { alias: { '@tests': fileURLToPath(new URL('./tests', import.meta.url)) } },
     test: {
-      environment: 'jsdom',
-      // 追加排除项时保留 Vitest 默认规则，避免把依赖或构建文件当作测试。
-      exclude: [...configDefaults.exclude, 'e2e/**'],
       root: fileURLToPath(new URL('./', import.meta.url)),
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'html', 'json', 'json-summary'],
+        include: ['src/**/*.{ts,vue}'],
+        exclude: [
+          'src/**/__tests__/**',
+          'src/**/*.d.ts',
+          'src/dev/**',
+          'src/views/ComponentPreview.vue',
+        ],
+      },
+      projects: [
+        {
+          extends: true,
+          test: {
+            name: 'modules',
+            environment: 'jsdom',
+            include: ['src/**/__tests__/**/*.spec.ts', 'tests/support/__tests__/**/*.spec.ts'],
+            setupFiles: ['tests/support/vitest/setup.ts'],
+          },
+        },
+        {
+          extends: true,
+          test: {
+            name: 'integration',
+            environment: 'jsdom',
+            include: ['tests/integration/**/*.spec.ts'],
+            setupFiles: ['tests/support/vitest/setup.ts'],
+          },
+        },
+      ],
     },
   }),
 )

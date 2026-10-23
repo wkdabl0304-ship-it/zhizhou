@@ -1,9 +1,9 @@
 <!-- 认证页面外壳：在全幅动态山海上居中组合品牌与表单，复用主题及可清理的动效生命周期。 -->
 <script setup lang="ts">
-import BrandLogo from '@/components/BrandLogo.vue'
-import ThemeMenu from '@/components/ThemeMenu.vue'
-import RiverBackdrop from '@/components/chat/RiverBackdrop.vue'
-import { useMotionPreference } from '@/composables/useMotionPreference'
+import BrandLogo from '@/shared/components/BrandLogo.vue'
+import ThemeMenu from '@/shared/components/ThemeMenu.vue'
+import RiverBackdrop from '@/features/chat/components/RiverBackdrop.vue'
+import { useMotionPreference } from '@/shared/composables/useMotionPreference'
 
 const { enabled, visible } = useMotionPreference()
 </script>

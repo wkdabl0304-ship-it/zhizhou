@@ -2,7 +2,7 @@
 {
   "extends": "@vue/tsconfig/tsconfig.dom.json",
   "include": ["env.d.ts", "src/**/*", "src/**/*.vue"],
-  "exclude": ["src/**/__tests__/*"],
+  "exclude": ["src/**/__tests__/**"],
   "compilerOptions": {
     // 索引访问结果可能不存在，使用前需要在 TypeScript 中处理 undefined。
     // Extra safety for array and object lookups, but may have false positives.

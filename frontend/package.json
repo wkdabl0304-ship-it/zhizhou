@@ -13,7 +13,16 @@
     "lint": "run-s \"lint:*\"",
     "lint:oxlint": "oxlint . --fix",
     "lint:eslint": "eslint . --fix --cache",
-    "format": "prettier --write --experimental-cli src/"
+    "format": "prettier --write --experimental-cli src/",
+    "test:modules": "vitest run --project modules",
+    "test:integration": "vitest run --project integration",
+    "test:coverage": "vitest run --coverage",
+    "test:e2e": "uv run --directory ../backend python -m tests.support.e2e",
+    "test:all": "run-s test:coverage test:e2e",
+    "check:oxlint": "oxlint .",
+    "check:eslint": "eslint .",
+    "check:lint": "run-s check:oxlint check:eslint",
+    "verify": "run-s type-check check:lint test:all"
   },
   "dependencies": {
     "@lucide/vue": "^1.57.0",
@@ -25,10 +34,12 @@
     "vue-router": "^5.3.1"
   },
   "devDependencies": {
+    "@playwright/test": "1.64.1",
     "@tsconfig/node24": "^24.0.5",
     "@types/jsdom": "^30.0.0",
     "@types/node": "^24.13.4",
     "@vitejs/plugin-vue": "^6.0.8",
+    "@vitest/coverage-v8": "4.1.11",
     "@vitest/eslint-plugin": "^1.6.27",
     "@vue/eslint-config-typescript": "^14.9.0",
     "@vue/test-utils": "^2.5.0",

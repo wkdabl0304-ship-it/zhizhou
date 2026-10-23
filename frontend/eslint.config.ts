@@ -29,7 +29,12 @@ export default defineConfigWithVueTs(
   {
     ...pluginVitest.configs.recommended,
     // 测试专属规则只作用于测试文件，避免影响生产源码。
-    files: ['src/**/__tests__/*'],
+    files: [
+      'src/**/__tests__/**/*.ts',
+      'tests/integration/**/*.ts',
+      'tests/support/vitest/**/*.ts',
+      'tests/support/__tests__/**/*.ts',
+    ],
   },
 
   // 关闭已经由 Oxlint 负责的重复检查，配合 lint 脚本的执行顺序使用。

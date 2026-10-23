@@ -1,8 +1,16 @@
 /** 认证生命周期测试：隔离标签页存储与时钟，验证刷新恢复、到期、重试及迟到响应。 */
+import { createTestPinia as createPinia } from '@tests/support/vitest/mount'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createPinia, disposePinia, setActivePinia, type Pinia } from 'pinia'
-import { AUTH_STORAGE_KEY, useAuthStore } from '../store'
-import { CREDENTIALS, LOGIN, USER, deferredResponse, response } from './helpers'
+import { disposePinia, setActivePinia, type Pinia } from 'pinia'
+import { AUTH_STORAGE_KEY, useAuthStore } from '@/features/auth/store'
+import { createAuthData } from '@tests/support/data/auth'
+import { deferredResponse, response } from '@tests/support/vitest/http'
+
+let { CREDENTIALS, LOGIN, USER } = createAuthData()
+// 每例重建契约对象，避免响应修改影响其他测试。
+beforeEach(() => {
+  ;({ CREDENTIALS, LOGIN, USER } = createAuthData())
+})
 
 let pinia: Pinia
 const fetchMock = vi.fn<typeof fetch>()

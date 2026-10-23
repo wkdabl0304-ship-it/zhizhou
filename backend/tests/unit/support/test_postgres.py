@@ -88,24 +88,40 @@ async def test_name_prefix_alone_never_authorizes_cleanup(driver, base, foreign)
 async def test_lifecycle_cleans_after_migration_or_test_failure(driver, base, monkeypatch, failure):
     """验证迁移失败和用例失败均回收已创建库，失败不会被转换为跳过。"""
     migrated = []
+    announced = []
 
     def migrate(settings):
         """记录迁移目标并可模拟正式迁移失败，在线程中执行但不启动子进程。"""
         migrated.append(settings.postgres_db)
+        assert announced == [settings.postgres_db]
         if failure == "migration":
             raise RuntimeError("migration failed")
 
     monkeypatch.setattr(postgres, "migrate_database", migrate)
     if failure:
         with pytest.raises(RuntimeError, match=f"{failure} failed"):
-            async with postgres.temporary_database(base):
+            async with postgres.temporary_database(base, on_created=announced.append):
                 raise RuntimeError("body failed")
     else:
-        async with postgres.temporary_database(base) as settings:
+        async with postgres.temporary_database(base, on_created=announced.append) as settings:
             assert settings.postgres_db == migrated[0]
     assert driver.statements[0].startswith("CREATE DATABASE")
     assert driver.statements[-1].startswith("DROP DATABASE")
     assert len(driver.statements) == 2
+
+
+@pytest.mark.anyio
+async def test_created_notification_failure_still_drops_owned_database(driver, base):
+    """日志通知失败也回收已创建的库，避免迁移之前发生的异常泄漏资源。"""
+    def broken_notice(name):
+        """模拟调用方输出失效，不读取数据库凭据或执行后续迁移。"""
+        raise RuntimeError("notice failed")
+
+    with pytest.raises(RuntimeError, match="notice failed"):
+        async with postgres.temporary_database(base, on_created=broken_notice):
+            pytest.fail("通知失败后不应进入用例")
+    assert len(driver.statements) == 2
+    assert driver.statements[-1].startswith("DROP DATABASE")
 
 
 def test_migration_overrides_every_database_setting(base, monkeypatch):

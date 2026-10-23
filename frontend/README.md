@@ -65,47 +65,102 @@ Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会�
 
 - `src/styles/tokens.css` 是设计变量的维护位置，统一颜色、字体、间距、圆角、阴影和层级。默认浅色；深色由根元素的 `data-theme="dark"` 启用。`zhizhou-theme` 是唯一写入 localStorage 的偏好，不保存聊天正文。
 - `src/styles/base.css` 定义基础样式及共享 UI 外观。消息、侧栏、输入区等业务组件使用各自局部样式；业务组件引用语义变量，避免散落明暗配色。
-- `src/components/ui/` 提供按钮、图标按钮、自适应文本框，以及基于 Reka 的 Tooltip、DropdownMenu 和 Dialog 抽屉。使用方通过 props、事件和插槽组合；触发器使用 `asChild` 复用原生按钮，避免嵌套交互元素。
+- `src/shared/components/ui/` 提供按钮、图标按钮、自适应文本框，以及基于 Reka 的 Tooltip、DropdownMenu 和 Dialog 抽屉。使用方通过 props、事件和插槽组合；触发器使用 `asChild` 复用原生按钮，避免嵌套交互元素。
 - 菜单、提示和抽屉内容通过 Portal 挂载，主题变量因此定义在文档根元素；共享弹层类不依赖页面祖先选择器。Reka 管理键盘、焦点及模态行为，包装组件负责外观和必要事件转发。
 - 图标从 `@lucide/vue` 按需导入。图标按钮必须有可访问名称；抽屉必须提供标题和描述。动画遵循 `prefers-reduced-motion`。
 
 ## 构建与检查
 
+在 `frontend/` 执行；`pnpm lint` 和 `pnpm format` 会修改文件，验证使用只读的 `pnpm check:lint`。
+
 | 命令 | 用途 |
 | --- | --- |
-| `pnpm build` | 执行类型检查并构建，产物输出到 `dist/` |
-| `pnpm preview` | 在构建后本地预览产物 |
-| `pnpm type-check` | 单独执行 Vue 与 TypeScript 类型检查 |
-| `pnpm test:unit` | 使用 Vitest 运行单元测试，默认进入监听模式 |
-| `pnpm test:unit --run` | 执行一次单元测试并退出 |
-| `pnpm lint` | 依次运行 Oxlint 和 ESLint，脚本会自动修复文件 |
-| `pnpm format` | 使用 Prettier 格式化 `src/`，会修改文件 |
+| `pnpm build` | 类型检查并构建到 `dist/` |
+| `pnpm preview` | 本地预览已有产物，不提供业务 API 代理 |
+| `pnpm type-check` | 检查生产源码、全部 Vitest 测试及 Playwright 用例和支撑 |
+| `pnpm check:lint` | 只读执行 Oxlint 和 ESLint |
+| `pnpm test:unit` | 兼容入口，监听模块和应用集成测试 |
+| `pnpm test:unit --run` | 一次执行全部 Vitest 测试 |
+| `pnpm test:modules` | 模块及公共测试工具测试 |
+| `pnpm test:integration` | App、路由与跨业务集成测试 |
+| `pnpm test:coverage` | 全部 Vitest 测试，生成文本、HTML 和 JSON 覆盖率报告 |
+| `pnpm test:e2e` | 构建前端、启动隔离后端与预览服务，运行全部 Playwright 测试 |
+| `pnpm test:all` | Vitest 覆盖率测试和全部 E2E |
+| `pnpm verify` | 类型检查、只读代码检查、覆盖率测试和全部 E2E |
+| `pnpm lint` | 自动修复 Oxlint 和 ESLint 问题 |
+| `pnpm format` | 使用 Prettier 格式化 `src/` |
 
-单元测试使用 jsdom 环境、fetch 替身和真实 ReadableStream，覆盖 SSE 拆包、UTF-8、多行 data、事件顺序及终止校验、过程事件字段校验、正文与工具的交错顺序、整轮完成自动折叠和重新展开、最终正文按标识分离、工具交错执行和多次执行、局部失败与执行前拒绝、过程安全展示、终止后未确认状态、读取清理、正文增量、最终回答替换、会话隔离和防重复发送，以及主题恢复、输入法规则、Markdown 排版、复制及焦点恢复。不连接真实后端、模型、命令执行器或系统剪贴板。`pnpm preview` 用于本地验证生产构建，开发组件预览页在此模式下不可用。
+### 测试分层与公共支撑
 
-认证测试集中在 `src/features/auth/__tests__/`，覆盖真实路由与根组件下的注册、登录、退出、受保护入口、字段校验、请求取消、接口错误、令牌到期、刷新校验和重试、存储降级，以及账号退出后的本地聊天清理。单独执行：`pnpm test:unit --run src/features/auth/__tests__`。测试使用后端实际 JSON 契约的 fetch 替身，未替代真实数据库和部署环境的联调验收。
+业务测试跟随模块，跨业务流程集中维护，浏览器流程独立运行：
 
-会话测试位于 `src/features/conversations/__tests__/`，覆盖服务端目录和游标、历史还原、页重叠去重、运行中快照、删除确认与冲突、坏响应、迟到目录与跨账号 401；`src/__tests__/chat*.spec.ts` 验证首轮签发 ID、Bearer 续聊、SSE 顺序和退出取消，`messages.spec.ts` 验证前插历史的阅读位置。完整执行 `pnpm test:unit --run`，或单独执行 `pnpm test:unit --run src/features/conversations/__tests__`。
+```text
+src/features/auth/__tests__/       # 认证接口、状态、校验和组件
+src/features/chat/__tests__/       # 聊天事件、历史、api/、store/、components/
+src/shared/__tests__/             # 公共组件、composables/、stores/、utils/
+tests/integration/                # 真实 App、路由、身份与聊天状态协作
+tests/e2e/                        # 真实浏览器和隔离后端的用户流程
+tests/support/
+  data/                          # 不依赖运行器的独立业务数据工厂
+  vitest/                        # 组件与 Pinia 收尾、HTTP、SSE、浏览器替身
+  playwright/                    # 独立账号、模型门控 fixture 与测试预览代理
+  __tests__/                     # 公共测试工具自身的回归
+```
 
-浏览器验收建议检查 1440px、1024px、390px 下的明暗主题、长文本与代码块；验证 Tab/方向键导航、Esc 关闭、焦点恢复、窄屏抽屉背景滚动约束，以及打开抽屉后切回桌面能释放模态状态。代码检查若不希望自动修复，可分别运行 `pnpm exec oxlint .` 与 `pnpm exec eslint .`。
+Vitest 保持 4.1.11，配置 `modules` 和 `integration` 两个项目，默认执行两者。模块内允许按实际职责增加嵌套目录，不为规划中的业务预建空目录。只挂载聊天页面的测试放聊天模块；使用真实 App 和路由验证登录、退出与聊天清理的测试放 `tests/integration/`。测试文件按被测能力命名，辅助代码不得导入其他测试文件，生产源码不得依赖测试目录。
+
+Vitest 使用 jsdom、契约一致的 fetch 替身及真实 ReadableStream，覆盖认证请求头合并、取消和迟到 401，聊天事件校验、分页与历史、工具交错和多次执行、跨账号隔离、资源释放、主题、输入法、Markdown 与包装组件事件。通过可控 Promise、流和事件推进异步场景。数据工厂每次返回独立对象；使用 `createTestPinia` 登记容器，公共 setup 先卸载组件并销毁状态，再恢复存储、DOM、时钟、spy 和全局替身。媒体查询和 ResizeObserver 等由需要的用例显式安装。
+
+覆盖率通过同版本 `@vitest/coverage-v8` 收集 `src/` 下的生产 TypeScript 和 Vue，包含未被测试导入的文件，排除测试、类型声明和仅开发使用的预览。报告位于 `coverage/`，暂不设置百分比门槛；报告用于发现行为缺口，不以重复断言增加数量。
+
+专项示例：
+
+```powershell
+pnpm test:unit --run src/features/chat/__tests__/store
+pnpm test:integration
+```
+
+### 真实后端 E2E
+
+首次安装依赖后安装 Chromium：
+
+```powershell
+pnpm exec playwright install chromium
+pnpm test:e2e
+# 额外参数传给 Playwright，可选择文件与项目。
+pnpm test:e2e -- tests/e2e/chat.spec.ts --project chromium-desktop
+```
+
+E2E 还需要后端 uv/Python 依赖，以及可连接且有 CREATE DATABASE 权限的 PostgreSQL，配置方式见[后端测试](../backend/README.md#测试)。不需要启动开发服务或配置真实模型密钥。缺少数据库、依赖或浏览器直接失败，不跳过必要测试。
+
+启动器 `backend/tests/support/e2e.py` 先构建生产产物，每次运行创建随机临时数据库并执行正式迁移。正式后端路由、异常处理、lifespan、业务服务、Agent 图和 PostgreSQL checkpoint 均参与验证，仅在测试装配入口替换配置与本地模型。每例使用独立账号、浏览器上下文和模型门控；浏览器不模拟认证、会话或聊天接口，不访问真实付费模型，不修改开发库业务数据。模型等待和失败由仅存在于测试后端的授权控制通道推进，不依靠固定延时。
+
+默认运行 `chromium-desktop`（1440×900）与 `chromium-narrow`（390×844），验证注册登录、受保护入口、刷新和退出、首轮与续聊、持久化历史、工具过程、流中失败、生成期间切换与取消、账号隔离、删除确认、抽屉焦点与 Esc、切回桌面释放模态状态、主题记忆及生产包不开放开发入口。定位使用角色和可访问名称，断言自动等待；失败时保留 `test-results/` 下的截图与 trace，HTML 报告位于 `playwright-report/`，不维护像素截图基线。
+
+终端会显示 Playwright 的逐项结果与汇总，例如 `18 passed`；失败时显示用例及错误详情。`pnpm test:e2e`、`pnpm test:all` 和 `pnpm verify` 均透传这些输出，命令以非零退出码表示失败。可执行 `pnpm exec playwright show-report` 打开最近一次 HTML 报告。
+
+正常结束、测试失败、迁移或启动失败均按依赖顺序关闭浏览器和服务、连接，再删除本次创建的精确目标库。启动日志会显示临时库名称；强制终止进程可能留下该库，应依据本次日志确认后处理，后续测试不会扫描或删除其他临时库。启动器失败与资源清理另有后端自动化测试。
+
+提交前运行改动相关测试，涉及导航、认证或聊天主流程时同时运行对应集成和 E2E；推送前运行 `pnpm verify`，并在后端执行 `uv run pytest -q`。仓库不自动接入 CI 或 Git hook。Firefox、WebKit、真实供应商模型以及字体和动画视觉效果仍需专项验收。
 
 ## 目录职责
 
 - `src/main.ts`、`src/App.vue`：应用装配、公共样式、主题初始化、TooltipProvider 与身份失效后的路由回退。
 - `src/router/`、`src/views/`：认证守卫、登录注册操作编排、聊天页面、开发预览与未知路径页面。
-- `src/features/auth/`：认证专属外壳、表单、校验规则、HTTP 适配与 store；`__tests__/` 与模块相邻维护，认证身份数据放在其 `helpers.ts`。
-- `src/features/conversations/`：会话 JSON 接口及字段校验、历史到公开消息的转换；配套接口、状态与页面测试放在相邻 `__tests__/`，独立于认证页面。
-- `src/styles/`、`src/components/ui/`：设计变量、基础样式与通用交互组件。
-- `src/components/chat/`：侧栏、会话条目、消息与输入区等聊天组件。
-- `src/stores/`：会话缓存、分页状态、请求生命周期与流式消息协调，以及主题偏好。
-- `src/api/`：认证业务请求公共适配、聊天 SSE 增量解码与公开事件校验；会话历史复用同一事件解码规则。
-- `src/utils/markdown.ts`：Markdown 安全选项、代码高亮与受控 HTML 渲染；`MarkdownContent.vue` 负责展示样式和代码复制。
-- `src/types/chat-events.ts`：校验后的事件类型；`src/utils/chatActivity.ts`：正文和工具执行的时间线归并及最终消息分离；`AgentActivity.vue`：实时过程、完成后整体折叠及可展开的工具详情。聊天 store 保存原会话引用消费事件，并单独维护最终正文。
-- `src/types/`、`src/data/`：聊天展示数据契约、首页建议与开发预览可用的演示数据。
-- `src/composables/`：媒体查询等可清理的浏览器响应式逻辑。
-- `src/__tests__/`：跨组件及实时聊天回归；`helpers/http.ts` 维护通用响应和可控请求，`helpers/auth.ts` 建立测试身份，`helpers/chatStream.ts` 维护 SSE 替身，业务数据保留在各模块。
+- `src/features/auth/`：认证专属外壳、表单、校验规则、HTTP 适配与 store；`authenticated.ts` 为业务请求添加 Bearer，并通知认证 store 处理当前令牌失效；认证模块不依赖聊天模块。
+- `src/features/chat/`：聊天与会话的完整业务模块。`components/` 维护侧栏、会话条目、消息、首页与输入区；`store.ts` 协调目录、分页历史、删除和流式续聊；`types.ts` 与 `chat-events.ts` 定义展示数据及公开事件契约。
+- `src/features/chat/api/`：`stream.ts` 处理聊天 SSE 传输、会话及事件顺序校验，`conversations.ts` 处理会话 JSON 接口和游标，二者共同使用 `events.ts` 校验公开正文与工具事件字段，历史读取不依赖 SSE 传输实现。
+- `src/features/chat/history.ts`、`activity.ts`：分别将持久化轮次转换为展示消息，以及归并实时或历史正文、工具执行与最终回答。聊天 store 保存原会话引用消费事件，并单独维护最终正文。
+- `src/features/chat/suggestions.ts`：正式首页的建议输入，不创建演示会话，也不自动发送请求。
+- `src/shared/components/`：舟形 Logo、主题菜单和通用 Markdown 展示；`ui/` 提供按钮、输入框、提示、菜单与抽屉等通用交互组件。
+- `src/shared/composables/`、`src/shared/stores/theme.ts`：可清理的媒体查询、动效偏好和应用主题状态。
+- `src/shared/utils/markdown.ts`：Markdown 安全选项、代码高亮与受控 HTML 渲染；共享 `MarkdownContent.vue` 负责展示样式和代码复制。
+- `src/styles/`、`src/assets/`：设计变量、基础样式和构建处理的品牌素材；`src/dev/demo.ts` 保留开发演示会话数据，与正式首页建议分开维护。
+- `src/**/__tests__/`、`tests/`：分别维护模块测试和集中集成、E2E、公共支撑，归属及运行方式见[测试分层与公共支撑](#测试分层与公共支撑)。
 - `public/`：站点图标等无需构建转换的静态资源。
 - `vite.config.ts`：构建与开发服务器配置，`@` 别名指向 `src/`。
-- `vitest.config.ts`：单元测试配置。
+- `vitest.config.ts`、`playwright.config.ts`：分别配置模块与集成测试、真实浏览器测试。
+
+页面通过业务模块组织操作，业务模块依赖 `shared` 的公共能力；`shared` 不反向引用业务模块或路由页面。聊天通过认证模块发起带身份的请求，账号变化由聊天 store 监听并取消请求、清空缓存。新增业务代码放入对应 feature，通用能力确认不包含业务规则后再进入 `shared`，避免重新在顶层分散维护业务组件、接口、类型和状态。
 
 提交依赖清单和 `pnpm-lock.yaml`；`node_modules/`、`dist/`、覆盖率输出和本地缓存按[根目录 `.gitignore`](../.gitignore) 的前端规则排除。

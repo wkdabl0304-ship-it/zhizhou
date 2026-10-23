@@ -2,17 +2,17 @@
 <script setup lang="ts">
 import { nextTick, onMounted, ref, watch } from 'vue'
 import { PanelLeft, SquarePen } from '@lucide/vue'
-import { useChatStore } from '@/stores/chat'
-import { useMediaQuery } from '@/composables/useMediaQuery'
-import { useMotionPreference } from '@/composables/useMotionPreference'
-import ChatSidebar from '@/components/chat/ChatSidebar.vue'
-import ChatWelcome from '@/components/chat/ChatWelcome.vue'
-import RiverBackdrop from '@/components/chat/RiverBackdrop.vue'
-import ChatComposer from '@/components/chat/ChatComposer.vue'
-import MessageList from '@/components/chat/MessageList.vue'
-import UiDrawer from '@/components/ui/UiDrawer.vue'
-import UiIconButton from '@/components/ui/UiIconButton.vue'
-import UiTooltip from '@/components/ui/UiTooltip.vue'
+import { useChatStore } from '@/features/chat/store'
+import { useMediaQuery } from '@/shared/composables/useMediaQuery'
+import { useMotionPreference } from '@/shared/composables/useMotionPreference'
+import ChatSidebar from '@/features/chat/components/ChatSidebar.vue'
+import ChatWelcome from '@/features/chat/components/ChatWelcome.vue'
+import RiverBackdrop from '@/features/chat/components/RiverBackdrop.vue'
+import ChatComposer from '@/features/chat/components/ChatComposer.vue'
+import MessageList from '@/features/chat/components/MessageList.vue'
+import UiDrawer from '@/shared/components/ui/UiDrawer.vue'
+import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
+import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
 const chat = useChatStore()
 const narrow = useMediaQuery('(max-width: 760px)')
 const { enabled, visible } = useMotionPreference()

@@ -3,7 +3,7 @@
 import { TooltipProvider } from 'reka-ui'
 import { watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { useThemeStore } from '@/stores/theme'
+import { useThemeStore } from '@/shared/stores/theme'
 import { useAuthStore } from '@/features/auth/store'
 
 useThemeStore().initialize()

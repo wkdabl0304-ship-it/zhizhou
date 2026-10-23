@@ -1,7 +1,14 @@
 /** 认证接口契约测试：验证请求字段、Bearer 身份与统一响应校验，不访问真实服务。 */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { AuthApiError, currentUser, login, register } from '../api'
-import { CREDENTIALS, LOGIN, USER, response } from './helpers'
+import { AuthApiError, currentUser, login, register } from '@/features/auth/api'
+import { createAuthData } from '@tests/support/data/auth'
+import { response } from '@tests/support/vitest/http'
+
+let { CREDENTIALS, LOGIN, USER } = createAuthData()
+// 每例重建契约对象，避免响应修改影响其他测试。
+beforeEach(() => {
+  ;({ CREDENTIALS, LOGIN, USER } = createAuthData())
+})
 
 const fetchMock = vi.fn<typeof fetch>()
 // 每个用例使用独立的网络替身，禁止意外请求真实认证服务。

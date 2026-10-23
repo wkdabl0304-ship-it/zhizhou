@@ -69,5 +69,9 @@ Desktop.ini
 # Vitest
 /frontend/**/__screenshots__/
 
+# Playwright：报告、失败截图与 trace 等运行产物
+/frontend/playwright-report/
+/frontend/test-results/
+
 # Vite
 /frontend/**/*.timestamp-*-*.mjs

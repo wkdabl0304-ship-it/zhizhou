@@ -1,7 +1,7 @@
 """PostgreSQL 测试支撑：隔离库生命周期、正式后端资源及常用请求操作。"""
 
 import re
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
 from uuid import uuid4
@@ -93,15 +93,20 @@ class TemporaryDatabase:
 
 
 @asynccontextmanager
-async def temporary_database(base: DatabaseSettings) -> AsyncIterator[Settings]:
+async def temporary_database(
+    base: DatabaseSettings, *, on_created: Callable[[str], None] | None = None,
+) -> AsyncIterator[Settings]:
     """提供已迁移的独立临时库，建库后的初始化或用例失败均执行回收。
 
     调用方必须在退出前关闭业务资源。迁移放入工作线程执行同步子进程，
     避免 Windows Selector 循环不支持异步子进程；清理不受调用方取消影响。
+    on_created 在建库成功后、迁移前通知调用方目标库名，供启动器记录强制终止时的排查依据。
     """
     database = TemporaryDatabase(base)
     try:
         settings = await database.create()
+        if on_created is not None:
+            on_created(settings.postgres_db)
         await anyio.to_thread.run_sync(migrate_database, settings)
         yield settings
     finally:
