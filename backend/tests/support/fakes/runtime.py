@@ -28,7 +28,7 @@ def make_runtime(monkeypatch) -> FakeRuntime:
     """提供独立应用执行正式生命周期，替身修改由 monkeypatch 自动撤销。"""
     main = importlib.import_module("app.main")
     graph, events = GraphStub(), []
-    settings, model, saver = object(), object(), object()
+    settings, saver = Mock(model_config_encryption_key="test-only"), object()
 
     @asynccontextmanager
     async def business_database(actual):
@@ -44,11 +44,6 @@ def make_runtime(monkeypatch) -> FakeRuntime:
         """返回本例配置占位对象，以核对初始化各阶段使用同一配置。"""
         return settings
 
-    def create_model(actual):
-        """检查传入配置后提供无网络模型占位对象。"""
-        assert actual is settings
-        return model
-
     @asynccontextmanager
     async def open_checkpointer(actual):
         """提供保存器占位对象并记录进入与退出，验证失败时仍释放资源。"""
@@ -59,12 +54,13 @@ def make_runtime(monkeypatch) -> FakeRuntime:
         finally:
             events.append("close")
 
-    def build_agent(actual_model, tools, actual_saver):
-        """检查图装配的模型、工具和保存器归属，再返回本例图替身。"""
-        assert actual_model is model and actual_saver is saver
+    def configured_agent(actual_saver, tools):
+        """检查运行装配依赖后返回图执行器，协议与数据库在独立用例验证。"""
+        from app.agents.agent import ChatAgent
+        assert actual_saver is saver
         assert [tool.name for tool in tools] == ["get_weather"]
         events.append("build")
-        return graph
+        return ChatAgent(graph)
 
     # 只替换本例使用的入口函数，不替换全局 logging.dictConfig。
     monkeypatch.setattr(main, "load_logging_settings", LoggingSettings)
@@ -73,9 +69,9 @@ def make_runtime(monkeypatch) -> FakeRuntime:
     monkeypatch.setattr(main, "AuthService", Mock(return_value=Mock(initialize=AsyncMock())))
     monkeypatch.setattr(main, "ConversationService", MemoryConversationService)
     monkeypatch.setattr(main, "load_settings", load_settings)
-    monkeypatch.setattr(main, "create_model", create_model)
+    monkeypatch.setattr(main, "ModelConfigService", Mock())
     monkeypatch.setattr(main, "open_checkpointer", open_checkpointer)
-    monkeypatch.setattr(main, "build_agent", build_agent)
+    monkeypatch.setattr(main, "ConfiguredChatAgent", configured_agent)
     app = make_app(lifespan=main.lifespan)
     app.dependency_overrides[get_current_user] = current_user
     return FakeRuntime(app=app, graph=graph, events=events)

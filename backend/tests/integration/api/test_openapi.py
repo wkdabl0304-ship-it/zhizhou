@@ -29,6 +29,24 @@ def test_test_application_matches_production_openapi():
     assert make_app().openapi() == app.openapi()
 
 
+def test_openapi_uses_provider_configuration_names():
+    """公开接口、引用字段及模型测试结果采用供应商配置命名，便于配置页面对接。"""
+    schema = make_app().openapi()
+    paths = schema["paths"]
+    base = "/api/model-config/provider-configurations"
+    assert set(paths[base]) == {"get", "post"}
+    assert set(paths[base + "/{provider_configuration_id}"]) == {"get", "patch", "delete"}
+    assert "/api/model-config/connections" not in paths
+    assert paths[base]["post"]["security"] == [{"HTTPBearer": []}]
+    schemas = schema["components"]["schemas"]
+    assert "provider_configuration_id" in schemas["ModelCreate"]["required"]
+    assert "connection_id" not in schemas["ModelCreate"]["properties"]
+    assert "provider_configuration_fields" in schemas["ProviderInfo"]["properties"]
+    assert "provider_configuration_version" in schemas["ModelTestResult"]["properties"]
+    parameters = paths["/api/model-config/models"]["get"]["parameters"]
+    assert {parameter["name"] for parameter in parameters} == {"provider_configuration_id"}
+
+
 def test_openapi_documents_sse_and_uniform_pre_stream_errors(runtime):
     """OpenAPI 成功类型仅为 SSE，示例涵盖终止事件；参数及框架错误仍为 JSON。"""
     with TestClient(runtime.app) as client:

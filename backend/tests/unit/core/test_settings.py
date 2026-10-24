@@ -5,7 +5,7 @@ import pytest
 from app.core.settings import load_database_settings, load_settings
 
 ENV_VALUES = {
-    "DEEPSEEK_API_KEY": "test-key",
+    "MODEL_CONFIG_ENCRYPTION_KEY": "dGVzdC1tb2RlbC1jb25maWcta2V5LTEyMzQ1Njc4OTA=",
     "JWT_SECRET": "test-jwt-secret-which-is-at-least-32-bytes",
     "POSTGRES_USER": "postgres",
     "POSTGRES_PASSWORD": "test-password",
@@ -28,23 +28,26 @@ def env_file(tmp_path, monkeypatch):
 
 
 def test_file_settings_and_environment_priority(env_file, monkeypatch):
-    """检查文件配置、默认模型参数、敏感字段隐藏和环境变量优先级。"""
+    """业务配置不再绑定供应商，独立主密钥隐藏且环境变量优先于文件。"""
     import os
 
     before = dict(os.environ)
     settings = load_settings(env_file)
     assert settings.postgres_port == 5432
     assert settings.postgres_host == "127.0.0.1"
-    assert settings.model_name == "deepseek-flash"
-    assert settings.model_base_url == "https://api.deepseek.com"
+    assert not hasattr(settings, "deepseek_api_key")
     assert dict(os.environ) == before
-    assert "test-key" not in repr(settings)
+    assert ENV_VALUES["MODEL_CONFIG_ENCRYPTION_KEY"] not in repr(settings)
     assert "test-password" not in repr(settings)
 
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "environment-key")
+    from cryptography.fernet import Fernet
+    key = Fernet.generate_key().decode()
+    monkeypatch.setenv("MODEL_CONFIG_ENCRYPTION_KEY", key)
+    # 旧模型环境变量即使存在也不作为业务配置来源。
+    monkeypatch.setenv("DEEPSEEK_API_KEY", "ignored-old-key")
     monkeypatch.setenv("POSTGRES_PORT", "5433")
     settings = load_settings(env_file)
-    assert settings.deepseek_api_key == "environment-key"
+    assert settings.model_config_encryption_key == key
     assert settings.postgres_port == 5433
 
 
@@ -93,6 +96,7 @@ def test_missing_settings_are_named(tmp_path, monkeypatch):
     ("JWT_TTL_SECONDS", ""),
     ("POSTGRES_HOST", ""),
     ("POSTGRES_HOST", "  "),
+    ("MODEL_CONFIG_ENCRYPTION_KEY", "invalid"),
 ])
 def test_auth_settings_and_host_validation_hide_invalid_values(env_file, monkeypatch, key, value):
     """拒绝弱长度密钥、无效令牌寿命和空主机，错误只指出配置键而不回显原值。"""

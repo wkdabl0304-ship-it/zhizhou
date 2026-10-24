@@ -16,14 +16,12 @@ class Settings:
     """校验后的业务配置快照；冻结字段，避免运行中被随意修改。"""
 
     # repr=False 防止调试打印配置对象时直接暴露密钥或数据库密码。
-    deepseek_api_key: str = field(repr=False)
     postgres_user: str
     postgres_password: str = field(repr=False)
     postgres_db: str
     postgres_port: int
     postgres_host: str = "127.0.0.1"
-    model_name: str = "deepseek-flash"
-    model_base_url: str = "https://api.deepseek.com"
+    model_config_encryption_key: str = field(default="", repr=False)
     jwt_secret: str = field(default="", repr=False)
     jwt_ttl_seconds: int = 7200
     jwt_issuer: str = "zhizhou"
@@ -92,15 +90,15 @@ def load_logging_settings(env_path: Path | None = None) -> LoggingSettings:
 
 
 def load_settings(env_path: Path | None = None) -> Settings:
-    """读取并校验业务配置，返回供模型和数据库工厂使用的 Settings。
+    """读取部署配置，为数据库、认证与模型凭据加密提供校验后的 Settings。
 
-    env_path 可覆盖默认环境文件。模型密钥、数据库参数和 JWT 密钥须非空；
+    env_path 可覆盖默认环境文件。数据库参数、配置加密主密钥和 JWT 密钥须非空；
     JWT 密钥至少 32 字节，端口和令牌有效期分别校验范围及正整数约束。
     错误只指出配置项或约束，不把密钥等原始值拼接到错误消息中。
     """
     values = _read_environment(env_path)
     required = (
-        "DEEPSEEK_API_KEY",
+        "MODEL_CONFIG_ENCRYPTION_KEY",
         "POSTGRES_USER",
         "POSTGRES_PASSWORD",
         "POSTGRES_DB",
@@ -111,6 +109,13 @@ def load_settings(env_path: Path | None = None) -> Settings:
     # 一次列出缺失项，方便开发者完整补齐配置后再尝试启动。
     if missing:
         raise ValueError(f"缺少配置项：{', '.join(missing)}")
+
+    # 主密钥属于部署配置；模型账号凭据只通过业务接口保存，彼此不作回退。
+    from cryptography.fernet import Fernet
+    try:
+        Fernet(values["MODEL_CONFIG_ENCRYPTION_KEY"].encode("ascii"))
+    except (ValueError, UnicodeError):
+        raise ValueError("MODEL_CONFIG_ENCRYPTION_KEY 必须是有效的 Fernet 主密钥") from None
 
     try:
         port = int(values["POSTGRES_PORT"])
@@ -133,7 +138,7 @@ def load_settings(env_path: Path | None = None) -> Settings:
         raise ValueError("POSTGRES_HOST 不能为空")
 
     return Settings(
-        deepseek_api_key=values["DEEPSEEK_API_KEY"],
+        model_config_encryption_key=values["MODEL_CONFIG_ENCRYPTION_KEY"],
         postgres_user=values["POSTGRES_USER"],
         postgres_password=values["POSTGRES_PASSWORD"],
         postgres_db=values["POSTGRES_DB"],

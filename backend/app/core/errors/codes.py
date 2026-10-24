@@ -13,6 +13,10 @@ class ErrorCode(Enum):
     # 业务失败：HTTP 200。按实际功能增加条目，不复用已有码值。
     BUSINESS_ERROR = (20000, "业务处理失败")
     USERNAME_EXISTS = (20001, "用户名已存在")
+    MODEL_AUTH_FAILED = (20002, "模型服务鉴权失败，请检查 API Key")
+    MODEL_RATE_LIMITED = (20003, "模型服务限流或额度不足，请稍后重试")
+    MODEL_TIMEOUT = (20004, "模型服务请求超时")
+    MODEL_TEST_FAILED = (20005, "模型测试失败，请检查配置与模型访问权限")
 
     # 请求与协议错误：保留对应 HTTP 4xx。
     REQUEST_FAILED = (40000, "请求失败")
@@ -20,7 +24,11 @@ class ErrorCode(Enum):
     INVALID_CREDENTIALS = (40102, "用户名或密码错误")
     NOT_FOUND = (40400, "接口不存在")
     CONVERSATION_NOT_FOUND = (40401, "会话不存在或不可用")
+    PROVIDER_CONFIGURATION_NOT_FOUND = (40402, "供应商配置不存在")
+    MODEL_CONFIGURATION_NOT_FOUND = (40403, "模型配置不存在")
     CONVERSATION_BUSY = (40901, "会话正在生成，请稍后重试")
+    MODEL_VERSION_CONFLICT = (40902, "模型配置已被修改，请刷新后重试")
+    MODEL_CONFIG_IN_USE = (40903, "配置仍被引用，请先调整关联配置")
     METHOD_NOT_ALLOWED = (40500, "请求方法不允许")
     INVALID_ARGUMENT = (42200, "请求参数校验失败")
 
@@ -28,6 +36,8 @@ class ErrorCode(Enum):
     INTERNAL_ERROR = (50000, "服务器内部错误，请稍后重试")
     CHAT_FAILED = (50001, "对话执行失败，请稍后重试")
     TOOL_FAILED = (50002, "工具执行失败")
+    MODEL_PROVIDER_FAILED = (50003, "模型服务调用失败")
+    MODEL_NOT_CONFIGURED = (50301, "尚未配置可用的默认模型，请先完成模型设置")
 
     @property
     def code(self) -> int:

@@ -54,9 +54,9 @@ async def business_error_handler(request: Request, exc: BusinessError) -> JSONRe
 
 
 async def service_error_handler(request: Request, exc: ServiceError) -> JSONResponse:
-    """对 exc 补记尚未记录的系统堆栈，返回 HTTP 500 和对应系统码。"""
+    """返回系统错误的固定说明与状态；未配置模型为 503，其他系统错误为 500。"""
     log_app_error(logger, exc, context={"method": request.method, "path": request.url.path})
-    return _error_response(exc.error_code, 500)
+    return _error_response(exc.error_code, exc.status_code)
 
 
 async def validation_error_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
@@ -125,5 +125,6 @@ ERROR_RESPONSES = {
         409: ErrorCode.CONVERSATION_BUSY,
         422: ErrorCode.INVALID_ARGUMENT,
         500: ErrorCode.INTERNAL_ERROR,
+        503: ErrorCode.MODEL_NOT_CONFIGURED,
     }.items()
 }

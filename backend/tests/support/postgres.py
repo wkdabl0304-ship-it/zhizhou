@@ -11,7 +11,6 @@ import httpx
 import psycopg
 from psycopg import sql
 
-from app.agents.agent import ChatAgent
 from app.agents.factory import build_agent
 from app.agents.tools.weather import get_weather
 from app.core.settings import DatabaseSettings, Settings
@@ -20,6 +19,10 @@ from app.db.checkpoint import build_conninfo, open_checkpointer
 from app.schemas.auth import LoginRequest, RegisterRequest
 from app.services.auth import AuthService
 from app.services.conversations import ConversationService
+from app.services.model_config import ModelConfigService
+from app.schemas.model_config import ProviderConfigurationCreate, ModelCreate, DefaultUpdate
+from app.llm.runtime import ConfiguredChatAgent
+from app.llm.types import ModelSnapshot
 from tests.support.apps import make_app
 from tests.support.fakes.chat import StubChatModel
 from tests.support.processes import run_python
@@ -68,7 +71,8 @@ class TemporaryDatabase:
             )
             self._created_name = self.name
         return Settings(
-            deepseek_api_key="unused-test-key",
+            # 独立的固定测试主密钥只保护随机临时库中的假凭据，不读取真实模型密钥。
+            model_config_encryption_key="dGVzdC1tb2RlbC1jb25maWcta2V5LTEyMzQ1Njc4OTA=",
             postgres_user=self.maintenance.postgres_user,
             postgres_password=self.maintenance.postgres_password,
             postgres_db=self.name,
@@ -123,10 +127,24 @@ class PostgresRuntime:
     conversations: ConversationService
     graph: object
     client: httpx.AsyncClient
+    model_config: ModelConfigService
+    snapshots: list[ModelSnapshot]
+    agent: ConfiguredChatAgent
+
+
+async def seed_model_configuration(service: ModelConfigService):
+    """通过正式服务准备假密钥默认配置，测试不读取或调用真实供应商凭据。"""
+    provider_configuration = await service.create_provider_configuration(ProviderConfigurationCreate(
+        name="测试 DeepSeek", provider="deepseek", api_format="chat_completions",
+        endpoint_config={"endpoint_id": "official"}, api_key="unused-test-key"))
+    model = await service.create_model(ModelCreate(name="测试模型", provider_configuration_id=provider_configuration.id,
+        catalog_model_id="deepseek:deepseek-flash"))
+    await service.set_default(DefaultUpdate(version=1, model_configuration_id=model.id))
+    return provider_configuration, model
 
 
 @asynccontextmanager
-async def open_runtime(settings: Settings, model=None) -> AsyncIterator[PostgresRuntime]:
+async def open_runtime(settings: Settings, model=None, *, configured=True) -> AsyncIterator[PostgresRuntime]:
     """组装连接临时库的正式后端组件，退出时先关闭客户端再释放数据库资源。"""
     async with (
         open_business_database(settings) as database,
@@ -134,15 +152,31 @@ async def open_runtime(settings: Settings, model=None) -> AsyncIterator[Postgres
     ):
         auth = AuthService(database, settings)
         await auth.initialize()
-        conversations = ConversationService(database)
-        graph = build_agent(model if model is not None else StubChatModel(), [get_weather], checkpointer)
-        app = make_app(agent=ChatAgent(graph), conversations=conversations, auth=auth)
+        actual_model = model if model is not None else StubChatModel()
+        snapshots = []
+
+        @asynccontextmanager
+        async def open_stub(snapshot):
+            """仅替换模型 HTTP 边界，记录快照，真实图、配置和数据库流程均保留。"""
+            snapshots.append(snapshot)
+            yield actual_model
+
+        configuration = ModelConfigService(database, settings.model_config_encryption_key, model_opener=open_stub)
+        if configured:
+            await seed_model_configuration(configuration)
+        conversations = ConversationService(database, model_config=configuration)
+        # 独立图仅供历史状态断言查询；执行使用每轮图并共享同一正式保存器。
+        graph = build_agent(actual_model, [get_weather], checkpointer)
+        agent = ConfiguredChatAgent(checkpointer, [get_weather], model_opener=open_stub)
+        app = make_app(agent=agent,
+                       conversations=conversations, auth=auth, model_config=configuration)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             yield PostgresRuntime(
                 database=database, auth=auth, conversations=conversations,
                 graph=graph, client=client,
+                model_config=configuration, snapshots=snapshots, agent=agent,
             )
 
 

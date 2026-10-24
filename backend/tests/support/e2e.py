@@ -17,6 +17,7 @@ import subprocess
 import sys
 from typing import TextIO
 from unittest.mock import patch
+from functools import partial
 from uuid import uuid4
 
 from fastapi import HTTPException, Request
@@ -30,6 +31,10 @@ from app.core.settings import load_database_settings
 from tests.support.apps import make_app
 from tests.support.fakes.chat import StubChatModel
 from tests.support.postgres import temporary_database
+from tests.support.postgres import seed_model_configuration
+from app.db.business import open_business_database
+from app.services.model_config import ModelConfigService
+from app.llm.runtime import ConfiguredChatAgent
 
 FRONTEND_ROOT = Path(__file__).resolve().parents[3] / "frontend"
 
@@ -95,7 +100,7 @@ class ControlledModel(StubChatModel):
 def build_test_app(settings, model: ControlledModel, control_token: str):
     """创建使用正式生命周期的测试应用，仅添加本地模型控制能力。
 
-    settings 与 create_model 的替换由启动器作用域负责恢复，不修改生产配置。
+    settings 与模型 HTTP 边界的替换由启动器作用域负责恢复，不修改生产配置。
     控制路由要求本次运行生成的令牌，浏览器业务接口不经过替身。
     """
     from app.main import lifespan
@@ -226,6 +231,13 @@ def reserve_listener() -> socket.socket:
     return listener
 
 
+async def configure_test_model(settings) -> None:
+    """通过正式配置服务在临时库中保存假密钥和默认模型，退出后关闭预备连接。"""
+    async with open_business_database(settings) as database:
+        service = ModelConfigService(database, settings.model_config_encryption_key)
+        await seed_model_configuration(service)
+
+
 async def run_e2e(arguments: Sequence[str]) -> int:
     """构建前端、创建临时库并执行浏览器测试，所有运行资源按依赖顺序退出。"""
     import app.main as main
@@ -238,11 +250,17 @@ async def run_e2e(arguments: Sequence[str]) -> int:
     if built:
         return built
     async with temporary_database(load_database_settings(), on_created=report_database) as settings:
+        await configure_test_model(settings)
         model = ControlledModel()
         token = secrets.token_urlsafe(32)
         app = build_test_app(settings, model, token)
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", log_level="warning", access_log=False, timeout_graceful_shutdown=10))
-        with patch.object(main, "load_settings", return_value=settings), patch.object(main, "create_model", return_value=model):
+        @asynccontextmanager
+        async def model_opener(snapshot):
+            """保留配置快照和真实图，只替换付费模型调用边界。"""
+            yield model
+
+        with patch.object(main, "load_settings", return_value=settings), patch.object(main, "ConfiguredChatAgent", partial(ConfiguredChatAgent, model_opener=model_opener)):
             async with running_server(server, reserve_listener(), model) as api_url:
                 with reserve_listener() as probe:
                     web_port = probe.getsockname()[1]

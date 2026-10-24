@@ -70,7 +70,7 @@ def test_database_error_aborts_startup(runtime, monkeypatch):
 def test_build_error_closes_database(runtime, monkeypatch):
     """模拟图组装失败，确认此前已打开的数据库仍被关闭。"""
     events = runtime.events
-    monkeypatch.setattr(main, "build_agent", Mock(side_effect=RuntimeError("build failed")))
+    monkeypatch.setattr(main, "ConfiguredChatAgent", Mock(side_effect=RuntimeError("build failed")))
     with pytest.raises(RuntimeError, match="build failed"), TestClient(runtime.app):
         pass
     assert events == ["open", "close"]

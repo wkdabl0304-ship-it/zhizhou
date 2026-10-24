@@ -78,6 +78,7 @@
 
 | 能力 | 状态 | 当前范围 |
 | --- | --- | --- |
+| 模型配置 | 后端已实现 | 接口管理供应商配置、内置模型方案与全局默认；配置页面待开发。 |
 | Web 流式对话 | 已实现 | Bearer 认证聊天，首轮取得服务端 ID，之后按同一 ID 续聊。 |
 | 行动说明与执行过程 | 已实现 | 正文与工具交错展示，完成后整体折叠，可展开查看全部过程；不展示内部推理。 |
 | Markdown 与主题 | 已实现 | 富文本、代码高亮与复制，明暗主题及窄屏适配。 |
@@ -103,9 +104,9 @@ pnpm dev
 
 **体验真实对话**：按以下顺序准备后端，再使用前端页面或支持 POST SSE 的 HTTP 客户端调用：
 
-1. 准备 Python **3.14+**、uv、Docker Compose 与 DeepSeek API 密钥；前端 Node.js 要求为 `^22.18.0 || >=24.12.0`，使用 pnpm。
-2. 按[后端配置说明](backend/README.md#配置与数据库)准备模型及 JWT 密钥、启动 PostgreSQL 并执行 Alembic 迁移；已有 `.env` 时直接编辑，不覆盖现有配置。
-3. 按[后端启动说明](backend/README.md#启动与聊天接口)启动服务，在前端注册登录后开启对话；也可在 Swagger 注册登录，再通过 Authorize 配置 JWT 验收接口。
+1. 准备 Python **3.14+**、uv、Docker Compose 与所选官方供应商的 API 密钥；前端 Node.js 要求为 `^22.18.0 || >=24.12.0`，使用 pnpm。
+2. 按[后端配置说明](backend/README.md#配置与数据库)准备配置加密主密钥及 JWT 密钥、启动 PostgreSQL 并执行 Alembic 迁移；已有 `.env` 时直接编辑，不覆盖现有配置。
+3. 按[后端启动说明](backend/README.md#启动与聊天接口)启动服务，通过[模型配置接口](backend/README.md#模型配置接口与两层适配)创建供应商配置和模型方案并设置默认，再在前端登录聊天；也可在 Swagger 注册登录，再通过 Authorize 配置 JWT 验收接口。
 
 后端默认测试包含真实 PostgreSQL，使用同一实例中自动创建与销毁的独立临时库，无需真实模型密钥；运行方式见[后端测试说明](backend/README.md#测试)。
 
@@ -118,7 +119,7 @@ pnpm dev
 | 前端 | Vue 3 · TypeScript · Vite · Pinia · Reka UI |
 | 内容呈现 | markdown-it · highlight.js · Lucide Vue |
 | API 与传输 | Python · FastAPI · 异步 POST SSE |
-| 智能体 | LangChain / LangGraph · DeepSeek |
+| 智能体 | LangChain / LangGraph · OpenAI、Anthropic、DeepSeek、阿里云百炼 |
 | 状态存储 | PostgreSQL · SQLAlchemy 异步 ORM · Alembic · AsyncPostgresSaver |
 | 开发工具 | pnpm · uv · Vitest · pytest · Docker Compose（数据库） |
 
@@ -127,7 +128,7 @@ flowchart LR
     UI["Vue 3 工作空间"] -->|发送消息| API["FastAPI"]
     API -->|SSE 回复与过程事件| UI
     API --> Agent["LangChain / LangGraph"]
-    Agent <--> Model["DeepSeek"]
+    Agent <--> Model["四家官方模型适配"]
     Agent <--> DB[("PostgreSQL checkpoint")]
     Agent --> Tools["已注册工具"]
 ```

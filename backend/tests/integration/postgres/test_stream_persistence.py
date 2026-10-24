@@ -7,7 +7,6 @@ import pytest
 from langchain_core.messages import AIMessageChunk
 from langchain_core.outputs import ChatGenerationChunk
 
-from app.agents.agent import ChatAgent
 from app.schemas.chat import ChatDelta
 from tests.support.fakes.chat import StubChatModel
 from tests.support.postgres import open_runtime as runtime, account
@@ -45,7 +44,6 @@ async def test_cancellation_persists_partial_history_and_releases_lock(postgres_
         async with runtime(postgres_settings, PausedModel(entered=entered, cleaned=cleaned)) as environment:
             auth = environment.auth
             service = environment.conversations
-            graph = environment.graph
             user, _ = await account(auth)
             captured = []
 
@@ -54,7 +52,7 @@ async def test_cancellation_persists_partial_history_and_releases_lock(postgres_
                 async with service.prepare(user.id, "请求取消", None) as prepared:
                     captured.append(prepared)
                     async with aclosing(
-                        service.stream(prepared, ChatAgent(graph))
+                        service.stream(prepared, environment.agent)
                     ) as stream:
                         async for event in stream:
                             if isinstance(event, ChatDelta):

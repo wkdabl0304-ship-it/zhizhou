@@ -170,9 +170,13 @@ async def test_browser_failure_exits_database_context(monkeypatch):
     monkeypatch.setattr(e2e, "run_command", command)
     monkeypatch.setattr(e2e, "temporary_database", database)
     monkeypatch.setattr(e2e, "running_server", server)
+    async def configured(settings):
+        """记录正式模型配置准备发生在服务启动前，隔离本例数据库。"""
+        events.append("model-configured")
+    monkeypatch.setattr(e2e, "configure_test_model", configured)
     monkeypatch.setattr(e2e, "load_database_settings", lambda: None)
     assert await e2e.run_e2e([]) == 9
-    assert events == ["database-open", "server-open", "server-close", "database-close"]
+    assert events == ["database-open", "model-configured", "server-open", "server-close", "database-close"]
 
 
 @pytest.mark.anyio

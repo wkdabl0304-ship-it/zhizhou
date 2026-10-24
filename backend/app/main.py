@@ -10,9 +10,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.agents.agent import ChatAgent
-from app.agents.factory import build_agent
-from app.agents.models import create_model
+from app.llm.runtime import ConfiguredChatAgent
 from app.agents.tools.weather import get_weather
 from app.api.exception_handlers import ERROR_RESPONSES, register_exception_handlers
 from app.api.router import api_router
@@ -22,6 +20,7 @@ from app.db.business import open_business_database
 from app.db.checkpoint import open_checkpointer
 from app.services.auth import AuthService
 from app.services.conversations import ConversationService
+from app.services.model_config import ModelConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +29,7 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """初始化 Web 应用的共享服务，并在应用关闭时释放全部数据库资源。
 
-    依次准备业务数据库、认证服务、会话恢复、模型与 checkpoint；全部成功
+    依次准备业务数据库、认证和配置服务、会话恢复与 checkpoint；全部成功
     后才接受请求。退出时先撤销 app.state 中的服务，再关闭底层异步资源。
 
     Args:
@@ -50,13 +49,15 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             database = await resources.enter_async_context(open_business_database(settings))
             auth_service = AuthService(database, settings) # 初始化 AuthService
             await auth_service.initialize()
-            conversation_service = ConversationService(database) # 初始化 ConversationService
+            model_config = ModelConfigService(database, settings.model_config_encryption_key)
+            conversation_service = ConversationService(database, model_config=model_config)
             await conversation_service.recover()
-            model = create_model(settings)
             checkpointer = await resources.enter_async_context(open_checkpointer(settings))
-            app.state.chat_agent = ChatAgent(build_agent(model, [get_weather], checkpointer))
+            # 启动不创建供应商客户端，无模型配置时仍可登录和完成首次设置。
+            app.state.chat_agent = ConfiguredChatAgent(checkpointer, [get_weather])
             app.state.auth_service = auth_service
             app.state.conversation_service = conversation_service
+            app.state.model_config_service = model_config
         except Exception:
             logger.exception("应用启动失败")
             raise
@@ -69,6 +70,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             del app.state.chat_agent
             del app.state.auth_service
             del app.state.conversation_service
+            del app.state.model_config_service
             await resources.aclose()
             logger.info("应用资源已关闭")
 

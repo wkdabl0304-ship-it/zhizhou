@@ -1,6 +1,6 @@
 # 知舟后端
 
-使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现账号密码注册、JWT 登录、用户会话隔离、游标读取最近及更早的会话和历史、软删除，以及异步 SSE 聊天与公开工具过程持久化。业务数据使用 SQLAlchemy 2.1 异步 ORM 与 Alembic，模型上下文由 LangGraph 的 PostgreSQL checkpoint 独立保存。通过 DeepSeek 专用适配调用 `deepseek-flash`，不对外返回模型推理。天气工具返回固定演示内容。
+使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现账号密码注册、JWT 登录、用户会话隔离、游标读取最近及更早的会话和历史、软删除，以及异步 SSE 聊天与公开工具过程持久化。业务数据使用 SQLAlchemy 2.1 异步 ORM 与 Alembic，模型上下文由 LangGraph 的 PostgreSQL checkpoint 独立保存。模型通过供应商层和模型处理层接入 OpenAI、Anthropic、DeepSeek 与阿里云百炼，可经接口维护全局供应商配置、模型方案和默认选择，不对外返回模型推理。天气工具返回固定演示内容。
 
 前端已接入注册、登录、当前用户校验及服务端会话目录、游标历史、流式续聊和软删除。页面、身份生命周期及跨窗口生成的交互边界见[前端文档](../frontend/README.md#页面与聊天边界)，也可通过 Swagger 或 HTTP 客户端验收接口。
 
@@ -35,16 +35,18 @@ docker compose -f docker-compose-dev.yml up -d postgres
 
 配置项见[环境变量示例](../.env.example)：
 
-- `DEEPSEEK_API_KEY`：在根目录 `.env` 中填写实际 API 密钥；示例文件留空。
+- `MODEL_CONFIG_ENCRYPTION_KEY`：必填的独立 Fernet 主密钥，只用于加密数据库中的模型凭据；供应商 API Key 通过模型配置接口写入，不放入 `.env`。
 - `POSTGRES_USER`、`POSTGRES_PASSWORD`、`POSTGRES_DB`：数据库连接参数；示例提供本地开发用值。若通过系统环境变量覆盖，确保与数据库启动配置一致。
 - `POSTGRES_PORT`：智能体连接的宿主机端口。Compose 当前固定映射 `5432:5432`，修改此变量时还需要相应修改 Compose 端口映射。
 - `POSTGRES_HOST`：默认 `127.0.0.1`，显式提供时不能为空。
 - `JWT_SECRET`：必填，至少 32 字节的独立随机密钥，没有默认值；不要填写示例密码或提交到 Git。
 - `JWT_TTL_SECONDS`：默认 `7200`，必须为正整数；过期后重新登录，不提供刷新或服务端撤销。
 
-模型密钥、数据库用户、密码、库名、端口及 JWT 密钥必填且不能仅包含空白；端口范围为 1–65535。模型地址为 `https://api.deepseek.com`，默认值定义在 `app/core/settings.py`。可运行 `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成独立随机 JWT 密钥，再保存到本地 `.env`。
+配置加密主密钥、数据库用户、密码、库名、端口及 JWT 密钥必填且不能仅包含空白；端口范围为 1–65535。供应商配置使用后端登记的官方端点，不接收任意地址。可运行 `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成独立随机 JWT 密钥，再保存到本地 `.env`。
 
-配置无效、业务表未迁移、版本不匹配或数据库无法连接时，服务启动失败。首次启动前在 `backend/` 执行：
+可在 `backend/` 执行 `uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成加密主密钥并保存到本地 `.env`。主密钥需要与数据库分开稳定备份；更换部署主密钥不会自动重新加密旧凭据。旧 `DEEPSEEK_API_KEY` 不再读取或自动导入。
+
+配置无效、业务表未迁移、版本不匹配或数据库无法连接时，服务启动失败。未配置默认模型不阻止启动、登录、读取历史和管理配置；聊天在建立 SSE、创建会话与轮次前返回 `503 / 50301`。首次启动前在 `backend/` 执行：
 
 ```powershell
 uv sync
@@ -87,7 +89,7 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 
 ### 业务数据与执行边界
 
-三张业务表的实体定义见 [`app/models/entities.py`](app/models/entities.py)，首版迁移见 [`migrations/versions/0001_auth_conversations.py`](migrations/versions/0001_auth_conversations.py)：
+认证与会话三张业务表的实体定义见 [`app/models/entities.py`](app/models/entities.py)，首版迁移见 [`migrations/versions/0001_auth_conversations.py`](migrations/versions/0001_auth_conversations.py)：
 
 | 表 | 主要字段与约束 |
 | --- | --- |
@@ -102,6 +104,103 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 聊天与删除共用执行锁，同会话冲突立即 409，不同会话可并发。锁连接使用异步 SQLAlchemy、自动提交和 NullPool，退出时解锁并关闭物理连接，避免带锁连接返回池。启动和内容读取检查遗留 running 记录，仅在取得执行锁、确认没有活跃生成时标记 interrupted，不自动重放工具。取消尽力保存所有已接收公开内容；进程强制退出可能损失最后一次快照之后的片段。
 
 业务会话通过 Agent 适配为带命名空间的内部 checkpoint key，框架配置键只保留在框架边界。旧的无归属 checkpoint 不删除，也不自动绑定任何用户；新 HTTP API 不开放这些记录。业务表与 checkpoint 不组成跨连接原子事务。
+
+## 模型配置接口与两层适配
+
+当前模型配置页面尚未开发，可在 `/docs` 登录授权后操作。所有登录用户，包括 `user` 和 `super_admin`，都可管理同一套全局配置；模型配置的共享范围不改变聊天历史的用户所有权。
+
+首次设置按以下顺序执行：**创建供应商配置 → 创建模型方案 → 可选测试 → 设置默认**。保存和设为默认都只做本地校验，只有显式测试或聊天才调用上游。
+
+### 供应商层与模型处理层
+
+- `app/llm/providers/` 使用 `langchain-openai.ChatOpenAI`、`langchain-anthropic.ChatAnthropic`、`langchain-deepseek.ChatDeepSeek` 和 `langchain-qwq.ChatQwen`；负责官方服务接入、原生流和异常边界，不读取数据库。Qwen 包是 LangChain 文档收录的社区专用集成。
+- `app/llm/models/catalog.py` 登记精确模型 ID、支持格式、推理方式与应用允许上限，`policy.py` 按具体模型转换参数。前端目录来自这里，不获取上游模型列表，不按未知名称推断能力。
+- `app/llm/models/history.py` 在请求边界投影兼容历史，并在 checkpoint 消息中标记供应商配置、密钥版本、模型和格式来源；`runtime.py` 按本轮快照组装现有 Agent。
+- 首期目录覆盖 GPT-6 通用系列（含 6.1 Sol）与 GPT-5.6 Sol/Terra/Luna、Claude Opus 5.5/5、Sonnet 5.5/5、Haiku 5.5/4.5、DeepSeek Flash/Pro、Qwen Max/Plus/Flash 的当前与上一代主力模型。退役模型不作为独立选项；不接入其他托管品牌、多模态输入或供应商内置工具。
+- OpenAI 默认 Responses；Chat Completions 只开放能运行本项目工具的组合。GPT-6 Sol/Luna 在 Chat 下仅开放关闭思考，Astra 和 6.1 Sol 仅开放 Responses。
+- 推理按模型支持 `default / off / effort / budget` 中的适用形式。目录提供真实档位、预算范围、应用默认值与预算/输出上限关系；Qwen 3.8 的 effort 和预算分别使用，不能同时传入。`max_output_tokens` 是本项目允许的上限，可能低于供应商完整能力。
+
+安装版本以 `uv.lock` 为准。新增 `langchain-anthropic 1.7.5`、`langchain-qwq 0.3.5`，保留原 OpenAI/DeepSeek 版本。Anthropic SDK 明确要求 `>=1.17,<2` 并使用 `httpx2`，其他 SDK 使用 `httpx`；供应商上下文分别创建和关闭正确类型的客户端，不关闭集成包中可能跨请求共享的 HTTP 缓存。
+
+### 数据表与一致性
+
+实体位于 `app/models/model_config.py`，最新迁移为 `0003_provider_configuration`。模型目录不入库，用户保存的模型方案才入库。
+
+供应商配置保存品牌、API 格式、官方端点及 API Key；模型方案引用供应商配置，再选择具体模型和推理设置。升级执行 `uv run alembic upgrade head`，重命名迁移会保留已有配置、默认选择和轮次快照。接口统一使用 `/provider-configurations`，引用字段为 `provider_configuration_id`。
+
+| 表 | 字段与约束 |
+| --- | --- |
+| `provider_configurations` | `id UUID PK`；`name VARCHAR(100)`；`provider VARCHAR(20)` 四选一；`api_format VARCHAR(30)`；`endpoint_config JSONB`；`api_key_ciphertext TEXT`；`credential_revision INTEGER`；`version INTEGER`；`created_at/updated_at TIMESTAMPTZ`。格式与供应商组合、JSON 对象和正版本受 CHECK 约束。 |
+| `model_configurations` | `id UUID PK`；`provider_configuration_id UUID FK RESTRICT` 并建索引；`name VARCHAR(100)`；`catalog_model_id VARCHAR(160)`；`reasoning JSONB`；`max_output_tokens INTEGER` 默认 16384；`version INTEGER`；创建/更新时间。输出上限、版本为正；同一模型可保存多套推理方案。 |
+| `chat_model_settings` | `id SMALLINT PK CHECK(id=1)`；`model_configuration_id UUID NULL FK RESTRICT`；`version INTEGER`；`updated_at TIMESTAMPTZ`。迁移初始化唯一行，默认引用为空。 |
+| `chat_turns.model_snapshot` | 可空 JSONB，保存本轮供应商配置/模型版本、供应商、模型 ID、格式及实际参数，不含明文密钥、密文或主密钥；旧轮次不补写。 |
+
+供应商配置的供应商、模型方案的供应商配置归属创建后固定；需要更换时新建配置。`credential_revision` 仅在替换 API Key 时递增，普通名称修改只递增 `version`。API Key 使用 Fernet 认证加密，接口只返回 `api_key_configured`；PATCH 省略密钥表示保留，null 或空白被拒绝。
+
+所有配置写事务先锁定单例设置行，随后校验目标资源版本与引用，防止检查后被其他写请求插入关联；网络调用不持这个锁。模型快照用单条联表查询取得，读事务在访问供应商前结束。修改默认、供应商配置或模型参数均从下一轮生效，不影响正在生成的一轮及其工具后续步骤，不需要重启服务。
+
+### 接口契约
+
+以下路径统一加 `/api/model-config` 前缀，全部要求 Bearer JWT；响应沿用 `{code,message,data}`。目录和配置响应具有对应 OpenAPI 类型，凭据不会出现在公开响应中。
+
+| 方法与路径 | 请求或筛选 | 成功 data |
+| --- | --- | --- |
+| `GET /catalog/providers` | 无 | 供应商数组，含格式、官方端点、业务空间是否必填 |
+| `GET /catalog/models` | 可选 `provider`、`api_format` | 模型数组，含 `catalog_model_id`、格式、能力、推理控件、允许输出上限 |
+| `GET /provider-configurations` | 无 | 全局供应商配置数组 |
+| `POST /provider-configurations` | 创建供应商配置体，见下例 | 新供应商配置详情及 `version=1` |
+| `GET /provider-configurations/{id}` | UUID | 安全供应商配置详情 |
+| `PATCH /provider-configurations/{id}` | `version` 及待修改字段，不允许 `provider` | 新版本供应商配置详情 |
+| `DELETE /provider-configurations/{id}` | 必填查询参数 `version` | `null`，需先删除关联模型 |
+| `GET /models` | 可选 `provider_configuration_id` | 保存的模型方案数组，含当前目录能力和 `available` |
+| `POST /models` | 模型方案体，见下例 | 新方案及 `version=1` |
+| `GET /models/{id}` | UUID | 方案及当前目录能力 |
+| `PATCH /models/{id}` | `version` 与名称、目录模型、推理或输出上限 | 新版本方案 |
+| `DELETE /models/{id}` | 必填查询参数 `version` | `null`，不能直接删除当前默认 |
+| `GET /default` | 无 | 默认引用、版本、更新时间及可选模型概要 |
+| `PUT /default` | `version`、`model_configuration_id` | 更新后的默认；模型 ID 为 null 表示清除 |
+| `POST /models/{id}/test` | 无请求体 | `latency_ms`、`provider_configuration_version`、`model_version`、`verified=streaming_text` |
+
+创建供应商配置示例：
+
+```json
+{
+  "name": "DeepSeek 官方",
+  "provider": "deepseek",
+  "api_format": "chat_completions",
+  "endpoint_config": {"endpoint_id": "official"},
+  "api_key": "替换成真实模型密钥"
+}
+```
+
+OpenAI、Anthropic、DeepSeek 的 `endpoint_id` 为 `official`。百炼可选 `cn-beijing / ap-southeast-1 / cn-hongkong / ap-northeast-1 / eu-central-1 / us-east-1`，通过 `workspace_id` 生成对应官方业务空间域名；北京和新加坡也允许省略业务空间，使用仍受支持的官方兼容域名。接口拒绝任意 URL、自定义请求头和额外字段。
+
+创建模型方案示例，`provider_configuration_id` 替换为创建供应商配置返回的 UUID：
+
+```json
+{
+  "name": "DeepSeek 深入思考",
+  "provider_configuration_id": "7df7c7f4-7228-41bf-8981-a785dca3ef62",
+  "catalog_model_id": "deepseek:deepseek-flash",
+  "reasoning": {"mode": "effort", "effort": "high"},
+  "max_output_tokens": 16384
+}
+```
+
+其他推理形式分别为 `{"mode":"default"}`、`{"mode":"off"}` 和 `{"mode":"budget","budget_tokens":4096}`，仅在目录声明支持时合法。Claude 手动预算至少 1024 且必须小于本方案的输出上限。读取模型目录可获得 `budget_must_fit_output`，前端无需自行维护这些规则。
+
+设置默认示例，版本取 `GET /default`，模型 UUID 取创建方案的结果：
+
+```json
+{
+  "version": 1,
+  "model_configuration_id": "58a613c4-5286-468f-b345-d526ec776139"
+}
+```
+
+更新必须携带读取时的版本，成功递增；PATCH 显式 null 和空修改被拒绝。过期版本返回 `409 / 40902`；引用冲突或供应商配置修改导致已有模型不兼容返回 `409 / 40903` 并整体回滚；资源不存在分别为 `40402 / 40403`；非法组合返回 `422 / 42200`。
+
+模型测试使用固定短提示，只验证该次文本流可完成，不执行天气等业务工具、不创建聊天历史、不自动设置默认。真实调用可能产生供应商费用。上游鉴权、限流/额度、超时及其他预期失败分别使用业务码 `20002 / 20003 / 20004 / 20005`，HTTP 仍为 200；不会因上游 401 令用户退出登录，也不回传供应商原始响应。
 
 ## 启动与聊天接口
 
@@ -193,7 +292,7 @@ data: {"code":0,"message":"成功","data":{"conversation_id":"00000000-0000-4000
 
 模型遗漏正文时，Agent 在 `tool_call` 之前补发同一 `message_id` 的中性说明“我准备调用 … 获取所需信息。”；不声明已经执行或成功，也不改写模型 checkpoint。该兜底仅标明将调用的工具，不替模型编造任务规划或判断依据。最终 `done.message_id` 标识应从过程区移出的最终正文，`done.reply` 为权威完整回答。详细规划和行动说明由提示词引导，当前没有内容完整性强制校验或自动重试机制；无需工具时，必要说明与答案仍属于同一正文，提示词不会创建额外的可折叠消息或阶段事件。
 
-模型内部仍启用 DeepSeek 思考模式，并通过 `DeepSeekChatModel` 回传历史助手 `reasoning_content`，以维持工具后续步骤和多轮请求的兼容性；这些字段只在模型与 checkpoint 内部使用，不编码成 SSE。旧 checkpoint 缺失的字段按空字符串回传。公开工具及进度正文同时写入轮次快照，历史通过会话内容接口读取；本期不提供 SSE 事件重放或断点续传。
+模型内部按保存的推理方案运行。DeepSeek 通过 `DeepSeekChatModel` 回传历史助手 `reasoning_content`，Claude 保留同源思考签名，Responses 保留同源推理块；这些字段只在模型与 checkpoint 内部使用，不编码成 SSE。跨模型或凭据变化时只向目标模型投影公开文本和完整工具调用/结果对；原 checkpoint 不被覆盖，未完成工具尾部不会伪造成已完成调用。旧 DeepSeek checkpoint 缺失的思考字段按空字符串回传。公开工具及进度正文同时写入轮次快照，历史通过会话内容接口读取；本期不提供 SSE 事件重放或断点续传。
 
 请求中的 `message` 必填且不能仅包含空白；`conversation_id` 是可省略或为 null 的 UUID，提供时必须通过归属校验。旧字段名及未知请求字段会被拒绝，空正文、非法 UUID 或 JSON 返回 HTTP `422` 和统一 JSON 错误响应。路由或依赖在流建立前发生的错误继续使用 JSON。SSE 开始后，模型、工具或持久化失败通过 `error` 报告，HTTP 状态保持 `200`：
 
@@ -361,7 +460,7 @@ API 测试每例独立创建应用和依赖覆盖，生命周期用例复用正�
 
 ### 前端 E2E 隔离后端
 
-`tests/support/e2e.py` 是前端 Playwright 的本地启动入口，命令、浏览器安装和用例选择统一维护在[前端 E2E 说明](../frontend/README.md#真实后端-e2e)。它复用本节的 PostgreSQL 配置、临时库与正式迁移设施，装配正式路由、异常处理和 `app.main.lifespan`，保留业务服务、Agent 图及 PostgreSQL checkpoint；只有模型工厂和测试配置在启动器作用域内注入，不增加生产环境测试开关。
+`tests/support/e2e.py` 是前端 Playwright 的本地启动入口，命令、浏览器安装和用例选择统一维护在[前端 E2E 说明](../frontend/README.md#真实后端-e2e)。它复用本节的 PostgreSQL 配置、临时库与正式迁移设施，装配正式路由、异常处理和 `app.main.lifespan`，保留业务服务、Agent 图及 PostgreSQL checkpoint；启动器通过正式配置服务写入假密钥和默认模型，只在作用域内注入部署测试配置与模型 HTTP 边界，不增加生产环境测试开关。
 
 模型替身提供普通多轮、真实天气工具调用，以及逐段交付后的等待和失败场景。浏览器 fixture 通过本次运行独立令牌访问测试专用控制路由，每个场景拥有独立门控；这些路由仅存在于测试装配应用中，服务只绑定回环地址。业务认证与聊天请求始终经过正式后端和临时数据库，不使用真实模型密钥。
 
@@ -387,7 +486,8 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 
 - `app/__main__.py`：统一 Web 启动入口，处理地址、端口、reload 参数并向 Uvicorn 传递日志配置。
 - `app/main.py`：FastAPI 应用、启动/退出资源管理、全局异常处理器注册和 API 总路由挂载。
-- `app/agents/`：Agent 专属实现；`models.py` 创建支持思考回传的模型，`events.py` 适配工具生命周期，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
+- `app/agents/`：Agent 专属实现；`models.py` 保留旧 DeepSeek 适配导入入口，`events.py` 适配工具生命周期，`prompts.py` 定义提示词，`tools/` 定义工具，`factory.py` 组装 Agent，`agent.py` 执行对话，`__main__.py` 提供命令行示例。
+- `app/llm/`：供应商专用客户端、模型目录与参数策略、历史兼容、凭据加密和每轮执行装配；测试位于 `tests/unit/llm/` 及供应商协议集成测试。
 - `app/core/`：Web、CLI 与其他后端模块共用的基础能力；`settings.py` 读取和校验配置，`logging.py` 集中配置标准日志，`event_loop.py` 创建兼容 Psycopg 的事件循环，`errors/` 维护错误码、应用异常和异常日志责任。
 - `app/db/`：异步业务引擎、迁移版本校验、跨进程会话执行锁，以及独立管理的 checkpoint 资源。
 - `app/schemas/`：聊天请求、聊天数据模型及通用响应模型和构建函数。

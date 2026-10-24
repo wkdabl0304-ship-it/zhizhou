@@ -105,6 +105,8 @@ class ChatTurn(Base):
         String(20), default="running", server_default="running"
     )
     error_code: Mapped[int | None] = mapped_column(Integer)
+    # 只记录实际模型与无密钥参数，旧轮次保持空值，不推测历史配置。
+    model_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

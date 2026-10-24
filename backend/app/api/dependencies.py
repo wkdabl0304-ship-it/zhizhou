@@ -8,14 +8,20 @@ from typing import Annotated
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
-from app.agents.agent import ChatAgent
+from app.llm.runtime import ConfiguredChatAgent
 from app.core.errors.codes import ErrorCode
 from app.core.errors.exceptions import RequestError
 from app.models import User
 from app.services.auth import AuthService
 from app.services.conversations import ConversationService
+from app.services.model_config import ModelConfigService
 
 bearer = HTTPBearer(auto_error=False)
+
+
+def get_model_config_service(request: Request) -> ModelConfigService:
+    """取得共享模型配置服务；后续权限控制可在模型配置路由入口统一补充。"""
+    return request.app.state.model_config_service
 
 
 def get_auth_service(request: Request) -> AuthService:
@@ -51,8 +57,8 @@ async def get_current_user(
     return await auth.authenticate(credentials.credentials)
 
 
-def get_chat_agent(request: Request) -> ChatAgent:
-    """返回当前应用启动时创建的 ChatAgent，供接口通过 Depends 注入。
+def get_chat_agent(request: Request) -> ConfiguredChatAgent:
+    """取得共享聊天执行器，具体供应商客户端在每轮持有配置快照后创建。
 
     request 由 FastAPI 提供，其 app.state 中的实例在应用退出时释放。
     本函数不创建或关闭资源；若生命周期没有正确初始化，异常向外传播，

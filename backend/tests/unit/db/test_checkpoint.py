@@ -13,7 +13,7 @@ from app.db.checkpoint import build_conninfo, open_checkpointer
 @pytest.fixture
 def settings():
     """提供数据库测试用的配置对象，所有凭据仅为无网络用途的测试值。"""
-    return Settings("key", "postgres", "password", "zhizhou", 5432)
+    return Settings("postgres", "password", "zhizhou", 5432)
 
 
 def test_connection_parameters_preserve_special_characters(settings):

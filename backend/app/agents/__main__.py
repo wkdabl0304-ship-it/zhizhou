@@ -7,14 +7,14 @@ stdout，日志写入 stderr。导入本模块不会自动执行对话。
 import asyncio
 import logging
 
-from app.agents.agent import ChatAgent
-from app.agents.factory import build_agent
-from app.agents.models import create_model
+from app.llm.runtime import ConfiguredChatAgent
 from app.agents.tools.weather import get_weather
 from app.core.event_loop import create_event_loop
 from app.core.logging import configure_logging
 from app.core.settings import load_logging_settings, load_settings
 from app.db.checkpoint import open_checkpointer
+from app.db.business import open_business_database
+from app.services.model_config import ModelConfigService
 from app.core.errors.exceptions import AppError, log_app_error
 
 logger = logging.getLogger("app.agents.cli")
@@ -27,18 +27,19 @@ CONVERSATION_ID = "conversation-002"
 async def run_chat() -> None:
     """执行命令行示例对话，并将最终助手文本输出到标准输出。
 
-    读取配置、创建模型和 checkpoint 后调用共享 ChatAgent；连接与 Agent
+    读取数据库默认模型和 checkpoint 后调用共享执行器；连接与 Agent
     始终在同一事件循环内使用，MESSAGE 与 CONVERSATION_ID 指定本次输入。
     数据库连接在 async with 内保持有效，离开时关闭。已知应用失败记录一次
     日志后以退出码 1 结束，避免解释器再次输出相同堆栈；启动配置或
     数据库初始化失败仍直接抛出，使调用者及时发现环境问题。
     """
     settings = load_settings()
-    model = create_model(settings)
-    async with open_checkpointer(settings) as checkpointer:
-        agent = ChatAgent(build_agent(model, [get_weather], checkpointer))
+    async with open_business_database(settings) as database, open_checkpointer(settings) as checkpointer:
+        service = ModelConfigService(database, settings.model_config_encryption_key)
+        agent = ConfiguredChatAgent(checkpointer, [get_weather])
         try:
-            reply = await agent.achat(MESSAGE, CONVERSATION_ID)
+            snapshot = await service.snapshot()
+            reply = await agent.achat(MESSAGE, CONVERSATION_ID, snapshot=snapshot)
         except AppError as exc:
             # Agent 通常已经记录失败；帮助函数会依据 logged 标识自动跳过。
             log_app_error(logger, exc)

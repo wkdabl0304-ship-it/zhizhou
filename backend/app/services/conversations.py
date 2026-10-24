@@ -35,6 +35,9 @@ from app.services.cursors import (
     decode_cursor,
     encode_cursor,
 )
+from app.llm.types import ModelSnapshot
+from app.llm.runtime import ConfiguredChatAgent
+from app.services.model_config import ModelConfigService
 
 logger = logging.getLogger(__name__)
 
@@ -49,18 +52,21 @@ class PreparedChat:
     is_new: bool
     public_events: list[dict] = field(default_factory=list)
     terminal: bool = False
+    model_runtime: ModelSnapshot | None = field(default=None, repr=False)
 
 
 class ConversationService:
     """组织会话业务，所有访问都要求传入经过认证的用户 ID。"""
 
-    def __init__(self, database: BusinessDatabase) -> None:
+    def __init__(self, database: BusinessDatabase, *, model_config: ModelConfigService | None = None) -> None:
         """初始化会话服务使用的数据库入口和执行锁管理器。
 
         服务对象可以跨请求复用，但不持有请求级 Session；每次读取或写入
         分别创建短事务，模型生成期间只保留专用连接上的跨进程会话锁。
+        正式入口注入 model_config；纯会话测试可省略它以单独验证会话职责。
         """
         self.database = database
+        self.model_config = model_config
         self.locks = ConversationLocks(database.lock_engine)
 
     async def require_owned(self, user_id: UUID, conversation_id: UUID) -> None:
@@ -220,6 +226,8 @@ class ConversationService:
         async with self.locks.hold(conversation_id) as acquired:
             if not acquired:
                 raise RequestError(ErrorCode.CONVERSATION_BUSY)
+            # 所有权和执行锁校验后再解析模型；未配置时不产生会话或轮次记录。
+            snapshot = await self.model_config.snapshot() if self.model_config is not None else None
             async with self.database.sessions.begin() as session:
                 if is_new:
                     conversation = Conversation(
@@ -233,13 +241,16 @@ class ConversationService:
                     )
                     if conversation is None:
                         raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
-                await repository.interrupt_running(
+                await repository.interrupt_running( # 把这个会话里之前还处于 running 状态、但实际上已经没继续跑的旧轮次标记成 interrupted
                     session, conversation_id, datetime.now(UTC)
                 )
                 turn = await repository.add_turn(
                     session, conversation, message, datetime.now(UTC)
                 )
                 prepared = PreparedChat(conversation_id, turn.id, message, is_new)
+                prepared.model_runtime = snapshot
+                if snapshot is not None:
+                    turn.model_snapshot = snapshot.public_snapshot()
             try:
                 yield prepared
             finally:
@@ -296,7 +307,7 @@ class ConversationService:
         prepared.terminal = status != "running"
 
     async def stream(
-        self, prepared: PreparedChat, agent: ChatAgent
+        self, prepared: PreparedChat, agent: ChatAgent | ConfiguredChatAgent
     ) -> AsyncIterator[ChatStart | ChatAgentEvent]:
         """执行本轮聊天，并向路由逐个提供公开的进度和结果事件。
 
@@ -314,8 +325,9 @@ class ConversationService:
         saved_at = monotonic()
         buffered_bytes = 0
         try:
+            options = {"snapshot": prepared.model_runtime} if prepared.model_runtime is not None else {}
             async with aclosing(
-                agent.astream(prepared.message, conversation_id)
+                agent.astream(prepared.message, conversation_id, **options)
             ) as stream:
                 async for event in stream:
                     if event.conversation_id != conversation_id:

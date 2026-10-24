@@ -50,6 +50,10 @@ class RequestError(AppError):
         ErrorCode.CONVERSATION_NOT_FOUND: 404,
         ErrorCode.CONVERSATION_BUSY: 409,
         ErrorCode.INVALID_ARGUMENT: 422,
+        ErrorCode.PROVIDER_CONFIGURATION_NOT_FOUND: 404,
+        ErrorCode.MODEL_CONFIGURATION_NOT_FOUND: 404,
+        ErrorCode.MODEL_VERSION_CONFLICT: 409,
+        ErrorCode.MODEL_CONFIG_IN_USE: 409,
     }
 
     def __init__(self, error_code: ErrorCode) -> None:
@@ -65,7 +69,7 @@ class RequestError(AppError):
 
 
 class ServiceError(AppError):
-    """可预期系统失败；JSON 边界返回 500，已建立的 SSE 通过 error 事件报告。"""
+    """可预期系统失败；默认返回 500，未配置模型返回 503，流内使用 error 事件。"""
 
     def __init__(self, error_code: ErrorCode = ErrorCode.INTERNAL_ERROR) -> None:
         """创建需要作为系统故障处理的应用异常。
@@ -76,6 +80,7 @@ class ServiceError(AppError):
         super().__init__(error_code)
         if not 50000 <= error_code.code <= 59999:
             raise ValueError("ServiceError 必须使用系统错误码")
+        self.status_code = 503 if error_code is ErrorCode.MODEL_NOT_CONFIGURED else 500
 
 
 def log_app_error(

@@ -6,6 +6,7 @@
 from collections.abc import Sequence
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import AgentMiddleware
 from langchain_core.language_models import BaseChatModel
 from langchain_core.tools import BaseTool
 from langgraph.checkpoint.base import BaseCheckpointSaver
@@ -17,6 +18,7 @@ def build_agent(
     model: BaseChatModel,
     tools: Sequence[BaseTool],
     checkpointer: BaseCheckpointSaver,
+    *, middleware: Sequence[AgentMiddleware] = (),
 ):
     """组装执行聊天与工具调用的 Agent 图，供 Web 和命令行共用。
 
@@ -24,10 +26,12 @@ def build_agent(
     model 负责生成和工具选择，tools 定义可调用能力，checkpointer
     负责按 Agent 适配的内部状态键保存消息。调用方须在整个图执行期间保持存储可用。
     统一系统提示词从 prompts 模块读取；组装本身不会发起模型请求。
+    middleware 可注入本轮历史兼容策略，普通图测试可省略。
     """
     return create_agent(
         model=model,
         tools=list(tools),
         system_prompt=SYSTEM_PROMPT,
         checkpointer=checkpointer,
+        middleware=list(middleware),
     )

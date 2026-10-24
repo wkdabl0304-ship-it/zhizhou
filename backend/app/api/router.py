@@ -6,10 +6,11 @@ main 模块只挂载本总路由，避免分散配置公共前缀或重复挂载
 
 from fastapi import APIRouter
 
-from app.api.routes import auth, chat, conversations
+from app.api.routes import auth, chat, conversations, model_config
 
 api_router = APIRouter(prefix="/api")
 # 子模块负责业务前缀；这里组合为 /api/chat，不重复声明 /api。
 api_router.include_router(chat.router)
 api_router.include_router(auth.router)
 api_router.include_router(conversations.router)
+api_router.include_router(model_config.router)

@@ -11,7 +11,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends
 
-from app.agents.agent import ChatAgent
+from app.llm.runtime import ConfiguredChatAgent
 from app.api.dependencies import (
     get_chat_agent,
     get_conversation_service,
@@ -182,7 +182,7 @@ async def prepare_chat(
 )
 async def chat(
     prepared: Annotated[PreparedChat, Depends(prepare_chat, scope="request")],
-    chat_agent: Annotated[ChatAgent, Depends(get_chat_agent)],
+    chat_agent: Annotated[ConfiguredChatAgent, Depends(get_chat_agent)],
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ) -> DisconnectStreamingResponse:
     # 接口用途：将已准备好的本轮聊天作为 SSE 响应交给浏览器，持续传输进度和最终回答。
