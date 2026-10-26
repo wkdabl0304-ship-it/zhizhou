@@ -107,7 +107,7 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 
 ## 模型配置接口与两层适配
 
-当前模型配置页面尚未开发，可在 `/docs` 登录授权后操作。所有登录用户，包括 `user` 和 `super_admin`，都可管理同一套全局配置；模型配置的共享范围不改变聊天历史的用户所有权。
+可通过前端[模型管理页面](../frontend/README.md#模型管理)操作，也可在 `/docs` 登录授权后验收接口。所有登录用户，包括 `user` 和 `super_admin`，都可管理同一套全局配置；模型配置的共享范围不改变聊天历史的用户所有权。
 
 首次设置按以下顺序执行：**创建供应商配置 → 创建模型方案 → 可选测试 → 设置默认**。保存和设为默认都只做本地校验，只有显式测试或聊天才调用上游。
 
@@ -145,7 +145,7 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 
 | 方法与路径 | 请求或筛选 | 成功 data |
 | --- | --- | --- |
-| `GET /catalog/providers` | 无 | 供应商数组，含格式、官方端点、业务空间是否必填 |
+| `GET /catalog/providers` | 无 | 供应商数组，含格式、官方端点；旧地域及业务空间选项仅作接口兼容 |
 | `GET /catalog/models` | 可选 `provider`、`api_format` | 模型数组，含 `catalog_model_id`、格式、能力、推理控件、允许输出上限 |
 | `GET /provider-configurations` | 无 | 全局供应商配置数组 |
 | `POST /provider-configurations` | 创建供应商配置体，见下例 | 新供应商配置详情及 `version=1` |
@@ -173,7 +173,23 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 }
 ```
 
-OpenAI、Anthropic、DeepSeek 的 `endpoint_id` 为 `official`。百炼可选 `cn-beijing / ap-southeast-1 / cn-hongkong / ap-northeast-1 / eu-central-1 / us-east-1`，通过 `workspace_id` 生成对应官方业务空间域名；北京和新加坡也允许省略业务空间，使用仍受支持的官方兼容域名。接口拒绝任意 URL、自定义请求头和额外字段。
+OpenAI、Anthropic、DeepSeek 的 `endpoint_id` 为 `official`。百炼直接填写控制台的 **OpenAI 兼容地址**，不需要单独选择地域或填写业务空间：
+
+```json
+{
+  "name": "我的百炼",
+  "provider": "bailian",
+  "api_format": "chat_completions",
+  "endpoint_config": {
+    "base_url": "https://ws-example.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+  },
+  "api_key": "仅用于说明的占位值"
+}
+```
+
+保存时清除地址首尾空白和末尾斜杠，仅接受 HTTPS 百炼官方业务空间域名及北京/新加坡公共兼容域名，路径须为 `/compatible-mode/v1`；拒绝带凭据、额外端口、查询参数、片段及原生 DashScope `/api/v1` 的地址。其他供应商仍使用既定官方端点；接口不接受任意第三方 URL、自定义请求头或额外字段。
+
+旧版百炼 `endpoint_id + workspace_id` 请求及已保存 JSON 继续兼容。读取时返回等价 `endpoint_config.base_url`，不写库、不改变版本或密钥；下次保存时转换为地址 JSON。继续复用 `endpoint_config JSONB` 列，无需新增数据库迁移，也无需重新创建已有模型或默认引用。地址变化只递增配置版本，省略 API Key 时保留原密钥和 `credential_revision`。
 
 创建模型方案示例，`provider_configuration_id` 替换为创建供应商配置返回的 UUID：
 
@@ -465,6 +481,8 @@ API 测试每例独立创建应用和依赖覆盖，生命周期用例复用正�
 模型替身提供普通多轮、真实天气工具调用，以及逐段交付后的等待和失败场景。浏览器 fixture 通过本次运行独立令牌访问测试专用控制路由，每个场景拥有独立门控；这些路由仅存在于测试装配应用中，服务只绑定回环地址。业务认证与聊天请求始终经过正式后端和临时数据库，不使用真实模型密钥。
 
 启动器先构建前端，再创建随机库和启动服务。构建失败不建库，迁移失败沿用临时库上下文清理；启动和浏览器失败也先释放等待中的模型，关闭服务、连接与本次子进程，再删除当前运行创建的库。单元测试 `tests/unit/support/test_e2e.py` 覆盖门控、控制授权、启动失败、浏览器失败、退出码与清理顺序。强制终止进程可能无法执行 finally，终端会输出本次库名供核对；不自动扫描或删除其他运行留下的库。
+
+模型配置浏览器项目在既有聊天项目完成后独占运行；测试装配为配置服务的主动模型测试复用本地供应商替身，并提供受运行令牌保护的配置重置路由。重置通过正式服务先清除默认、再删除模型和供应商，逐次使用读取版本，不修改生产路由或开发库；专项支撑回归位于 `tests/unit/support/test_e2e_model_configuration.py`。具体浏览器项目与选择命令统一见前端 E2E 说明。
 
 CLI 子进程的标准输出和错误输出通过两条管道并发读取，再由 Python 实时转发，避免 Windows 隐藏控制台及多层脚本调用时丢失构建、Playwright 汇总和失败详情；退出码保持原样。结束或取消后先完成进程回收和输出读取，再退出命令。上述支撑测试覆盖成功与失败输出、无需文件句柄的捕获流、大量双路输出及取消清理。
 

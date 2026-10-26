@@ -4,6 +4,7 @@
  */
 import { createRouter, createWebHistory, type RouterHistory } from 'vue-router'
 import ChatView from '@/views/ChatView.vue'
+import WorkspaceLayout from '@/layouts/WorkspaceLayout.vue'
 import { useAuthStore } from '@/features/auth/store'
 import { postLoginPath } from '@/features/auth/validation'
 
@@ -15,7 +16,21 @@ export function createAppRouter(
     // 使用 Vite 的部署基础路径，兼容将来部署在站点子路径的情况。
     history,
     routes: [
-      { path: '/', name: 'chat', component: ChatView, meta: { requiresAuth: true } },
+      {
+        path: '/',
+        name: 'workspace',
+        component: WorkspaceLayout,
+        meta: { requiresAuth: true },
+        // 两个业务页面只替换主内容，共用同一个导航实例。
+        children: [
+          { path: '', name: 'chat', component: ChatView },
+          {
+            path: 'models',
+            name: 'models',
+            component: () => import('@/views/ModelManagementView.vue'),
+          },
+        ],
+      },
       {
         path: '/login',
         name: 'login',

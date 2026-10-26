@@ -1,10 +1,10 @@
 """模型配置接口的数据约定：区分写入凭据、公开信息及受限的推理参数。"""
 
 from datetime import datetime
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator
+from pydantic import BaseModel, ConfigDict, Field, SecretStr, field_validator, model_validator
 
 type Provider = Literal["openai", "anthropic", "deepseek", "bailian"]
 type ApiFormat = Literal["responses", "chat_completions", "messages"]
@@ -49,10 +49,32 @@ type Reasoning = Annotated[
 
 
 class EndpointConfig(StrictModel):
-    """描述官方端点选择；供应商层继续校验地域与业务空间的组合。"""
+    """接收百炼 Base URL 或原有官方端点；旧地域字段仅保留接口及存量数据兼容。"""
 
-    endpoint_id: str = Field(min_length=1, max_length=40)
+    endpoint_id: str | None = Field(default=None, min_length=1, max_length=40)
     workspace_id: str | None = Field(default=None, min_length=1, max_length=100)
+    base_url: str | None = Field(default=None, min_length=1, max_length=2048)
+
+    @field_validator("base_url")
+    @classmethod
+    def normalize_base_url(cls, value: str | None) -> str | None:
+        """清除粘贴地址首尾空白与末尾斜杠，不改变请求所用的域名及路径。"""
+        if value is None:
+            return None
+        value = value.strip().rstrip("/")
+        if not value:
+            raise ValueError("Base URL 不能为空")
+        return value
+
+    @model_validator(mode="after")
+    def require_endpoint_shape(self) -> Self:
+        """确保直接地址与旧端点配置二选一，拒绝冲突字段或没有地址的输入。"""
+        if self.base_url is not None:
+            if self.endpoint_id is not None or self.workspace_id is not None:
+                raise ValueError("Base URL 不能与地域或业务空间同时填写")
+        elif self.endpoint_id is None:
+            raise ValueError("请提供 Base URL 或官方端点")
+        return self
 
 
 class NamedModel(StrictModel):

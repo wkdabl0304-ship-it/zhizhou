@@ -32,6 +32,15 @@ def require_version(actual: int, expected: int) -> None:
         raise RequestError(ErrorCode.MODEL_VERSION_CONFLICT)
 
 
+def provider_info(row: ProviderConfiguration) -> ProviderConfigurationInfo:
+    """返回公开供应商配置，把百炼旧地域数据转换成等价地址，读取不写库或变更版本。"""
+    info = ProviderConfigurationInfo.model_validate(row)
+    if info.provider == "bailian":
+        address = resolve_endpoint(info.provider, info.api_format, info.endpoint_config)
+        return info.model_copy(update={"endpoint_config": EndpointConfig(base_url=address)})
+    return info
+
+
 def validate_model(provider_configuration: ProviderConfiguration, body: ModelCreate):
     """验证供应商配置与模型参数组合，返回可用于客户端的具体参数。"""
     try:
@@ -67,7 +76,7 @@ class ModelConfigService:
     async def list_provider_configurations(self) -> list[ProviderConfigurationInfo]:
         """返回所有供应商配置的安全展示字段，不序列化 ORM 凭据列。"""
         async with self.database.sessions() as session:
-            return [ProviderConfigurationInfo.model_validate(row) for row in await repository.provider_configurations(session)]
+            return [provider_info(row) for row in await repository.provider_configurations(session)]
 
     async def get_provider_configuration(self, provider_configuration_id: UUID) -> ProviderConfigurationInfo:
         """读取指定供应商配置，不存在时返回独立资源错误。"""
@@ -75,21 +84,23 @@ class ModelConfigService:
             row = await repository.provider_configuration(session, provider_configuration_id)
             if row is None:
                 raise RequestError(ErrorCode.PROVIDER_CONFIGURATION_NOT_FOUND)
-            return ProviderConfigurationInfo.model_validate(row)
+            return provider_info(row)
 
     async def create_provider_configuration(self, body: ProviderConfigurationCreate) -> ProviderConfigurationInfo:
         """验证官方端点后加密保存供应商配置，不进行真实上游测试。"""
         try:
-            resolve_endpoint(body.provider, body.api_format, body.endpoint_config)
+            address = resolve_endpoint(body.provider, body.api_format, body.endpoint_config)
+            if body.provider == "bailian":
+                body = body.model_copy(update={"endpoint_config": EndpointConfig(base_url=address)})
         except ValueError:
             raise RequestError(ErrorCode.INVALID_ARGUMENT) from None
         ciphertext = self.secrets.encrypt(body.api_key)
         async with self.database.sessions.begin() as session:
             await repository.settings(session, lock=True)
-            row = ProviderConfiguration(**body.model_dump(exclude={"api_key"}), api_key_ciphertext=ciphertext)
+            row = ProviderConfiguration(**body.model_dump(exclude={"api_key"}, exclude_none=True), api_key_ciphertext=ciphertext)
             session.add(row)
             await session.flush()
-            return ProviderConfigurationInfo.model_validate(row)
+            return provider_info(row)
 
     async def patch_provider_configuration(self, provider_configuration_id: UUID, patch: ProviderConfigurationPatch) -> ProviderConfigurationInfo:
         """按版本更新供应商配置，先校验所有关联模型，任何不兼容更新整体回滚。"""
@@ -102,15 +113,17 @@ class ModelConfigService:
             changes = patch.model_dump(exclude_unset=True, exclude={"version"})
             if not changes or any(value is None for value in changes.values()):
                 raise RequestError(ErrorCode.INVALID_ARGUMENT)
-            values = ProviderConfigurationInfo.model_validate(row).model_dump(exclude={"id", "version", "created_at", "updated_at", "api_key_configured"})
+            values = provider_info(row).model_dump(exclude={"id", "version", "created_at", "updated_at", "api_key_configured"})
             values.update({key: value for key, value in changes.items() if key != "api_key"})
             try:
                 # 用正式创建输入复用名称和凭据校验，密钥不从响应掩码取回。
                 validated = ProviderConfigurationCreate(**values, api_key=patch.api_key if "api_key" in changes else "unchanged")
-                resolve_endpoint(validated.provider, validated.api_format, validated.endpoint_config)
+                address = resolve_endpoint(validated.provider, validated.api_format, validated.endpoint_config)
+                if validated.provider == "bailian":
+                    validated = validated.model_copy(update={"endpoint_config": EndpointConfig(base_url=address)})
             except ValueError:
                 raise RequestError(ErrorCode.INVALID_ARGUMENT) from None
-            for key, value in validated.model_dump(exclude={"api_key"}).items():
+            for key, value in validated.model_dump(exclude={"api_key"}, exclude_none=True).items():
                 setattr(row, key, value)
             if "api_key" in changes:
                 row.api_key_ciphertext = self.secrets.encrypt(validated.api_key)
@@ -123,7 +136,7 @@ class ModelConfigService:
                     raise RequestError(ErrorCode.MODEL_CONFIG_IN_USE) from None
             row.version += 1
             await session.flush()
-            return ProviderConfigurationInfo.model_validate(row)
+            return provider_info(row)
 
     async def delete_provider_configuration(self, provider_configuration_id: UUID, version: int) -> None:
         """删除没有关联模型的供应商配置，版本过期或仍被引用时保留原数据。"""

@@ -7,13 +7,18 @@ import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
 
 const model = defineModel<string>({ default: '' })
-const props = defineProps<{ disabled?: boolean; sending?: boolean }>()
+const props = defineProps<{ disabled?: boolean; sending?: boolean; sendBlocked?: boolean }>()
 const emit = defineEmits<{ send: [text: string] }>()
 const input = ref<InstanceType<typeof UiAutoTextarea>>()
 const composing = ref(false)
 // 等待回复时允许继续编辑草稿，但阻止再次提交，避免同一业务会话并发续写历史。
 const canSend = computed(
-  () => !props.disabled && !props.sending && !composing.value && Boolean(model.value.trim()),
+  () =>
+    !props.disabled &&
+    !props.sending &&
+    !props.sendBlocked &&
+    !composing.value &&
+    Boolean(model.value.trim()),
 )
 
 /**

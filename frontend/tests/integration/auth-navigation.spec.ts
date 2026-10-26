@@ -8,6 +8,7 @@ import App from '@/App.vue'
 import { createAppRouter } from '@/router/index'
 import { useChatStore } from '@/features/chat/store'
 import { AUTH_STORAGE_KEY, useAuthStore } from '@/features/auth/store'
+import { modelConfigData } from '@tests/support/data/model-config'
 import { createAuthData } from '@tests/support/data/auth'
 import { deferredResponse, response } from '@tests/support/vitest/http'
 
@@ -30,7 +31,13 @@ beforeEach(() => {
   localStorage.clear()
   fetchMock.mockReset()
   // 认证成功进入真实工作区后允许读取空会话目录，不把该请求误当成认证调用。
-  fetchMock.mockResolvedValue(response({ items: [], next_cursor: null }))
+  fetchMock.mockImplementation(async (url) =>
+    response(
+      String(url) === '/api/model-config/default'
+        ? modelConfigData().selected
+        : { items: [], next_cursor: null },
+    ),
+  )
   vi.stubGlobal('fetch', fetchMock)
   vi.stubGlobal('matchMedia', () => ({
     matches: false,
@@ -112,6 +119,7 @@ describe('认证页面与工作区边界', () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/auth/register',
       '/api/auth/login',
+      '/api/model-config/default',
       '/api/conversations?limit=20',
     ])
   })
@@ -128,11 +136,12 @@ describe('认证页面与工作区边界', () => {
     expect(page.text()).toContain(USER.username)
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/auth/me',
+      '/api/model-config/default',
       '/api/conversations?limit=20',
     ])
     await router.push('/register')
     expect(router.currentRoute.value.name).toBe('chat')
-    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(fetchMock).toHaveBeenCalledTimes(3)
   })
 
   // 账号重复属于字段错误；凭据错误属于登录请求失败，均保留表单重试入口。

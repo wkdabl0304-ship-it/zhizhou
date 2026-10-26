@@ -1,7 +1,7 @@
 <!-- 聊天侧栏：共用于桌面导航与窄屏抽屉，向上报告选择、新建和折叠事件。 -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowUpRight, LogOut, PanelLeft, SquarePen } from '@lucide/vue'
+import { ArrowUpRight, LogOut, PanelLeft, SquarePen, SlidersHorizontal } from '@lucide/vue'
 import type { Conversation } from '@/features/chat/types'
 import ThemeMenu from '@/shared/components/ThemeMenu.vue'
 import BrandLogo from '@/shared/components/BrandLogo.vue'
@@ -108,6 +108,13 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
       </button>
     </nav>
     <div class="sidebar-bottom">
+      <RouterLink
+        class="model-management-link"
+        to="/models"
+        active-class="is-active"
+        aria-label="模型管理"
+        ><SlidersHorizontal :size="17" /><span v-if="!compact">模型管理</span></RouterLink
+      >
       <div v-if="!compact" class="workspace-note">
         <span class="workspace-note-dot" />为每一个好想法，找到方向。
       </div>
@@ -137,6 +144,24 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
 </template>
 
 <style scoped>
+.model-management-link {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-decoration: none;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.model-management-link:hover {
+  color: var(--brand);
+  background: var(--surface-hover);
+}
+.model-management-link.is-active {
+  color: var(--brand);
+  background: var(--surface-active);
+}
 .directory-action {
   border: 0;
   border-radius: 6px;

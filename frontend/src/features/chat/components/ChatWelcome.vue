@@ -7,7 +7,7 @@ import BrandLogo from '@/shared/components/BrandLogo.vue'
 import ChatComposer from './ChatComposer.vue'
 import RiverWelcomeHero from './RiverWelcomeHero.vue'
 const model = defineModel<string>({ default: '' })
-defineProps<{ sending?: boolean }>()
+defineProps<{ sending?: boolean; sendBlocked?: boolean }>()
 defineEmits<{ send: [text: string] }>()
 const composer = ref<InstanceType<typeof ChatComposer>>()
 /** 将建议问题填入聊天草稿，等待 DOM 更新后聚焦输入框；不会直接发送 prompt。 */
@@ -33,6 +33,7 @@ defineExpose({ focus })
         ref="composer"
         v-model="model"
         :sending="sending"
+        :send-blocked="sendBlocked"
         @send="$emit('send', $event)"
       />
       <div class="suggestions">

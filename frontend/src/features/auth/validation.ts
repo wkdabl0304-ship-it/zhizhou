@@ -35,5 +35,5 @@ export function postLoginPath(value: unknown): string {
   )
     return '/'
   const path = value.split(/[?#]/)[0]
-  return path === '/' || path === '/dev/ui' ? value : '/'
+  return path === '/' || path === '/dev/ui' || path === '/models' ? value : '/'
 }

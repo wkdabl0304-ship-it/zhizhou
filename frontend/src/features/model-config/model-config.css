@@ -1,0 +1,428 @@
+/* 模型管理内容及 Portal 表单样式：工作区侧栏由共用布局负责，管理面板按自身可用宽度响应。 */
+.model-management-main {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  scrollbar-gutter: stable;
+  container-type: inline-size;
+}
+.config-page {
+  width: 100%;
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 24px 32px 40px;
+}
+.model-management-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+}
+.model-management-heading h1 {
+  margin: 0 0 8px;
+  font-family: 'Noto Serif SC', 'Songti SC', 'SimSun', serif;
+  font-size: 28px;
+  font-weight: 500;
+  letter-spacing: 1px;
+}
+.config-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--brand);
+  font-size: 13px;
+  text-decoration: none;
+}
+.config-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.config-default {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 16px;
+  margin-bottom: 24px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.config-default-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+.config-default-summary > div {
+  min-width: 0;
+}
+.config-default-icon,
+.config-empty-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--brand-soft);
+  color: var(--brand);
+}
+.config-default h2 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0;
+  font-size: 17px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.config-eyebrow {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+.config-hint {
+  margin: 8px 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.config-default .config-hint {
+  margin: 3px 0 0;
+  font-size: 12px;
+}
+.config-default-context {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  gap: 8px;
+}
+.config-management-grid {
+  display: grid;
+  grid-template-columns: 248px minmax(0, 1fr);
+  align-items: start;
+  gap: 20px;
+}
+.config-management-grid > section {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  padding: 20px;
+}
+.config-section-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 0 0 16px;
+}
+.config-section-heading h2,
+.config-section-heading h3 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.config-section-heading small {
+  margin-left: 6px;
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 400;
+}
+.config-provider-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.config-provider-list button {
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: var(--bg);
+  text-align: left;
+  color: var(--text);
+}
+.config-provider-list button:hover {
+  background: var(--surface-hover);
+}
+.config-provider-list button[aria-pressed='true'] {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.config-provider-list strong {
+  display: block;
+  font-size: 14px;
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.config-provider-list small {
+  display: block;
+  margin-top: 6px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.config-provider-panel > .config-hint {
+  margin: 16px 0 0;
+  font-size: 12px;
+}
+.config-provider-mobile {
+  display: none;
+}
+.config-provider-summary {
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+  border-bottom: 1px solid var(--border);
+}
+.config-provider-summary > .config-actions {
+  margin-top: 8px;
+}
+.config-provider-summary .config-section-heading {
+  margin-bottom: 8px;
+}
+.config-badge {
+  display: inline-block;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: var(--brand-soft);
+  color: var(--brand);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.config-badge--invalid {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.config-model-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+  gap: 16px;
+}
+.config-model-card {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.config-model-id {
+  margin: 0 0 12px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.config-endpoint-url {
+  display: block;
+  margin-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+.config-model-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.config-model-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.config-test-success {
+  color: var(--brand);
+  font-size: 12px;
+}
+.config-test-caption {
+  margin: 8px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+/* 空状态集中表达下一步，避免把没有内容的横向区域画成巨大的虚线容器。 */
+.config-empty {
+  display: flex;
+  min-height: 220px;
+  padding: 24px 16px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.config-empty-icon {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 14px;
+  border-radius: 16px;
+}
+.config-empty h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 500;
+}
+.config-empty p {
+  max-width: 340px;
+  margin: 8px 0 18px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.8;
+}
+.config-model-panel > .config-hint {
+  margin: 18px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+}
+.config-danger {
+  color: var(--danger) !important;
+}
+.config-error {
+  color: var(--danger);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.config-notice {
+  padding: 12px;
+  border-left: 3px solid var(--brand);
+  background: var(--surface);
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.config-fields {
+  min-height: 0;
+  overflow: auto;
+  flex: 1;
+  padding: 0 3px;
+}
+.config-fields fieldset {
+  padding: 0;
+  margin: 0;
+  border: 0;
+  min-width: 0;
+}
+.config-fields label {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  color: var(--text);
+  margin: 0 0 20px;
+}
+.config-fields small {
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+.config-fields input,
+.config-fields select,
+.config-provider-mobile select {
+  padding: 10px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+.config-fields input:disabled,
+.config-fields select:disabled {
+  opacity: 0.65;
+}
+.config-editor-footer {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+  padding-top: 17px;
+  margin-top: 17px;
+  border-top: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.config-editor-footer small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+.config-confirm-actions {
+  justify-content: flex-end;
+  margin-top: 22px;
+}
+/* 以内容宽度而非屏幕宽度折叠供应商列表，兼容展开/收起的工作区侧栏。 */
+@container (max-width: 880px) {
+  .config-page {
+    padding: 20px 24px 32px;
+  }
+  .config-management-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .config-provider-list {
+    display: none;
+  }
+  .config-provider-mobile {
+    display: block;
+    color: var(--text-secondary);
+    font-size: 12px;
+  }
+  .config-provider-mobile select {
+    display: block;
+    margin-top: 7px;
+    font-size: 14px;
+  }
+}
+@container (max-width: 540px) {
+  .config-page {
+    padding: 16px 16px 28px;
+  }
+  .model-management-heading {
+    align-items: flex-start;
+    margin-bottom: 20px;
+  }
+  .model-management-heading h1 {
+    font-size: 25px;
+  }
+  .config-default {
+    align-items: flex-start;
+    margin-bottom: 16px;
+    padding: 16px;
+  }
+  .config-default-context {
+    align-items: flex-start;
+  }
+  .config-management-grid > section {
+    padding: 16px;
+  }
+  .config-empty {
+    min-height: 230px;
+    padding: 24px 8px;
+  }
+  .config-empty h2 {
+    font-size: 17px;
+  }
+  .config-provider-mobile select {
+    font-size: 16px;
+  }
+}
+@media (max-width: 760px) {
+  .config-fields input,
+  .config-fields select {
+    font-size: 16px;
+  }
+}

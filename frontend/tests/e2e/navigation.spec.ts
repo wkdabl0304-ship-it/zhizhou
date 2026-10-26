@@ -9,6 +9,75 @@ import {
   finished,
 } from '../support/playwright/fixtures'
 
+// 同一侧栏在两个业务页面间保持尺寸、会话和折叠状态，手机继续使用原导航抽屉。
+test('进入模型管理保留侧栏，选中入口并能从会话目录返回聊天', async ({ page, account }) => {
+  await login(page, account)
+  await send(page, '管理页导航回归')
+  await finished(page)
+  const narrow = page.viewportSize()!.width <= 760
+  let navigation = await sidebar(page)
+  const initialBox = await navigation.boundingBox()
+  const desktopNode = narrow ? null : await navigation.elementHandle()
+  if (!narrow) await navigation.getByRole('button', { name: '收起侧栏', exact: true }).click()
+  const foldedBox = await navigation.boundingBox()
+  await navigation.getByRole('link', { name: '模型管理', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 1, name: '模型管理', exact: true })).toBeVisible()
+  if (narrow) {
+    await expect(navigation).not.toBeVisible()
+    await page.getByRole('button', { name: '打开侧栏', exact: true }).click()
+    navigation = page.getByRole('dialog', { name: '会话导航', exact: true })
+  } else {
+    expect(await desktopNode!.evaluate((element) => element.isConnected)).toBe(true)
+    expect((await navigation.boundingBox())!.width).toBe(foldedBox!.width)
+    await expect(navigation.getByRole('button', { name: '展开侧栏', exact: true })).toBeVisible()
+    await navigation.getByRole('button', { name: '展开侧栏', exact: true }).click()
+    expect((await navigation.boundingBox())!.width).toBe(initialBox!.width)
+  }
+  await expect(navigation.getByRole('link', { name: '模型管理', exact: true })).toHaveAttribute(
+    'aria-current',
+    'page',
+  )
+  await expect(
+    navigation.getByRole('button', { name: '管理页导航回归', exact: true }),
+  ).toBeVisible()
+  await navigation.getByRole('button', { name: '管理页导航回归', exact: true }).click()
+  await expect(
+    page.getByRole('heading', { level: 1, name: '管理页导航回归', exact: true }),
+  ).toBeVisible()
+  await expect(page.getByRole('textbox', { name: '消息内容' })).toBeVisible()
+  await expect(page.getByRole('article')).toHaveCount(2)
+})
+
+// 子页面卸载不能丢失 store 中的生成任务；使用门控保证导航发生在真实 SSE 的两段回复之间。
+test('生成期间进入模型管理再返回，原回复继续完成且刷新后可读', async ({
+  page,
+  account,
+  modelGate,
+}) => {
+  await login(page, account)
+  const gate = await modelGate()
+  await send(page, gate.prompt)
+  await expect(page.getByRole('article', { name: '知舟的回复', exact: true })).toContainText(
+    '已收到部分回答',
+  )
+  await (await sidebar(page)).getByRole('link', { name: '模型管理', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '模型管理', exact: true })).toBeVisible()
+  expect(await gate.closed()).toBe(false)
+  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await expect(page.getByRole('article', { name: '知舟的回复', exact: true })).toContainText(
+    '已收到部分回答',
+  )
+  await gate.release()
+  await expect(await finished(page)).toContainText('已收到部分回答，现在完成。')
+  await page.reload()
+  await (
+    await sidebar(page)
+  )
+    .getByRole('button', { name: gate.prompt.slice(0, 24), exact: true })
+    .click()
+  await expect(await finished(page)).toContainText('已收到部分回答，现在完成。')
+})
+
 test('删除必须确认，取消保留数据，确认后刷新目录仍不显示', async ({ page, account }) => {
   await login(page, account)
   await send(page, '待删除会话')

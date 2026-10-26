@@ -5,7 +5,10 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { disposePinia, type Pinia } from 'pinia'
 import { defineComponent } from 'vue'
 import { TooltipProvider } from 'reka-ui'
-import ChatView from '@/views/ChatView.vue'
+import { RouterView, createMemoryHistory } from 'vue-router'
+import { createAppRouter } from '@/router'
+import { useModelConfigStore } from '@/features/model-config/store'
+import { modelConfigData } from '@tests/support/data/model-config'
 import { authenticate } from '@tests/support/vitest/auth'
 import { A, B, info, turn } from '@tests/support/data/chat'
 import { response } from '@tests/support/vitest/http'
@@ -24,6 +27,8 @@ beforeEach(async () => {
     removeEventListener: vi.fn<() => void>(),
   }))
   await authenticate(pinia, fetchMock)
+  // 历史与目录可以独立于模型配置验证，完整默认加载另由应用集成覆盖。
+  useModelConfigStore(pinia).selected = modelConfigData().selected
 })
 // 页面卸载后才销毁状态和全局替身，确保请求与监听按真实生命周期清理。
 afterEach(() => {
@@ -36,12 +41,15 @@ afterEach(() => {
 
 /** 挂载具有真实 Tooltip 上下文的工作区，保留首次会话目录请求。 */
 async function open() {
+  const router = createAppRouter(createMemoryHistory())
+  await router.push('/')
+  await router.isReady()
   const Host = defineComponent({
-    components: { TooltipProvider, ChatView },
-    template: '<TooltipProvider><ChatView /></TooltipProvider>',
+    components: { TooltipProvider, RouterView },
+    template: '<TooltipProvider><RouterView /></TooltipProvider>',
   })
   wrapper = mount(Host, {
-    global: { plugins: [pinia], stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    global: { plugins: [pinia, router] },
   })
   await flushPromises()
   return wrapper

@@ -38,6 +38,49 @@ def test_official_endpoints_and_workspace_injection_rejection():
             resolve_endpoint(provider, fmt, endpoint)
 
 
+@pytest.mark.parametrize("address", [
+    "https://ws-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "https://llm-demo.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1",
+    "https://ws-demo.cn-hongkong.maas.aliyuncs.com/compatible-mode/v1",
+    "https://dashscope.aliyuncs.com/compatible-mode/v1",
+    "https://dashscope-intl.aliyuncs.com/compatible-mode/v1",
+])
+def test_pasted_bailian_base_url_normalization(address):
+    """可直接粘贴业务空间或原公共地址，首尾空白及末尾斜杠不影响最终调用。"""
+    config = EndpointConfig(base_url=f"  {address}/ \n")
+    assert config.base_url == address
+    assert resolve_endpoint("bailian", "chat_completions", config) == address
+
+
+@pytest.mark.parametrize("address", [
+    "http://ws-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "https://127.0.0.1/compatible-mode/v1", "https://evil.invalid/compatible-mode/v1",
+    "https://ws-demo.cn-beijing.maas.aliyuncs.com.evil.invalid/compatible-mode/v1",
+    "https://user:secret@ws-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
+    "https://ws-demo.cn-beijing.maas.aliyuncs.com:443/compatible-mode/v1",
+    "https://ws-demo.cn-beijing.maas.aliyuncs.com/api/v1",
+    "https://ws-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1/chat/completions",
+    "https://ws-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1?key=secret",
+    "https://ws-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/v1#fragment",
+    "https://ws-demo.cn-beijing.maas.aliyuncs.com/compatible-mode/\nv1",
+])
+def test_invalid_pasted_bailian_base_url_rejected(address):
+    """错误协议、伪装域名、凭据、原生接口和请求参数不能成为密钥发送目标。"""
+    with pytest.raises(ValueError):
+        resolve_endpoint("bailian", "chat_completions", EndpointConfig(base_url=address))
+
+
+def test_direct_address_cannot_mix_legacy_fields_or_change_other_providers():
+    """直接地址与旧地域参数互斥，其他供应商继续使用自身既定官方端点。"""
+    address = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+    for fields in ({}, {"base_url": " "}, {"base_url": address, "endpoint_id": "cn-beijing"},
+                   {"base_url": address, "workspace_id": "ws-demo"}):
+        with pytest.raises(ValidationError):
+            EndpointConfig(**fields)
+    with pytest.raises(ValueError):
+        resolve_endpoint("deepseek", "chat_completions", EndpointConfig(base_url=address))
+
+
 def test_credentials_are_write_only_and_unknown_parameters_forbidden():
     """输入对象隐藏密钥并拒绝空值、自定义地址和未声明端点字段。"""
     body = dict(name="正式供应商配置", provider="deepseek", api_format="chat_completions", endpoint_config={"endpoint_id": "official"}, api_key="private-model-key")

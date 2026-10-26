@@ -24,8 +24,9 @@ watch(
 </script>
 
 <template>
+  <!-- 以顶层路由区分页面，聊天/管理子路由切换时保留工作区外壳和侧栏状态。 -->
   <TooltipProvider :delay-duration="350"
     ><RouterView v-slot="{ Component, route }"
-      ><component :is="Component" :key="route.name ?? route.path" /></RouterView
+      ><component :is="Component" :key="route.matched[0]?.name ?? route.path" /></RouterView
   ></TooltipProvider>
 </template>

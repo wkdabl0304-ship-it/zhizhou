@@ -18,8 +18,33 @@ export default defineConfig({
     reducedMotion: 'reduce',
   },
   projects: [
-    { name: 'chromium-desktop', use: { viewport: { width: 1440, height: 900 } } },
-    { name: 'chromium-narrow', use: { viewport: { width: 390, height: 844 } } },
+    {
+      name: 'chromium-desktop',
+      testIgnore: '**/model-config.spec.ts',
+      use: { viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'chromium-narrow',
+      testIgnore: '**/model-config.spec.ts',
+      use: { viewport: { width: 390, height: 844 } },
+    },
+    // 配置由所有账号共享：先完成既有并行流程，再串行运行会清空/切换全局配置的场景。
+    {
+      name: 'model-config-desktop',
+      testMatch: '**/model-config.spec.ts',
+      dependencies: ['chromium-desktop', 'chromium-narrow'],
+      workers: 1,
+      fullyParallel: false,
+      use: { viewport: { width: 1440, height: 900 } },
+    },
+    {
+      name: 'model-config-narrow',
+      testMatch: '**/model-config.spec.ts',
+      dependencies: ['model-config-desktop'],
+      workers: 1,
+      fullyParallel: false,
+      use: { viewport: { width: 390, height: 844 } },
+    },
   ],
   webServer: {
     command: `node node_modules/vite/bin/vite.js preview --config tests/support/playwright/vite.config.ts --host 127.0.0.1 --port ${process.env.E2E_WEB_PORT} --strictPort`,

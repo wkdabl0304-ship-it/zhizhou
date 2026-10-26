@@ -37,10 +37,16 @@ export const useChatStore = defineStore('chat', () => {
   const listInitialized = ref(false)
   const nextCursor = ref<string | null>(null)
   const actionError = ref('')
+  const lastErrorCode = ref<number>()
+  // 草稿只在内存中跨管理页保留，切换会话或退出时清空，不写入浏览器存储。
+  const draft = ref('')
   const activeConversation = computed(() =>
     conversations.value.find((item) => item.id === activeId.value),
   )
   const isSending = computed(() => !!activeConversation.value?.running)
+  watch(activeConversation, () => {
+    draft.value = ''
+  })
   const inputBlocked = computed(() => {
     const row = activeConversation.value
     return (
@@ -100,6 +106,8 @@ export const useChatStore = defineStore('chat', () => {
   /** 清空账号缓存并取消全部在途请求；这里只清理浏览器状态，不删除服务端会话。 */
   function clearLocal(): void {
     epoch += 1
+    draft.value = ''
+    lastErrorCode.value = undefined
     for (const pending of controllers) pending.abort()
     controllers.clear()
     histories.clear()
@@ -251,6 +259,7 @@ export const useChatStore = defineStore('chat', () => {
    */
   async function send(text: string): Promise<boolean> {
     const content = text.trim()
+    lastErrorCode.value = undefined
     if (!content || isSending.value || inputBlocked.value || !auth.isAuthenticated) return false
     if (!activeConversation.value) {
       // draft 只作为尚未收到 start 的界面键，绝不放进网络请求。
@@ -328,6 +337,7 @@ export const useChatStore = defineStore('chat', () => {
       finishActivities(assistant, false)
       assistant.status = 'error'
       assistant.error = explain(error)
+      lastErrorCode.value = error instanceof ApiError ? error.code : undefined
       if (error instanceof ApiError && error.status === 404) row.unavailable = true
       if (error instanceof ApiError && error.status === 409) row.remoteRunning = true
       return false
@@ -337,6 +347,8 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
   return {
+    draft,
+    lastErrorCode,
     conversations,
     activeId,
     activeConversation,

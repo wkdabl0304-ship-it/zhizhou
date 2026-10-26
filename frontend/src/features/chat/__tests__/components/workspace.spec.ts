@@ -4,12 +4,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { disposePinia, type Pinia } from 'pinia'
 import { useChatStore } from '@/features/chat/store'
+import { useModelConfigStore } from '@/features/model-config/store'
+import { modelConfigData } from '@tests/support/data/model-config'
 import { authenticate } from '@tests/support/vitest/auth'
 let pinia: Pinia
 let serverSequence = 0
 import { defineComponent } from 'vue'
 import { TooltipProvider } from 'reka-ui'
-import ChatView from '@/views/ChatView.vue'
+import { RouterView, createMemoryHistory } from 'vue-router'
+import { createAppRouter } from '@/router'
 import WelcomeHeading from '@/features/chat/components/WelcomeHeading.vue'
 import { controlledStream } from '@tests/support/vitest/sse'
 import { eventFrame, success } from '@tests/support/vitest/chat'
@@ -31,6 +34,8 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', fetchMock)
   pinia = createPinia()
   await authenticate(pinia, fetchMock)
+  // 本组聚焦聊天生成，预置有效默认；首次默认加载与配置引导由跨业务集成测试验证。
+  useModelConfigStore(pinia).selected = modelConfigData().selected
   // 此组聚焦流式交互，使用已加载的空目录；真实首次目录读取另由会话页面集成测试覆盖。
   useChatStore(pinia).listInitialized = true
   vi.stubGlobal('matchMedia', () => ({
@@ -47,15 +52,18 @@ afterEach(() => {
   document.body.innerHTML = ''
 })
 
-/** 挂载聊天工作空间以测试页面级交互；使用独立 Pinia 和真实提示上下文，仅替换路由链接。 */
-function renderWorkspace() {
+/** 挂载真实路由及共用工作区，以独立 Pinia 和提示上下文验证聊天页面级交互。 */
+async function renderWorkspace() {
+  const router = createAppRouter(createMemoryHistory())
+  await router.push('/')
+  await router.isReady()
   const Host = defineComponent({
-    components: { TooltipProvider, ChatView },
-    template: '<TooltipProvider><ChatView /></TooltipProvider>',
+    components: { TooltipProvider, RouterView },
+    template: '<TooltipProvider><RouterView /></TooltipProvider>',
   })
   const wrapper = mount(Host, {
     attachTo: document.body,
-    global: { plugins: [pinia], stubs: { RouterLink: { template: '<a><slot /></a>' } } },
+    global: { plugins: [pinia, router] },
   })
   wrappers.push(wrapper)
   return wrapper
@@ -64,7 +72,7 @@ function renderWorkspace() {
 describe('聊天工作空间', () => {
   // 首页输入实例会在发送时被替换，必须将焦点送到新对话页的输入框。
   it('建议只填入草稿，发送后创建对话并保持输入焦点', async () => {
-    const wrapper = renderWorkspace()
+    const wrapper = await renderWorkspace()
     // 首页使用独立的现代宋体组件，正文与输入区继续使用公共无衬线字体。
     expect(wrapper.findComponent(WelcomeHeading).exists()).toBe(true)
     // 装饰跟随首页生命周期，进入正文后应释放背景，保持阅读区稳定。
@@ -83,7 +91,7 @@ describe('聊天工作空间', () => {
 
   // 草稿不跨会话携带，防止切换后误发；会话正文仍由各自数据恢复。
   it('切换会话与新建时清除草稿', async () => {
-    const wrapper = renderWorkspace()
+    const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('第一段对话')
     await wrapper.get('form').trigger('submit')
     await flushPromises()
@@ -106,7 +114,7 @@ describe('聊天工作空间', () => {
           rejectReply = reject
         }),
     )
-    const wrapper = renderWorkspace()
+    const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('测试慢请求')
     await wrapper.get('form').trigger('submit')
     expect(wrapper.get('[role="status"]').text()).toContain('正在整理思路')
@@ -129,7 +137,7 @@ describe('聊天工作空间', () => {
   it('逐段展示回复，中断后保留文本和草稿并标明未完成', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
-    const wrapper = renderWorkspace()
+    const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('流式回复测试')
     await wrapper.get('form').trigger('submit')
     const { conversation_id = 'server-session-a' } = JSON.parse(
@@ -159,7 +167,7 @@ describe('聊天工作空间', () => {
   it('实时展示进度正文和命令过程，局部失败后继续展示 Markdown 回答', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
-    const wrapper = renderWorkspace()
+    const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('执行测试任务')
     await wrapper.get('form').trigger('submit')
     const { conversation_id = 'server-session-a' } = JSON.parse(
@@ -221,7 +229,7 @@ describe('聊天工作空间', () => {
   it('按顺序显示行动和工具，完成后折叠全部过程且不重复最终回答', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
-    const wrapper = renderWorkspace()
+    const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('查询北京天气')
     await wrapper.get('form').trigger('submit')
     const { conversation_id = 'server-session-a' } = JSON.parse(
@@ -323,7 +331,7 @@ describe('聊天工作空间', () => {
   it('普通回答完成后只展示最终正文，失败时保留展开的部分过程', async () => {
     const stream = controlledStream()
     fetchMock.mockResolvedValueOnce(stream.response)
-    const wrapper = renderWorkspace()
+    const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('你好')
     await wrapper.get('form').trigger('submit')
     const { conversation_id = 'server-session-a' } = JSON.parse(

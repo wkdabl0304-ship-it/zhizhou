@@ -35,6 +35,9 @@ from tests.support.postgres import seed_model_configuration
 from app.db.business import open_business_database
 from app.services.model_config import ModelConfigService
 from app.llm.runtime import ConfiguredChatAgent
+from app.llm.providers.failures import ProviderFailure
+from app.core.errors.codes import ErrorCode
+from app.schemas.model_config import DefaultUpdate
 
 FRONTEND_ROOT = Path(__file__).resolve().parents[3] / "frontend"
 
@@ -97,6 +100,38 @@ class ControlledModel(StubChatModel):
             scenario.closed = True
 
 
+@asynccontextmanager
+async def open_test_model(snapshot, *, model: ControlledModel):
+    """提供仅本地 E2E 使用的供应商边界，特定假密钥可稳定演示上游鉴权失败。"""
+    if snapshot.api_key.get_secret_value() == "e2e-rejected-key":
+        raise ProviderFailure(ErrorCode.MODEL_AUTH_FAILED)
+    yield model
+
+
+async def reset_model_configuration(service: ModelConfigService, *, seeded: bool) -> None:
+    """通过正式配置服务清理本次随机库的全局设置，必要时重新准备假密钥默认模型。
+
+    浏览器配置项目独占执行本操作；先清除默认，再按模型、供应商顺序解除引用。
+    不使用直接 SQL，也不接触开发数据库或正在并行运行的聊天场景。
+    """
+    selected = await service.get_default()
+    await service.set_default(DefaultUpdate(version=selected.version, model_configuration_id=None))
+    for item in await service.list_models():
+        await service.delete_model(item.id, item.version)
+    for item in await service.list_provider_configurations():
+        await service.delete_provider_configuration(item.id, item.version)
+    if seeded:
+        # seed 工厂默认只适用于初次迁移版本；此处根据当前设置版本显式写入。
+        from app.schemas.model_config import ProviderConfigurationCreate, ModelCreate
+        provider = await service.create_provider_configuration(ProviderConfigurationCreate(
+            name="测试 DeepSeek", provider="deepseek", api_format="chat_completions",
+            endpoint_config={"endpoint_id": "official"}, api_key="unused-test-key"))
+        model = await service.create_model(ModelCreate(name="测试模型", provider_configuration_id=provider.id,
+                                                       catalog_model_id="deepseek:deepseek-flash"))
+        selected = await service.get_default()
+        await service.set_default(DefaultUpdate(version=selected.version, model_configuration_id=model.id))
+
+
 def build_test_app(settings, model: ControlledModel, control_token: str):
     """创建使用正式生命周期的测试应用，仅添加本地模型控制能力。
 
@@ -105,7 +140,19 @@ def build_test_app(settings, model: ControlledModel, control_token: str):
     """
     from app.main import lifespan
 
-    app = make_app(lifespan=lifespan)
+    @asynccontextmanager
+    async def test_lifespan(app):
+        """复用正式生命周期，在资源就绪后仅替换主动测试的供应商边界并在退出时恢复。"""
+        async with lifespan(app):
+            service = app.state.model_config_service
+            original = service.model_opener
+            service.model_opener = partial(open_test_model, model=model)
+            try:
+                yield
+            finally:
+                service.model_opener = original
+
+    app = make_app(lifespan=test_lifespan)
 
     async def authorize(request: Request) -> None:
         """限制控制通道为持有本次临时令牌的测试 fixture 使用。"""
@@ -120,6 +167,16 @@ def build_test_app(settings, model: ControlledModel, control_token: str):
         if body.get("kind") not in {"hold", "fail"}:
             raise HTTPException(422)
         return {"prompt": model.prepare(body["kind"])}
+
+    @app.post("/__e2e__/model-configuration")
+    async def configure_models(request: Request):
+        """为独占模型配置项目准备空状态或恢复假默认，必须持有本次运行的控制令牌。"""
+        await authorize(request)
+        body = await request.json()
+        if body not in ({"mode": "empty"}, {"mode": "seeded"}):
+            raise HTTPException(422)
+        await reset_model_configuration(request.app.state.model_config_service, seeded=body["mode"] == "seeded")
+        return {"configured": body["mode"]}
 
     @app.post("/__e2e__/scenarios/{prompt}/release")
     async def release(prompt: str, request: Request):
@@ -255,12 +312,7 @@ async def run_e2e(arguments: Sequence[str]) -> int:
         token = secrets.token_urlsafe(32)
         app = build_test_app(settings, model, token)
         server = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", log_level="warning", access_log=False, timeout_graceful_shutdown=10))
-        @asynccontextmanager
-        async def model_opener(snapshot):
-            """保留配置快照和真实图，只替换付费模型调用边界。"""
-            yield model
-
-        with patch.object(main, "load_settings", return_value=settings), patch.object(main, "ConfiguredChatAgent", partial(ConfiguredChatAgent, model_opener=model_opener)):
+        with patch.object(main, "load_settings", return_value=settings), patch.object(main, "ConfiguredChatAgent", partial(ConfiguredChatAgent, model_opener=partial(open_test_model, model=model))):
             async with running_server(server, reserve_listener(), model) as api_url:
                 with reserve_listener() as probe:
                     web_port = probe.getsockname()[1]
