@@ -47,6 +47,21 @@ def test_openapi_uses_provider_configuration_names():
     assert {parameter["name"] for parameter in parameters} == {"provider_configuration_id"}
 
 
+def test_openapi_exposes_restricted_selection_and_versioned_conversation_patch():
+    """公开类型区分模型原生能力、受限选项及会话选择，并保留登录校验。"""
+    schema = make_app().openapi()
+    paths, schemas = schema["paths"], schema["components"]["schemas"]
+    for path, method in (("/api/model-config/options", "get"),
+                         ("/api/conversations/{conversation_id}/model-selection", "patch")):
+        assert paths[path][method]["security"] == [{"HTTPBearer": []}]
+    assert "enabled" in schemas["ProviderConfigurationCreate"]["properties"]
+    assert "reasoning_policy" in schemas["ModelCreate"]["properties"]
+    assert "selectable" in schemas["ModelInfo"]["properties"]
+    assert set(schemas["ModelSelectionUpdate"]["required"]) == {"model_selection", "model_selection_version"}
+    assert "model_selection_issue" in schemas["ConversationInfo"]["properties"]
+    assert schemas["ModelSelection"]["additionalProperties"] is False
+
+
 def test_openapi_documents_sse_and_uniform_pre_stream_errors(runtime):
     """OpenAPI 成功类型仅为 SSE，示例涵盖终止事件；参数及框架错误仍为 JSON。"""
     with TestClient(runtime.app) as client:

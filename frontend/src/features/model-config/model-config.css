@@ -329,6 +329,19 @@
   font-size: 11px;
   color: var(--text-secondary);
 }
+.config-fields .config-switch {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.config-fields .config-switch input {
+  width: auto;
+}
+.config-fields .config-switch small {
+  width: 100%;
+}
 .config-fields input,
 .config-fields select,
 .config-provider-mobile select {

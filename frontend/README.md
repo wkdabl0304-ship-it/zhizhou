@@ -62,7 +62,7 @@ Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会�
 
 模型管理与聊天共用工作区侧栏，跨页面保留会话目录、账户区域和折叠状态，仅切换入口选中状态。管理区顶部以紧凑状态栏展示全局默认，下方供应商连接与关联模型方案分为两个面板；面板根据实际内容宽度响应，空间不足时供应商列表改为下拉选择。新增、编辑使用右侧抽屉，窄屏全屏展示。字段、官方端点、目录模型和推理选项来自后端目录，前端按所选供应商及 API 格式重新读取模型目录，不维护另一份模型能力表。协议和限制详见[后端模型配置](../backend/README.md#模型配置接口与两层适配)。
 
-所有登录用户共享配置，修改从下一轮聊天生效，不影响正在生成的一轮。保存、测试、设置默认是独立动作；主动测试前提示可能产生供应商费用，只验证文本流，不创建会话、不验证工具能力。测试结果只在内存中保留，并与模型及供应商版本匹配，配置修改后需重新测试。允许未测试但参数有效的方案直接设为默认。
+所有登录用户共享配置，修改从下一轮聊天生效，不影响正在生成的一轮。连接与模型方案独立启停，重新启用连接不会修改子方案的开关；停用默认方案保留默认引用，但不会再作为可用初始选择。保存、测试、设置默认是独立动作；已停用且能力有效的方案仍可主动测试，测试前提示可能产生供应商费用，只验证文本流，不创建会话、不验证工具能力。测试结果只在内存中保留，并与模型及供应商版本匹配，配置修改后需重新测试。允许未测试但 `selectable` 的方案直接设为默认。
 
 百炼供应商直接粘贴控制台的 **OpenAI 兼容地址（Base URL）**，不展示地域或业务空间输入。前端清除粘贴时附带的首尾空白及末尾斜杠，提示错误协议、原生 DashScope 地址或非官方地址，后端再次校验。管理面板展示已保存的完整 URL，长地址在窄屏自动换行。旧配置由后端转换为等价地址供编辑，密钥留空仍表示保留。完整协议及兼容策略见上方后端文档链接。
 
@@ -70,7 +70,11 @@ Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会�
 
 密钥仅在当前供应商表单内存及本次写请求中出现，保存成功或卸载时清空；不写入 store 或浏览器存储，也不回显服务端密钥。编辑时留空保留凭据。所有更新与删除使用读取时的版本；冲突保留草稿，用户选择读取最新版本后重新编辑。默认方案及仍有模型引用的供应商不可直接删除，需先解除引用；保存中的表单禁止重复提交，有未保存内容时关闭或离页需确认。
 
-聊天无可用默认模型或状态读取失败时，保留草稿编辑与历史浏览，禁止发送并给出配置/重试入口。草稿从聊天页前往模型管理再返回时保留，切换会话、回到新对话或退出账号时清空；不跨刷新持久化。窗口重新激活时读取最新默认，后端仍是实际执行配置的最终裁决。
+模型方案默认固定推理值；管理者也可开放受限自选，勾选允许的推理模式及原生档位、填写预算闭区间。方案自身具体值必须位于开放范围内，预算还需满足目录能力和输出上限约束。管理页不改变供应商目录，聊天仅展示后端 `/api/model-config/options` 返回的分组、顺序及允许范围。
+
+聊天页可选择模型方案及开放的推理值。无全局默认仍可手动选择有效方案；固定值只读，档位切换立即保存，预算输入确认有效整数后保存。首轮发送显式选择，已有会话先用独立版本 PATCH 保存，续聊只携带会话 ID 和已确认版本。切换/清除全局默认不覆盖已有选择，改选不会创建消息或改变目录排序；生成期间禁止切换。模型选项及当前会话在进入聊天、返回管理、窗口重新激活时刷新，旧版本或较早读取不能覆盖新确认及同版本的新失效原因。
+
+选项读取失败、选择失效或未确认预算时，保留草稿编辑与历史浏览，禁止发送并给出重选/重试入口。`40904`、`42201/42202` 等首轮提交前错误会撤回界面临时消息，保留消息与选择草稿，不自动重发；只有 `40901` 标记正在生成，只有 `40401` 标记会话不可用。草稿从聊天页前往模型管理再返回时保留，不跨刷新持久化；后端仍是实际执行配置的最终裁决。完整契约见[模型选择对接说明](../docs/model-selection-frontend.md)。
 
 ## 公共样式与组件约定
 
@@ -88,22 +92,22 @@ Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会�
 
 在 `frontend/` 执行；`pnpm lint` 和 `pnpm format` 会修改文件，验证使用只读的 `pnpm check:lint`。
 
-| 命令 | 用途 |
-| --- | --- |
-| `pnpm build` | 类型检查并构建到 `dist/` |
-| `pnpm preview` | 本地预览已有产物，不提供业务 API 代理 |
-| `pnpm type-check` | 检查生产源码、全部 Vitest 测试及 Playwright 用例和支撑 |
-| `pnpm check:lint` | 只读执行 Oxlint 和 ESLint |
-| `pnpm test:unit` | 兼容入口，监听模块和应用集成测试 |
-| `pnpm test:unit --run` | 一次执行全部 Vitest 测试 |
-| `pnpm test:modules` | 模块及公共测试工具测试 |
-| `pnpm test:integration` | App、路由与跨业务集成测试 |
-| `pnpm test:coverage` | 全部 Vitest 测试，生成文本、HTML 和 JSON 覆盖率报告 |
-| `pnpm test:e2e` | 构建前端、启动隔离后端与预览服务，运行全部 Playwright 测试 |
-| `pnpm test:all` | Vitest 覆盖率测试和全部 E2E |
-| `pnpm verify` | 类型检查、只读代码检查、覆盖率测试和全部 E2E |
-| `pnpm lint` | 自动修复 Oxlint 和 ESLint 问题 |
-| `pnpm format` | 使用 Prettier 格式化 `src/` |
+| 命令                    | 用途                                                       |
+| ----------------------- | ---------------------------------------------------------- |
+| `pnpm build`            | 类型检查并构建到 `dist/`                                   |
+| `pnpm preview`          | 本地预览已有产物，不提供业务 API 代理                      |
+| `pnpm type-check`       | 检查生产源码、全部 Vitest 测试及 Playwright 用例和支撑     |
+| `pnpm check:lint`       | 只读执行 Oxlint 和 ESLint                                  |
+| `pnpm test:unit`        | 兼容入口，监听模块和应用集成测试                           |
+| `pnpm test:unit --run`  | 一次执行全部 Vitest 测试                                   |
+| `pnpm test:modules`     | 模块及公共测试工具测试                                     |
+| `pnpm test:integration` | App、路由与跨业务集成测试                                  |
+| `pnpm test:coverage`    | 全部 Vitest 测试，生成文本、HTML 和 JSON 覆盖率报告        |
+| `pnpm test:e2e`         | 构建前端、启动隔离后端与预览服务，运行全部 Playwright 测试 |
+| `pnpm test:all`         | Vitest 覆盖率测试和全部 E2E                                |
+| `pnpm verify`           | 类型检查、只读代码检查、覆盖率测试和全部 E2E               |
+| `pnpm lint`             | 自动修复 Oxlint 和 ESLint 问题                             |
+| `pnpm format`           | 使用 Prettier 格式化 `src/`                                |
 
 ### 测试分层与公共支撑
 
@@ -153,10 +157,11 @@ E2E 还需要后端 uv/Python 依赖，以及可连接且有 CREATE DATABASE 权
 
 默认运行 `chromium-desktop`（1440×900）与 `chromium-narrow`（390×844），验证注册登录、受保护入口、刷新和退出、首轮与续聊、持久化历史、工具过程、流中失败、生成期间切换与取消、账号隔离、删除确认、抽屉焦点与 Esc、切回桌面释放模态状态、主题记忆及生产包不开放开发入口。定位使用角色和可访问名称，断言自动等待；失败时保留 `test-results/` 下的截图与 trace，HTML 报告位于 `playwright-report/`，不维护像素截图基线。
 
-随后运行 `model-config-desktop` 与 `model-config-narrow`，分别以同样桌面/窄屏尺寸验证真实配置闭环、推理预算、共享版本冲突、上游鉴权业务错误及删除引用约束。这两个项目由依赖图串行执行，并在每例前后通过受本次控制令牌保护的测试路由重置随机库配置，避免与先前的聊天场景互相影响。主动测试及聊天都仅替换模型供应商边界，业务 API 和存储保持真实。单独验证配置时必须限制一个 worker：
+随后运行 `model-config-desktop` 与 `model-config-narrow`，分别以同样桌面/窄屏尺寸验证真实配置闭环、推理预算、共享版本冲突、上游鉴权业务错误及删除引用约束；`model-selection.spec.ts` 同属这两个串行项目，验证无默认手选、刷新恢复、独立启停、受限档位/预算、多端选择冲突与生成中停用。这两个项目由依赖图串行执行，并在每例前后通过受本次控制令牌保护的共用 fixture 重置随机库配置，避免与先前的聊天场景互相影响。主动测试及聊天都仅替换模型供应商边界，业务 API 和存储保持真实。单独验证配置和选择时必须限制一个 worker：
 
 ```powershell
 pnpm test:e2e -- tests/e2e/model-config.spec.ts --project=model-config-desktop --project=model-config-narrow --no-deps --workers=1
+pnpm test:e2e -- tests/e2e/model-selection.spec.ts --project=model-config-desktop --project=model-config-narrow --no-deps --workers=1
 ```
 
 终端会显示 Playwright 的逐项结果与汇总，例如 `18 passed`；失败时显示用例及错误详情。`pnpm test:e2e`、`pnpm test:all` 和 `pnpm verify` 均透传这些输出，命令以非零退出码表示失败。可执行 `pnpm exec playwright show-report` 打开最近一次 HTML 报告。
@@ -171,7 +176,8 @@ pnpm test:e2e -- tests/e2e/model-config.spec.ts --project=model-config-desktop -
 - `src/router/`、`src/views/`：认证守卫、登录注册操作编排、聊天页面、开发预览与未知路径页面。
 - `src/layouts/WorkspaceLayout.vue`：受保护的聊天与管理路由共用外壳，持有侧栏折叠、响应式抽屉、目录加载和导航状态；`ChatView`、`ModelManagementView` 仅维护各自主内容。页面间保留同一个布局实例，相关聊天组件测试通过真实路由挂载，跨页面状态回归放在集成测试与导航 E2E。
 - `src/features/auth/`：认证专属外壳、表单、校验规则、HTTP 适配与 store；`authenticated.ts` 为业务请求添加 Bearer，并通知认证 store 处理当前令牌失效；认证模块不依赖聊天模块。
-- `src/features/model-config/`：配置公开类型、API 解码、目录校验、全局默认和管理状态；`components/` 维护供应商/模型编辑器、方案卡片与聊天默认状态。`views/ModelManagementView.vue` 只编排页面导航和确认操作，密钥不进入共享状态；模块测试就近维护，跨聊天与认证的流程位于集中集成及 E2E。
+- `src/features/model-config/`：配置公开类型、API 解码、目录校验、启停、推理开放策略、全局默认和管理状态；`components/` 维护供应商/模型编辑器、推理策略编辑器与方案卡片。`views/ModelManagementView.vue` 只编排页面导航和确认操作，密钥不进入共享状态；模块测试就近维护，跨聊天与认证的流程位于集中集成及 E2E。
+- `src/features/model-selection/`：聊天安全选项、具体推理值及策略契约；纯解码/校验与可取消、按账号隔离的选项 store 不依赖聊天模块。选择器组件通过聊天 store 保存具体选择，聊天模块 API 复用契约解码版本与失效原因。管理模块复用纯策略类型和校验，不共享管理敏感数据到聊天选项。
 - `src/features/chat/`：聊天与会话的完整业务模块。`components/` 维护侧栏、会话条目、消息、首页与输入区；`store.ts` 协调目录、分页历史、删除和流式续聊；`types.ts` 与 `chat-events.ts` 定义展示数据及公开事件契约。
 - `src/features/chat/api/`：`stream.ts` 处理聊天 SSE 传输、会话及事件顺序校验，`conversations.ts` 处理会话 JSON 接口和游标，二者共同使用 `events.ts` 校验公开正文与工具事件字段，历史读取不依赖 SSE 传输实现。
 - `src/features/chat/history.ts`、`activity.ts`：分别将持久化轮次转换为展示消息，以及归并实时或历史正文、工具执行与最终回答。聊天 store 保存原会话引用消费事件，并单独维护最终正文。

@@ -99,6 +99,7 @@ class ProviderConfigurationCreate(NamedModel):
     api_format: ApiFormat
     endpoint_config: EndpointConfig
     api_key: SecretStr = Field(repr=False)
+    enabled: bool = Field(default=True, strict=True)
 
     @field_validator("api_key")
     @classmethod
@@ -117,6 +118,7 @@ class ProviderConfigurationPatch(StrictModel):
     api_format: ApiFormat | None = None
     endpoint_config: EndpointConfig | None = None
     api_key: SecretStr | None = Field(default=None, repr=False)
+    enabled: bool | None = Field(default=None, strict=True)
 
 
 class ProviderConfigurationInfo(NamedModel):
@@ -127,6 +129,7 @@ class ProviderConfigurationInfo(NamedModel):
     api_format: ApiFormat
     endpoint_config: EndpointConfig
     api_key_configured: bool = True
+    enabled: bool
     version: int
     created_at: datetime
     updated_at: datetime
@@ -155,8 +158,43 @@ class ProviderInfo(StrictModel):
 class BudgetLimits(StrictModel):
     """模型思考预算的可选范围；与输出上限的关联约束另行声明。"""
 
-    min: int
-    max: int
+    min: int = Field(gt=0, strict=True)
+    max: int = Field(gt=0, strict=True)
+
+
+class FixedReasoningPolicy(StrictModel):
+    """将方案推理值固定，聊天调用方不能覆盖。"""
+
+    mode: Literal["fixed"] = "fixed"
+
+
+class SelectableReasoningPolicy(StrictModel):
+    """声明用户可选的推理范围，模型相关的边界由策略层继续验证。"""
+
+    mode: Literal["selectable"]
+    allowed_modes: list[Literal["off", "effort", "budget"]] = Field(min_length=1)
+    effort_options: list[str] = Field(default_factory=list)
+    budget: BudgetLimits | None = None
+
+    @model_validator(mode="after")
+    def require_consistent_ranges(self) -> Self:
+        """拒绝重复、空范围及与开放方式不一致的档位和预算字段。"""
+        if len(set(self.allowed_modes)) != len(self.allowed_modes):
+            raise ValueError("推理方式不能重复")
+        if len(set(self.effort_options)) != len(self.effort_options):
+            raise ValueError("推理档位不能重复")
+        if ("effort" in self.allowed_modes) != bool(self.effort_options):
+            raise ValueError("档位范围必须与 effort 方式同时配置")
+        if ("budget" in self.allowed_modes) != (self.budget is not None):
+            raise ValueError("预算范围必须与 budget 方式同时配置")
+        if self.budget is not None and not 0 < self.budget.min <= self.budget.max:
+            raise ValueError("预算区间必须是有效正整数闭区间")
+        return self
+
+
+type ReasoningPolicy = Annotated[
+    FixedReasoningPolicy | SelectableReasoningPolicy, Field(discriminator="mode")
+]
 
 
 class ReasoningCapabilities(StrictModel):
@@ -199,6 +237,8 @@ class ModelCreate(NamedModel):
     catalog_model_id: str = Field(min_length=1, max_length=160)
     reasoning: Reasoning = Field(default_factory=DefaultReasoning)
     max_output_tokens: int = Field(default=16384, gt=0, strict=True)
+    enabled: bool = Field(default=True, strict=True)
+    reasoning_policy: ReasoningPolicy = Field(default_factory=FixedReasoningPolicy)
 
 
 class ModelPatch(StrictModel):
@@ -209,6 +249,8 @@ class ModelPatch(StrictModel):
     catalog_model_id: str | None = Field(default=None, min_length=1, max_length=160)
     reasoning: Reasoning | None = None
     max_output_tokens: int | None = Field(default=None, gt=0, strict=True)
+    enabled: bool | None = Field(default=None, strict=True)
+    reasoning_policy: ReasoningPolicy | None = None
 
 
 class ModelInfo(ModelCreate):
@@ -220,6 +262,7 @@ class ModelInfo(ModelCreate):
     updated_at: datetime
     catalog: CatalogModelInfo | None = None
     available: bool = True
+    selectable: bool = True
 
 
 class DefaultUpdate(StrictModel):

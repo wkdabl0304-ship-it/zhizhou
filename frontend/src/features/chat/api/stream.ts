@@ -3,6 +3,8 @@
 import type { ChatStreamEvent } from '@/features/chat/chat-events'
 import { authenticatedFetch, readEnvelope, ApiError } from '@/features/auth/authenticated'
 import { decodeEvent } from './events'
+import { decodeSelectionFields } from '@/features/model-selection/contract'
+import type { ModelSelection } from '@/features/model-selection/types'
 export type { ChatStreamEvent } from '@/features/chat/chat-events'
 
 /** SSE 传输帧；data 保留原始文本，业务层再执行 JSON 及字段校验。 */
@@ -91,6 +93,7 @@ export async function* streamChatMessage(
   message: string,
   conversationId?: string,
   signal?: AbortSignal,
+  selection?: { model_selection?: ModelSelection; model_selection_version?: number },
 ): AsyncGenerator<ChatStreamEvent> {
   const response = await authenticatedFetch('/api/chat', {
     method: 'POST',
@@ -98,6 +101,13 @@ export async function* streamChatMessage(
     body: JSON.stringify({
       message,
       ...(conversationId ? { conversation_id: conversationId } : {}),
+      ...(conversationId
+        ? selection?.model_selection_version === undefined
+          ? {}
+          : { model_selection_version: selection.model_selection_version }
+        : selection?.model_selection
+          ? { model_selection: selection.model_selection }
+          : {}),
     }),
     ...(signal ? { signal } : {}),
   })
@@ -153,7 +163,15 @@ export async function* streamChatMessage(
         throw new Error('聊天开始事件轮次无效')
       confirmedId = data.conversation_id
       started = true
-      yield { type: 'start', conversationId: confirmedId, turnId: data.turn_id, isNew: data.is_new }
+      const choice = decodeSelectionFields(data)
+      yield {
+        type: 'start',
+        conversationId: confirmedId,
+        turnId: data.turn_id,
+        isNew: data.is_new,
+        modelSelection: choice.model_selection,
+        modelSelectionVersion: choice.model_selection_version,
+      }
       continue
     }
     if (!started) throw new Error('缺少聊天开始事件')

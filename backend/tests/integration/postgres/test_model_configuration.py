@@ -156,7 +156,7 @@ async def test_model_migration_constraints_and_empty_singleton(postgres_settings
 
 
 async def test_inflight_turn_keeps_snapshot_and_next_turn_sees_update(postgres_settings):
-    """模型等待期间更新参数无需等待生成锁；当前轮保持旧快照，下一轮采用新版本。"""
+    """当前轮保持旧快照；固定值变化后续聊先拒绝，用户重选后采用新版本。"""
     entered, release = asyncio.Event(), asyncio.Event()
 
     class WaitingModel(StubChatModel):
@@ -183,6 +183,13 @@ async def test_inflight_turn_keeps_snapshot_and_next_turn_sees_update(postgres_s
                 await runtime.model_config.patch_model(first.configuration_id, ModelPatch(version=1, reasoning={"mode": "off"}))
             release.set()
             conversation_id, _ = await pending
+            rejected = await runtime.client.post("/api/chat", headers=headers,
+                json={"message": "旧选择不能静默变化", "conversation_id": conversation_id})
+            assert rejected.status_code == 422 and rejected.json()["code"] == ErrorCode.REASONING_NOT_ALLOWED.code
+            selected = await runtime.client.patch(f"/api/conversations/{conversation_id}/model-selection", headers=headers,
+                json={"model_selection_version": 1, "model_selection": {
+                    "model_configuration_id": str(first.configuration_id), "reasoning": {"mode": "off"}}})
+            assert selected.status_code == 200, selected.text
             await send(runtime.client, headers, "下一轮", conversation_id)
             assert [item.model_version for item in runtime.snapshots] == [1, 2]
             assert first.parameters["extra_body"]["thinking"]["type"] == "enabled"

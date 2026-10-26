@@ -52,10 +52,17 @@ class Conversation(Base):
     """业务会话及软删除状态；ID 由后端生成，与用户归属一起作为访问边界。"""
 
     __tablename__ = "conversations"
+    __table_args__ = (
+        CheckConstraint("model_selection_version > 0", name="ck_conversations_model_selection_version"),
+        CheckConstraint("model_selection IS NULL OR jsonb_typeof(model_selection) = 'object'", name="ck_conversations_model_selection"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     title: Mapped[str] = mapped_column(String(100))
+    # 选择允许随配置删除而失效，JSON 内的方案引用不建立外键，也不级联修改历史。
+    model_selection: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
+    model_selection_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     last_message_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

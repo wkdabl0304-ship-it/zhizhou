@@ -119,6 +119,7 @@ export const useModelConfigStore = defineStore('model-config', () => {
         name: body.name,
         api_format: body.api_format,
         endpoint_config: body.endpoint_config,
+        ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
       }
       if (body.api_key.trim()) patch.api_key = body.api_key
       return api.patchProvider(previous.id, patch, signal)
@@ -140,6 +141,10 @@ export const useModelConfigStore = defineStore('model-config', () => {
               catalog_model_id: body.catalog_model_id,
               reasoning: body.reasoning,
               max_output_tokens: body.max_output_tokens,
+              ...(body.enabled === undefined ? {} : { enabled: body.enabled }),
+              ...(body.reasoning_policy === undefined
+                ? {}
+                : { reasoning_policy: body.reasoning_policy }),
             },
             signal,
           )
@@ -148,6 +153,20 @@ export const useModelConfigStore = defineStore('model-config', () => {
     models.value = [...models.value.filter((item) => item.id !== result.id), result]
     if (selected.value?.model_configuration_id === result.id)
       selected.value = { ...selected.value, model: result }
+  }
+  /** 按资源版本启停并重读关联可选性，不改写子方案状态或默认引用。 */
+  async function setEnabled(
+    kind: 'provider' | 'model',
+    item: ProviderConfiguration | ModelConfiguration,
+    enabled: boolean,
+  ): Promise<void> {
+    await run<ProviderConfiguration | ModelConfiguration>((signal) =>
+      kind === 'provider'
+        ? api.patchProvider(item.id, { version: item.version, enabled }, signal)
+        : api.patchModel(item.id, { version: item.version, enabled }, signal),
+    )
+    await load()
+    if (loadError.value) throw new ApiError(`启停已保存，${loadError.value}，请刷新确认`)
   }
   /** 切换或清除默认，写成功后取消旧默认读取结果对本地状态的覆盖。 */
   async function setDefault(id: string | null): Promise<void> {
@@ -253,6 +272,7 @@ export const useModelConfigStore = defineStore('model-config', () => {
     load,
     saveProvider,
     saveModel,
+    setEnabled,
     setDefault,
     remove,
     test,

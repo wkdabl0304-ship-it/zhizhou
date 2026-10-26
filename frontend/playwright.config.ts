@@ -20,18 +20,18 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium-desktop',
-      testIgnore: '**/model-config.spec.ts',
+      testIgnore: ['**/model-config.spec.ts', '**/model-selection.spec.ts'],
       use: { viewport: { width: 1440, height: 900 } },
     },
     {
       name: 'chromium-narrow',
-      testIgnore: '**/model-config.spec.ts',
+      testIgnore: ['**/model-config.spec.ts', '**/model-selection.spec.ts'],
       use: { viewport: { width: 390, height: 844 } },
     },
     // 配置由所有账号共享：先完成既有并行流程，再串行运行会清空/切换全局配置的场景。
     {
       name: 'model-config-desktop',
-      testMatch: '**/model-config.spec.ts',
+      testMatch: ['**/model-config.spec.ts', '**/model-selection.spec.ts'],
       dependencies: ['chromium-desktop', 'chromium-narrow'],
       workers: 1,
       fullyParallel: false,
@@ -39,7 +39,7 @@ export default defineConfig({
     },
     {
       name: 'model-config-narrow',
-      testMatch: '**/model-config.spec.ts',
+      testMatch: ['**/model-config.spec.ts', '**/model-selection.spec.ts'],
       dependencies: ['model-config-desktop'],
       workers: 1,
       fullyParallel: false,

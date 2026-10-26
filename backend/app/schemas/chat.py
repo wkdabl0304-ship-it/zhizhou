@@ -3,7 +3,8 @@
 from typing import ClassVar, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
+from app.schemas.model_selection import ModelSelection
 
 
 class ChatRequest(BaseModel):
@@ -12,6 +13,17 @@ class ChatRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     message: str = Field(min_length=1)
     conversation_id: UUID | None = None
+    model_selection: ModelSelection | None = None
+    model_selection_version: int | None = Field(default=None, gt=0, strict=True)
+
+    @model_validator(mode="after")
+    def require_selection_context(self):
+        """区分首轮选择和续聊版本，已有会话必须通过独立接口切换选择。"""
+        if self.conversation_id is not None and self.model_selection is not None:
+            raise ValueError("已有会话请通过选择接口切换模型")
+        if self.conversation_id is None and "model_selection_version" in self.model_fields_set:
+            raise ValueError("新会话不能提供选择版本")
+        return self
 
     @field_validator("message")
     @classmethod
@@ -38,6 +50,8 @@ class ChatStart(ChatEvent):
     event: ClassVar[str] = "start"
     turn_id: UUID
     is_new: bool
+    model_selection: ModelSelection | None = None
+    model_selection_version: int = 1
 
 
 class ChatDelta(ChatEvent):

@@ -1,10 +1,12 @@
 /** 会话接口：验证服务端目录、轮次和公开过程，游标原样传回，不读取模型 checkpoint。 */
 import { authenticatedFetch, readEnvelope, ApiError } from '@/features/auth/authenticated'
 import { decodeEvent } from './events'
+import { decodeSelectionFields } from '@/features/model-selection/contract'
+import type { ModelSelection, SelectionFields } from '@/features/model-selection/types'
 import type { ChatStreamEvent } from '@/features/chat/chat-events'
 
 /** 服务端会话元数据，用于排序与侧栏展示。 */
-export interface ConversationInfo {
+export interface ConversationInfo extends SelectionFields {
   conversation_id: string
   title: string
   created_at: string
@@ -38,6 +40,7 @@ function info(value: unknown): ConversationInfo {
   )
     throw new ApiError('会话目录格式无效')
   return {
+    ...decodeSelectionFields(value),
     conversation_id: value.conversation_id,
     title: value.title,
     created_at: value.created_at,
@@ -129,4 +132,39 @@ export async function conversationHistory(id: string, signal: AbortSignal, curso
 export async function deleteConversation(id: string, signal: AbortSignal): Promise<void> {
   const data = await request(`/api/conversations/${encodeURIComponent(id)}`, signal, 'DELETE')
   if (data !== null) throw new ApiError('删除会话响应格式无效')
+}
+
+/** 保存会话选择并返回完整确认元数据，不改变最近消息时间或发起上游调用。 */
+export async function patchModelSelection(
+  id: string,
+  version: number,
+  selection: ModelSelection,
+  signal: AbortSignal,
+): Promise<ConversationInfo> {
+  const result = info(
+    await readEnvelope(
+      await authenticatedFetch(`/api/conversations/${encodeURIComponent(id)}/model-selection`, {
+        method: 'PATCH',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_selection_version: version, model_selection: selection }),
+      }),
+    ),
+  )
+  if (
+    result.conversation_id !== id ||
+    result.model_selection_version <= version ||
+    !result.model_selection
+  )
+    throw new ApiError('会话选择确认无效')
+  return result
+}
+
+/** 单独刷新会话元数据，不用历史内容覆盖本页正在进行的生成。 */
+export async function getSelectionInfo(id: string, signal: AbortSignal): Promise<ConversationInfo> {
+  const raw = await request(url(`/api/conversations/${encodeURIComponent(id)}`), signal)
+  if (!record(raw)) throw new ApiError('会话选择响应格式无效')
+  const result = info(raw.conversation)
+  if (result.conversation_id !== id) throw new ApiError('会话选择归属无效')
+  return result
 }

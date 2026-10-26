@@ -23,6 +23,7 @@ const draft = reactive<ProviderInput>({
         : { endpoint_id: first.endpoints[0]!.endpoint_id })),
   },
   api_key: '',
+  enabled: previous?.enabled ?? true,
 })
 const initial = JSON.stringify(draft),
   busy = ref(false),
@@ -133,6 +134,11 @@ onBeforeUnmount(() => {
       ></label
     >
     <p v-else class="config-hint">端点：{{ endpoint?.display_name }}</p>
+    <label class="config-switch"
+      ><input v-model="draft.enabled" name="enabled" type="checkbox" />启用此连接<small
+        >停用后保留模型方案，聊天中暂不可选。</small
+      ></label
+    >
     <label
       >{{ previous ? '替换 API Key · 选填' : 'API Key'
       }}<input

@@ -15,7 +15,7 @@ import { RouterView, createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '@/router'
 import WelcomeHeading from '@/features/chat/components/WelcomeHeading.vue'
 import { controlledStream } from '@tests/support/vitest/sse'
-import { eventFrame, success } from '@tests/support/vitest/chat'
+import { eventFrame, success, withModelOptions } from '@tests/support/vitest/chat'
 
 const wrappers: VueWrapper[] = []
 const fetchMock = vi.fn<typeof fetch>()
@@ -31,7 +31,7 @@ beforeEach(async () => {
       !conversation_id,
     )
   })
-  vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('fetch', withModelOptions(fetchMock))
   pinia = createPinia()
   await authenticate(pinia, fetchMock)
   // 本组聚焦聊天生成，预置有效默认；首次默认加载与配置引导由跨业务集成测试验证。
@@ -66,6 +66,7 @@ async function renderWorkspace() {
     global: { plugins: [pinia, router] },
   })
   wrappers.push(wrapper)
+  await flushPromises()
   return wrapper
 }
 
@@ -80,7 +81,7 @@ describe('聊天工作空间', () => {
     await wrapper.get('.suggestion').trigger('click')
     expect(wrapper.findAll('article')).toHaveLength(0)
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('入职清单')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form.chat-composer').trigger('submit')
     await flushPromises()
     expect(wrapper.findAll('article')).toHaveLength(2)
     expect(wrapper.find('.river-backdrop').exists()).toBe(false)
@@ -93,7 +94,7 @@ describe('聊天工作空间', () => {
   it('切换会话与新建时清除草稿', async () => {
     const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('第一段对话')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form.chat-composer').trigger('submit')
     await flushPromises()
     await wrapper.get('.new-chat-button').trigger('click')
     await wrapper.get('textarea').setValue('未发送的内容')
@@ -116,19 +117,21 @@ describe('聊天工作空间', () => {
     )
     const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('测试慢请求')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form.chat-composer').trigger('submit')
     expect(wrapper.get('[role="status"]').text()).toContain('正在整理思路')
     expect(document.activeElement).toBe(wrapper.get('textarea').element)
     await wrapper.get('textarea').setValue('下一条草稿')
-    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })
     expect(fetchMock).toHaveBeenCalledTimes(1)
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('下一条草稿')
     rejectReply(new TypeError('Failed to fetch'))
     await flushPromises()
     expect(wrapper.get('[role="alert"]').text()).toContain('暂时无法获取回复')
-    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
-    await wrapper.get('form').trigger('submit')
+    expect(
+      wrapper.get('.chat-composer button[type="submit"]').attributes('disabled'),
+    ).toBeUndefined()
+    await wrapper.get('form.chat-composer').trigger('submit')
     await flushPromises()
     expect(wrapper.text()).toContain('来自后端的回复')
   })
@@ -139,7 +142,7 @@ describe('聊天工作空间', () => {
     fetchMock.mockResolvedValueOnce(stream.response)
     const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('流式回复测试')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form.chat-composer').trigger('submit')
     const { conversation_id = 'server-session-a' } = JSON.parse(
       fetchMock.mock.calls[0]![1]!.body as string,
     ) as {
@@ -160,7 +163,9 @@ describe('聊天工作空间', () => {
     expect(wrapper.text()).toContain('首段已经显示')
     expect(wrapper.get('[role="alert"]').text()).toContain('回复未完成')
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toBe('保留下一条草稿')
-    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(
+      wrapper.get('.chat-composer button[type="submit"]').attributes('disabled'),
+    ).toBeUndefined()
   })
 
   // 贯通 SSE → store → 过程卡片：工具失败后仍等待最终回答，复制最终正文不包含进度正文或工具输出。
@@ -169,7 +174,7 @@ describe('聊天工作空间', () => {
     fetchMock.mockResolvedValueOnce(stream.response)
     const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('执行测试任务')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form.chat-composer').trigger('submit')
     const { conversation_id = 'server-session-a' } = JSON.parse(
       fetchMock.mock.calls[0]![1]!.body as string,
     ) as {
@@ -212,12 +217,14 @@ describe('聊天工作空间', () => {
     await flushPromises()
     expect(wrapper.find('.message-error').exists()).toBe(false)
     await wrapper.get('textarea').setValue('下一条草稿')
-    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
     stream.push(eventFrame('done', { conversation_id, message_id: 'reply', reply: '**最终回答**' }))
     await flushPromises()
     expect(wrapper.get('.markdown-content strong').text()).toBe('最终回答')
     expect(wrapper.get('[aria-label="执行过程"]').text()).toContain('工具执行失败')
-    expect(wrapper.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
+    expect(
+      wrapper.get('.chat-composer button[type="submit"]').attributes('disabled'),
+    ).toBeUndefined()
     const writeText = vi.fn<(text: string) => Promise<void>>().mockResolvedValue()
     vi.stubGlobal('navigator', { clipboard: { writeText } })
     await wrapper.get('[aria-label="复制回复"]').trigger('click')
@@ -231,7 +238,7 @@ describe('聊天工作空间', () => {
     fetchMock.mockResolvedValueOnce(stream.response)
     const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('查询北京天气')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form.chat-composer').trigger('submit')
     const { conversation_id = 'server-session-a' } = JSON.parse(
       fetchMock.mock.calls[0]![1]!.body as string,
     ) as {
@@ -333,7 +340,7 @@ describe('聊天工作空间', () => {
     fetchMock.mockResolvedValueOnce(stream.response)
     const wrapper = await renderWorkspace()
     await wrapper.get('textarea').setValue('你好')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form.chat-composer').trigger('submit')
     const { conversation_id = 'server-session-a' } = JSON.parse(
       fetchMock.mock.calls[0]![1]!.body as string,
     ) as {
@@ -351,7 +358,7 @@ describe('聊天工作空间', () => {
     const failed = controlledStream()
     fetchMock.mockResolvedValueOnce(failed.response)
     await wrapper.get('textarea').setValue('继续')
-    await wrapper.get('form').trigger('submit')
+    await wrapper.get('form.chat-composer').trigger('submit')
     failed.push(
       eventFrame('start', { conversation_id, turn_id: 'second-turn', is_new: false }) +
         eventFrame('delta', { conversation_id, message_id: 'partial', text: '我先检查。' }),

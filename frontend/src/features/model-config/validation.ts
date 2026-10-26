@@ -1,5 +1,6 @@
 /** 模型表单规则与展示标签：能力取自服务端目录，前端仅校验可立即反馈的字段边界。 */
 import type { CatalogModel, ModelInput, ProviderInfo, ProviderInput, Reasoning } from './types'
+import { decodePolicy, validateSelection } from '@/features/model-selection/contract'
 export const formatLabels = {
   responses: 'Responses',
   chat_completions: 'Chat Completions',
@@ -69,6 +70,45 @@ export function validateModel(body: ModelInput, spec: CatalogModel | undefined) 
   )
     errors.max_output_tokens = `请填写 1–${spec.max_output_tokens.toLocaleString()} 的整数`
   const selected = body.reasoning.mode === 'default' ? spec.reasoning.default : body.reasoning
+  if (body.reasoning_policy?.mode === 'selectable') {
+    try {
+      const policy = decodePolicy(body.reasoning_policy)
+      if (policy.mode === 'selectable') {
+        if (
+          policy.allowed_modes.some((mode) => !spec.reasoning.allowed_modes.includes(mode)) ||
+          policy.effort_options.some((effort) => !spec.reasoning.effort_options.includes(effort))
+        )
+          throw new Error('范围超出目录能力')
+        if (
+          policy.budget &&
+          (!spec.reasoning.budget ||
+            policy.budget.min < spec.reasoning.budget.min ||
+            policy.budget.max > spec.reasoning.budget.max ||
+            (spec.reasoning.budget_must_fit_output && policy.budget.max >= body.max_output_tokens))
+        )
+          throw new Error('预算范围须符合目录并小于输出上限')
+        if (
+          selected.mode === 'default' ||
+          validateSelection(
+            { model_configuration_id: 'draft', reasoning: selected },
+            {
+              model_configuration_id: 'draft',
+              name: body.name,
+              catalog_model_id: body.catalog_model_id,
+              display_name: spec.display_name,
+              reasoning_control: { ...policy, default: selected },
+            },
+          )
+        )
+          throw new Error('默认推理值必须在允许范围内')
+      }
+    } catch (failure) {
+      errors.reasoning_policy =
+        failure instanceof Error && !failure.message.includes('响应')
+          ? failure.message
+          : '请设置非空、不重复且与推理方式一致的允许范围'
+    }
+  }
   // 后端先解析 default 再校验实际模式，旧方案的默认引用也遵循相同规则。
   if (!spec.reasoning.allowed_modes.includes(selected.mode))
     errors.reasoning = '请选择模型支持的推理方式'

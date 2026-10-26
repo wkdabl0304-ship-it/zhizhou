@@ -29,15 +29,18 @@ class ErrorCode(Enum):
     CONVERSATION_BUSY = (40901, "会话正在生成，请稍后重试")
     MODEL_VERSION_CONFLICT = (40902, "模型配置已被修改，请刷新后重试")
     MODEL_CONFIG_IN_USE = (40903, "配置仍被引用，请先调整关联配置")
+    MODEL_SELECTION_VERSION_CONFLICT = (40904, "会话模型选择已被修改，请刷新后重试")
     METHOD_NOT_ALLOWED = (40500, "请求方法不允许")
     INVALID_ARGUMENT = (42200, "请求参数校验失败")
+    MODEL_SELECTION_UNAVAILABLE = (42201, "选择的模型已删除、停用或不可用，请重新选择")
+    REASONING_NOT_ALLOWED = (42202, "推理值不符合当前限制，请重新选择")
 
     # 系统失败：HTTP 5xx。
     INTERNAL_ERROR = (50000, "服务器内部错误，请稍后重试")
     CHAT_FAILED = (50001, "对话执行失败，请稍后重试")
     TOOL_FAILED = (50002, "工具执行失败")
     MODEL_PROVIDER_FAILED = (50003, "模型服务调用失败")
-    MODEL_NOT_CONFIGURED = (50301, "尚未配置可用的默认模型，请先完成模型设置")
+    MODEL_NOT_CONFIGURED = (50301, "尚未选择可用模型，请选择模型或配置有效默认")
 
     @property
     def code(self) -> int:

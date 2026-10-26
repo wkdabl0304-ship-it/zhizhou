@@ -9,10 +9,9 @@ from langchain_core.messages import HumanMessage
 from pydantic import ValidationError
 
 from app.core.errors.codes import ErrorCode
-from app.core.errors.exceptions import BusinessError, RequestError, ServiceError
+from app.core.errors.exceptions import BusinessError, RequestError
 from app.db.business import BusinessDatabase
 from app.llm.models.catalog import CATALOG
-from app.llm.models.policy import resolve_parameters
 from app.llm.providers.clients import open_model
 from app.llm.providers.endpoints import resolve_endpoint
 from app.llm.providers.failures import ProviderFailure
@@ -24,6 +23,7 @@ from app.schemas.model_config import (
     ProviderConfigurationCreate, ProviderConfigurationInfo, ProviderConfigurationPatch, DefaultInfo, DefaultUpdate,
     EndpointConfig, ModelCreate, ModelInfo, ModelPatch, ModelTestResult, CatalogModelInfo,
 )
+from app.services.model_selection import ModelSelectionService, validate_configuration
 
 
 def require_version(actual: int, expected: int) -> None:
@@ -44,9 +44,7 @@ def provider_info(row: ProviderConfiguration) -> ProviderConfigurationInfo:
 def validate_model(provider_configuration: ProviderConfiguration, body: ModelCreate):
     """验证供应商配置与模型参数组合，返回可用于客户端的具体参数。"""
     try:
-        resolve_endpoint(provider_configuration.provider, provider_configuration.api_format, EndpointConfig.model_validate(provider_configuration.endpoint_config))
-        return resolve_parameters(provider_configuration.provider, provider_configuration.api_format, body.catalog_model_id,
-                                  body.reasoning, body.max_output_tokens)
+        return validate_configuration(provider_configuration, body)
     except ValueError:
         raise RequestError(ErrorCode.INVALID_ARGUMENT) from None
 
@@ -61,7 +59,8 @@ def model_info(model: ModelConfiguration, provider_configuration: ProviderConfig
     except RequestError:
         available = False
     return info.model_copy(update={"catalog": CatalogModelInfo.model_validate(spec.describe(provider_configuration.api_format)) if spec else None,
-                                   "available": available})
+                                   "available": available,
+                                   "selectable": available and model.enabled and provider_configuration.enabled})
 
 
 class ModelConfigService:
@@ -71,6 +70,7 @@ class ModelConfigService:
         """绑定数据库、部署加密主密钥与可替换模型边界，不主动访问供应商。"""
         self.database = database
         self.secrets = SecretBox(encryption_key)
+        self.selections = ModelSelectionService(database, self.secrets)
         self.model_opener = model_opener
 
     async def list_provider_configurations(self) -> list[ProviderConfigurationInfo]:
@@ -103,7 +103,7 @@ class ModelConfigService:
             return provider_info(row)
 
     async def patch_provider_configuration(self, provider_configuration_id: UUID, patch: ProviderConfigurationPatch) -> ProviderConfigurationInfo:
-        """按版本更新供应商配置，先校验所有关联模型，任何不兼容更新整体回滚。"""
+        """按版本更新供应商配置，端点或格式变化时校验关联方案，不兼容更新整体回滚。"""
         async with self.database.sessions.begin() as session:
             await repository.settings(session, lock=True)
             row = await repository.provider_configuration(session, provider_configuration_id)
@@ -128,12 +128,14 @@ class ModelConfigService:
             if "api_key" in changes:
                 row.api_key_ciphertext = self.secrets.encrypt(validated.api_key)
                 row.credential_revision += 1
-            # 全局设置行锁防止检查期间插入关联模型；禁止任何模型配置被更新为不可执行。
-            for model, _ in await repository.model_rows(session, provider_configuration_id):
-                try:
-                    validate_model(row, ModelCreate.model_validate(model))
-                except RequestError:
-                    raise RequestError(ErrorCode.MODEL_CONFIG_IN_USE) from None
+            # 只在影响参数兼容性时校验关联方案，目录失效不应阻止停用、改名或轮换凭据。
+            # 全局设置行锁防止兼容性检查期间插入关联模型。
+            if {"api_format", "endpoint_config"} & changes.keys():
+                for model, _ in await repository.model_rows(session, provider_configuration_id):
+                    try:
+                        validate_model(row, ModelCreate.model_validate(model))
+                    except RequestError:
+                        raise RequestError(ErrorCode.MODEL_CONFIG_IN_USE) from None
             row.version += 1
             await session.flush()
             return provider_info(row)
@@ -194,7 +196,9 @@ class ModelConfigService:
                 validated = ModelCreate.model_validate(ModelCreate.model_validate(row).model_dump() | changes)
             except ValidationError:
                 raise RequestError(ErrorCode.INVALID_ARGUMENT) from None
-            validate_model(provider_configuration, validated)
+            # 元数据和启停可独立管理；修改运行参数才需要重新满足完整模型策略。
+            if {"catalog_model_id", "reasoning", "reasoning_policy", "max_output_tokens"} & changes.keys():
+                validate_model(provider_configuration, validated)
             for key, value in validated.model_dump().items():
                 setattr(row, key, value)
             row.version += 1
@@ -233,42 +237,21 @@ class ModelConfigService:
                 model, provider_configuration = pair
                 validate_model(provider_configuration, ModelCreate.model_validate(model))
                 info = model_info(model, provider_configuration)
+                if not info.selectable:
+                    raise RequestError(ErrorCode.MODEL_SELECTION_UNAVAILABLE)
             settings.model_configuration_id = body.model_configuration_id
             settings.version += 1
             await session.flush()
             return DefaultInfo.model_validate(settings).model_copy(update={"model": info})
 
-    async def snapshot(self, model_id: UUID | None = None) -> ModelSnapshot:
+    async def snapshot(self, model_id: UUID | None = None, *, allow_disabled: bool = False) -> ModelSnapshot:
         """以单条联表查询固定执行版本和凭据，结束读事务后再访问模型服务。"""
         async with self.database.sessions() as session:
-            if model_id is None:
-                _, model, provider_configuration = await repository.default_row(session)
-                if model is None:
-                    raise ServiceError(ErrorCode.MODEL_NOT_CONFIGURED)
-            else:
-                pair = await repository.model_row(session, model_id)
-                if pair is None:
-                    raise RequestError(ErrorCode.MODEL_CONFIGURATION_NOT_FOUND)
-                model, provider_configuration = pair
-            try:
-                _, params = validate_model(provider_configuration, ModelCreate.model_validate(model))
-            except RequestError:
-                if model_id is None:
-                    raise ServiceError(ErrorCode.MODEL_NOT_CONFIGURED) from None
-                raise
-            try:
-                secret = self.secrets.decrypt(provider_configuration.api_key_ciphertext)
-            except ValueError:
-                raise ServiceError(ErrorCode.MODEL_PROVIDER_FAILED) from None
-            return ModelSnapshot(provider_configuration.id, model.id, provider_configuration.version, model.version,
-                                 provider_configuration.credential_revision, provider_configuration.provider, provider_configuration.api_format,
-                                 model.catalog_model_id,
-                                 resolve_endpoint(provider_configuration.provider, provider_configuration.api_format, EndpointConfig.model_validate(provider_configuration.endpoint_config)),
-                                 params, secret)
+            return await self.selections.snapshot(session, model_id=model_id, allow_disabled=allow_disabled)
 
     async def test_model(self, model_id: UUID) -> ModelTestResult:
         """主动执行一次固定短文本流，不创建会话、不调用业务工具、不持数据库锁。"""
-        snapshot = await self.snapshot(model_id)
+        snapshot = await self.snapshot(model_id, allow_disabled=True)
         started = perf_counter()
         try:
             async with asyncio.timeout(120), self.model_opener(snapshot) as model:

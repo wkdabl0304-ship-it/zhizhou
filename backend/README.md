@@ -4,7 +4,7 @@
 
 前端已接入注册、登录、当前用户校验及服务端会话目录、游标历史、流式续聊和软删除。页面、身份生命周期及跨窗口生成的交互边界见[前端文档](../frontend/README.md#页面与聊天边界)，也可通过 Swagger 或 HTTP 客户端验收接口。
 
-项目定位和功能规划见[根 README](../README.md)。
+项目定位和功能规划见[根 README](../README.md)。前后端已接通供应商连接/模型启停、受限推理策略和按会话保存选择；接口、状态恢复和错误处理见[前端对接文档](../docs/model-selection-frontend.md)。
 
 ## 开发命令
 
@@ -46,7 +46,7 @@ docker compose -f docker-compose-dev.yml up -d postgres
 
 可在 `backend/` 执行 `uv run python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"` 生成加密主密钥并保存到本地 `.env`。主密钥需要与数据库分开稳定备份；更换部署主密钥不会自动重新加密旧凭据。旧 `DEEPSEEK_API_KEY` 不再读取或自动导入。
 
-配置无效、业务表未迁移、版本不匹配或数据库无法连接时，服务启动失败。未配置默认模型不阻止启动、登录、读取历史和管理配置；聊天在建立 SSE、创建会话与轮次前返回 `503 / 50301`。首次启动前在 `backend/` 执行：
+配置无效、业务表未迁移、版本不匹配或数据库无法连接时，服务启动失败。未配置默认模型不阻止启动、登录、读取历史和管理配置；只有既无会话选择又无有效默认时，聊天才在建立 SSE、创建会话与轮次前返回 `503 / 50301`，明确选择有效方案仍可发送。首次启动前在 `backend/` 执行：
 
 ```powershell
 uv sync
@@ -69,7 +69,8 @@ SQLAlchemy 业务引擎和 Session 工厂在生命周期中创建，短事务独
 | `GET /api/conversations` | `limit=20&cursor=...` | `{items,next_cursor}` |
 | `GET /api/conversations/{conversation_id}` | `limit=20&cursor=...` | `{conversation,items,next_cursor}` |
 | `DELETE /api/conversations/{conversation_id}` | 无请求体 | `null` |
-| `POST /api/chat` | `{message,conversation_id?}` | SSE，见下一节 |
+| `PATCH /api/conversations/{conversation_id}/model-selection` | `{model_selection_version,model_selection}` | 更新后的会话信息 |
+| `POST /api/chat` | `{message,conversation_id?,model_selection?,model_selection_version?}` | SSE，首轮选择与续聊版本不能混用，见[对接文档](../docs/model-selection-frontend.md) |
 
 注册成功后单独登录。用户名去除首尾空白并转小写，限定 3～32 位 ASCII 字母、数字或下划线；密码 8～128 个字符，不去除空格，使用 Argon2 摘要，哈希与校验在线程池执行。角色仅允许 `user` 和 `super_admin`，默认 `user`；两种角色均只能操作自己的会话，当前没有跨用户管理功能。
 
@@ -109,7 +110,7 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 
 可通过前端[模型管理页面](../frontend/README.md#模型管理)操作，也可在 `/docs` 登录授权后验收接口。所有登录用户，包括 `user` 和 `super_admin`，都可管理同一套全局配置；模型配置的共享范围不改变聊天历史的用户所有权。
 
-首次设置按以下顺序执行：**创建供应商配置 → 创建模型方案 → 可选测试 → 设置默认**。保存和设为默认都只做本地校验，只有显式测试或聊天才调用上游。
+首次设置按以下顺序执行：**创建供应商配置 → 创建模型方案 → 可选测试 → 设置默认或在首轮明确选择**。保存和设为默认都只做本地校验，只有显式测试或聊天才调用上游。前端聊天页支持手动选择有效方案，无全局默认也能发送。
 
 ### 供应商层与模型处理层
 
@@ -124,20 +125,23 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 
 ### 数据表与一致性
 
-实体位于 `app/models/model_config.py`，最新迁移为 `0003_provider_configuration`。模型目录不入库，用户保存的模型方案才入库。
+实体位于 `app/models/model_config.py`，最新迁移为 `0004_model_selection`。模型目录不入库，用户保存的模型方案才入库。
 
-供应商配置保存品牌、API 格式、官方端点及 API Key；模型方案引用供应商配置，再选择具体模型和推理设置。升级执行 `uv run alembic upgrade head`，重命名迁移会保留已有配置、默认选择和轮次快照。接口统一使用 `/provider-configurations`，引用字段为 `provider_configuration_id`。
+供应商配置保存品牌、API 格式、官方端点及 API Key；模型方案引用供应商配置，再选择具体模型和推理设置。升级执行 `uv run alembic upgrade head`，迁移保留已有配置、默认引用和轮次快照；原方案默认启用且推理固定，旧会话选择为空。接口统一使用 `/provider-configurations`，引用字段为 `provider_configuration_id`。
 
 | 表 | 字段与约束 |
 | --- | --- |
-| `provider_configurations` | `id UUID PK`；`name VARCHAR(100)`；`provider VARCHAR(20)` 四选一；`api_format VARCHAR(30)`；`endpoint_config JSONB`；`api_key_ciphertext TEXT`；`credential_revision INTEGER`；`version INTEGER`；`created_at/updated_at TIMESTAMPTZ`。格式与供应商组合、JSON 对象和正版本受 CHECK 约束。 |
-| `model_configurations` | `id UUID PK`；`provider_configuration_id UUID FK RESTRICT` 并建索引；`name VARCHAR(100)`；`catalog_model_id VARCHAR(160)`；`reasoning JSONB`；`max_output_tokens INTEGER` 默认 16384；`version INTEGER`；创建/更新时间。输出上限、版本为正；同一模型可保存多套推理方案。 |
+| `provider_configurations` | UUID 主键、名称、品牌、格式、端点 JSONB、加密密钥、凭据版本、配置版本和时间；新增 `enabled BOOLEAN NOT NULL DEFAULT true`。格式与供应商组合、JSON 对象和正版本受 CHECK 约束。 |
+| `model_configurations` | UUID 主键、供应商配置 FK RESTRICT 及索引、名称、目录 ID、推理 JSONB、输出上限（默认 16384）、版本和时间；新增 `enabled`（默认 true）、`reasoning_policy JSONB`（默认 fixed）。策略为对象且模式只能 fixed/selectable；输出上限、版本为正。 |
 | `chat_model_settings` | `id SMALLINT PK CHECK(id=1)`；`model_configuration_id UUID NULL FK RESTRICT`；`version INTEGER`；`updated_at TIMESTAMPTZ`。迁移初始化唯一行，默认引用为空。 |
-| `chat_turns.model_snapshot` | 可空 JSONB，保存本轮供应商配置/模型版本、供应商、模型 ID、格式及实际参数，不含明文密钥、密文或主密钥；旧轮次不补写。 |
+| `conversations` 选择字段 | `model_selection JSONB NULL` 保存方案 ID 和具体推理值，不建立方案外键；`model_selection_version INTEGER NOT NULL DEFAULT 1` 为正。允许配置删除后保留失效选择，不增加 JSONB 索引。 |
+| `chat_turns.model_snapshot` | 可空 JSONB，保存本轮供应商配置/模型版本、供应商、模型 ID、格式、具体 `reasoning` 及实际参数，不含明文密钥、密文或主密钥；旧轮次不补写。 |
 
 供应商配置的供应商、模型方案的供应商配置归属创建后固定；需要更换时新建配置。`credential_revision` 仅在替换 API Key 时递增，普通名称修改只递增 `version`。API Key 使用 Fernet 认证加密，接口只返回 `api_key_configured`；PATCH 省略密钥表示保留，null 或空白被拒绝。
 
-所有配置写事务先锁定单例设置行，随后校验目标资源版本与引用，防止检查后被其他写请求插入关联；网络调用不持这个锁。模型快照用单条联表查询取得，读事务在访问供应商前结束。修改默认、供应商配置或模型参数均从下一轮生效，不影响正在生成的一轮及其工具后续步骤，不需要重启服务。
+所有配置写事务先锁定单例设置行，随后校验目标资源版本与引用，防止检查后被其他写请求插入关联；网络调用不持这个锁。模型快照用单条联表查询取得，业务事务在访问供应商前结束。已有会话保存独立选择，不跟随全局默认切换；供应商及方案配置在下一轮重新验证，失效时要求重选，不影响已接受轮次及工具后续步骤。
+
+推理策略由 `app/llm/models/selection.py` 验证，选项、批量失效判断和快照装配由 `app/services/model_selection.py` 承担，配置 CRUD 留在原模型配置服务。会话的选择保存、版本和跨进程锁由会话服务负责，避免继续将运行装配堆入配置管理。目录/详情响应增加选择、选择版本和动态失效原因，切换选择不改变最近消息时间。完整 JSON 结构及状态转换统一维护在[前端对接文档](../docs/model-selection-frontend.md)。
 
 ### 接口契约
 
@@ -147,15 +151,16 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 | --- | --- | --- |
 | `GET /catalog/providers` | 无 | 供应商数组，含格式、官方端点；旧地域及业务空间选项仅作接口兼容 |
 | `GET /catalog/models` | 可选 `provider`、`api_format` | 模型数组，含 `catalog_model_id`、格式、能力、推理控件、允许输出上限 |
+| `GET /options` | 无 | 同一查询快照下有效默认和按连接分组的受限聊天选项，不含端点及凭据 |
 | `GET /provider-configurations` | 无 | 全局供应商配置数组 |
 | `POST /provider-configurations` | 创建供应商配置体，见下例 | 新供应商配置详情及 `version=1` |
 | `GET /provider-configurations/{id}` | UUID | 安全供应商配置详情 |
 | `PATCH /provider-configurations/{id}` | `version` 及待修改字段，不允许 `provider` | 新版本供应商配置详情 |
 | `DELETE /provider-configurations/{id}` | 必填查询参数 `version` | `null`，需先删除关联模型 |
-| `GET /models` | 可选 `provider_configuration_id` | 保存的模型方案数组，含当前目录能力和 `available` |
+| `GET /models` | 可选 `provider_configuration_id` | 保存的方案，含原生能力、`enabled`、`reasoning_policy`、`available` 和 `selectable` |
 | `POST /models` | 模型方案体，见下例 | 新方案及 `version=1` |
 | `GET /models/{id}` | UUID | 方案及当前目录能力 |
-| `PATCH /models/{id}` | `version` 与名称、目录模型、推理或输出上限 | 新版本方案 |
+| `PATCH /models/{id}` | `version` 与名称、目录模型、推理、输出上限、启停或完整推理策略 | 新版本方案 |
 | `DELETE /models/{id}` | 必填查询参数 `version` | `null`，不能直接删除当前默认 |
 | `GET /default` | 无 | 默认引用、版本、更新时间及可选模型概要 |
 | `PUT /default` | `version`、`model_configuration_id` | 更新后的默认；模型 ID 为 null 表示清除 |
@@ -217,6 +222,8 @@ OpenAI、Anthropic、DeepSeek 的 `endpoint_id` 为 `official`。百炼直接填
 更新必须携带读取时的版本，成功递增；PATCH 显式 null 和空修改被拒绝。过期版本返回 `409 / 40902`；引用冲突或供应商配置修改导致已有模型不兼容返回 `409 / 40903` 并整体回滚；资源不存在分别为 `40402 / 40403`；非法组合返回 `422 / 42200`。
 
 模型测试使用固定短提示，只验证该次文本流可完成，不执行天气等业务工具、不创建聊天历史、不自动设置默认。真实调用可能产生供应商费用。上游鉴权、限流/额度、超时及其他预期失败分别使用业务码 `20002 / 20003 / 20004 / 20005`，HTTP 仍为 200；不会因上游 401 令用户退出登录，也不回传供应商原始响应。
+
+管理测试允许测试停用方案，使用方案默认推理。配置元数据、启停和凭据轮换可独立于模型目录管理；端点/格式修改仍校验全部关联方案，运行参数和策略修改仍要求完整有效。新增会话选择错误及所有前端恢复规则见[对接文档错误码表](../docs/model-selection-frontend.md#8-错误码和恢复动作)。
 
 ## 启动与聊天接口
 
@@ -489,6 +496,8 @@ CLI 子进程的标准输出和错误输出通过两条管道并发读取，再�
 ### 覆盖的关键行为
 
 集成测试覆盖注册竞争、JWT 声明与账号状态、ORM 约束和索引、Alembic 排除 checkpoint 表、两种角色所有权隔离、游标边界、公开工具历史、软删除、跨连接锁、取消清理、遗留状态恢复及最终提交失败。模型仍使用本地替身，不访问真实模型。其他测试覆盖配置优先级、资源释放、接口协议、导入无外部副作用，以及真实 LangChain 图的多轮对话和工具调用；日志配置在独立子进程中验证。
+
+受限模型选择专项位于 `tests/unit/llm/test_selection.py`、`tests/integration/postgres/test_model_selection.py` 和 `test_model_selection_migration.py`：覆盖固定/自选范围、预算边界、启停与默认、立即保存、版本竞争、所有权、执行锁、目录批量查询、配置失效、无效输入无副作用和迁移往返。已有供应商协议测试继续验证跨模型历史与凭据轮换兼容。
 
 路由测试验证 `/api/chat` 的 SSE 事件、响应头、校验及流内错误、旧路径 `404`、错误方法 `405` 及 `Allow` 头、实例复用、依赖覆盖和 OpenAPI 示例。Agent 测试用可控异步事件验证首段先于完成、同会话 FIFO、跨会话并发、取消与异常后恢复、锁回收、最终落库边界，以及真实图取消时保留用户输入但不保存半段助手回复。
 

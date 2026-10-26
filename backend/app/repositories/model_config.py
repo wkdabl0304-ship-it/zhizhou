@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import select, true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import ChatModelSettings, ModelConfiguration, ProviderConfiguration
@@ -49,3 +49,22 @@ async def default_row(session: AsyncSession):
                                   .outerjoin(ModelConfiguration, ChatModelSettings.model_configuration_id == ModelConfiguration.id)
                                   .outerjoin(ProviderConfiguration, ModelConfiguration.provider_configuration_id == ProviderConfiguration.id)
                                   .where(ChatModelSettings.id == 1))).one()
+
+
+async def option_rows(session: AsyncSession):
+    """在同一 SQL 快照读取默认引用及所有方案，空配置时也保留设置单例。"""
+    query = (select(ChatModelSettings, ModelConfiguration, ProviderConfiguration)
+             .select_from(ChatModelSettings)
+             .outerjoin(ModelConfiguration, true())
+             .outerjoin(ProviderConfiguration, ModelConfiguration.provider_configuration_id == ProviderConfiguration.id)
+             .where(ChatModelSettings.id == 1)
+             .order_by(ProviderConfiguration.created_at, ProviderConfiguration.id, ModelConfiguration.created_at, ModelConfiguration.id))
+    return (await session.execute(query)).all()
+
+
+async def selected_model_rows(session: AsyncSession, ids: set[UUID]):
+    """批量读取会话选择涉及的方案，避免会话目录产生逐条配置查询。"""
+    if not ids:
+        return []
+    return (await session.execute(select(ModelConfiguration, ProviderConfiguration).join(ProviderConfiguration)
+                                  .where(ModelConfiguration.id.in_(ids)))).all()

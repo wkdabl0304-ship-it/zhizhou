@@ -54,6 +54,9 @@ class RequestError(AppError):
         ErrorCode.MODEL_CONFIGURATION_NOT_FOUND: 404,
         ErrorCode.MODEL_VERSION_CONFLICT: 409,
         ErrorCode.MODEL_CONFIG_IN_USE: 409,
+        ErrorCode.MODEL_SELECTION_VERSION_CONFLICT: 409,
+        ErrorCode.MODEL_SELECTION_UNAVAILABLE: 422,
+        ErrorCode.REASONING_NOT_ALLOWED: 422,
     }
 
     def __init__(self, error_code: ErrorCode) -> None:

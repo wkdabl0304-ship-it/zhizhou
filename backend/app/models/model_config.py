@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func
+from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, Integer, SmallInteger, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -26,6 +26,7 @@ class ProviderConfiguration(Base):
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     name: Mapped[str] = mapped_column(String(100))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
     provider: Mapped[str] = mapped_column(String(20))
     api_format: Mapped[str] = mapped_column(String(30))
     endpoint_config: Mapped[dict[str, Any]] = mapped_column(JSONB)
@@ -44,6 +45,7 @@ class ModelConfiguration(Base):
     __table_args__ = (
         CheckConstraint("version > 0 AND max_output_tokens > 0", name="ck_model_configurations_limits"),
         CheckConstraint("jsonb_typeof(reasoning) = 'object'", name="ck_model_configurations_reasoning"),
+        CheckConstraint("jsonb_typeof(reasoning_policy) = 'object' AND coalesce(reasoning_policy ->> 'mode' IN ('fixed', 'selectable'), false)", name="ck_model_configurations_reasoning_policy"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
@@ -51,6 +53,9 @@ class ModelConfiguration(Base):
     name: Mapped[str] = mapped_column(String(100))
     catalog_model_id: Mapped[str] = mapped_column(String(160))
     reasoning: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    # 每个新方案取得独立固定策略字典，避免 ORM 默认值在实例之间共享可变对象。
+    reasoning_policy: Mapped[dict[str, Any]] = mapped_column(JSONB, default=lambda: {"mode": "fixed"}, server_default=text("'{\"mode\":\"fixed\"}'::jsonb"))
     max_output_tokens: Mapped[int] = mapped_column(Integer, default=16384, server_default="16384")
     version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

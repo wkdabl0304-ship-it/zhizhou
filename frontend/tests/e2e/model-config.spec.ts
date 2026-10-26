@@ -1,83 +1,6 @@
-/** 模型管理全链路：真实页面、API、加密配置与随机库；本文件由独占项目执行，不影响并行聊天测试。 */
-import {
-  test as base,
-  expect,
-  login,
-  send,
-  finished,
-  type Account,
-} from '../support/playwright/fixtures'
-import type { APIRequestContext, Page } from '@playwright/test'
-
-/** 返回仅测试启动器提供的控制地址，缺少环境时禁止连接开发服务。 */
-function control() {
-  const url = process.env.E2E_API_URL,
-    token = process.env.E2E_CONTROL_TOKEN
-  if (!url || !token) throw new Error('请通过 pnpm test:e2e 启动隔离服务')
-  return { url, token }
-}
-const test = base.extend<{ configuration: void }>({
-  // 每例前后通过正式服务清理/恢复全局配置，失败也执行 finally；配置项目间由依赖图串行。
-  configuration: [
-    async ({ request }, use) => {
-      const { url, token } = control()
-      const options = { headers: { Authorization: `Bearer ${token}` } }
-      expect(
-        (
-          await request.post(`${url}/__e2e__/model-configuration`, {
-            ...options,
-            data: { mode: 'empty' },
-          })
-        ).ok(),
-      ).toBe(true)
-      try {
-        await use()
-      } finally {
-        expect(
-          (
-            await request.post(`${url}/__e2e__/model-configuration`, {
-              ...options,
-              data: { mode: 'seeded' },
-            })
-          ).ok(),
-        ).toBe(true)
-      }
-    },
-    { auto: true },
-  ],
-})
-
-/** 从当前管理页面添加真实供应商配置，凭据始终是假值。 */
-async function provider(
-  page: Page,
-  name = '我的 DeepSeek',
-  brand = 'deepseek',
-  key = 'e2e-demo-key',
-): Promise<void> {
-  await page.getByRole('button', { name: '添加', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '添加供应商配置', exact: true })
-  await dialog.locator('[name="provider"]').selectOption(brand)
-  await dialog.getByLabel('配置名称', { exact: true }).fill(name)
-  await dialog.locator('[name="api_key"]').fill(key)
-  await dialog.getByRole('button', { name: '保存配置', exact: true }).click()
-  await expect(dialog).not.toBeVisible()
-}
-/** 从所选供应商添加真实模型方案，默认参数必须经过服务器校验。 */
-async function model(page: Page, name = '日常问答'): Promise<void> {
-  await page.getByRole('button', { name: '添加模型方案', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: '添加模型方案', exact: true })
-  await dialog.getByLabel('方案名称', { exact: true }).fill(name)
-  await dialog.getByRole('button', { name: '保存配置', exact: true }).click()
-  await expect(dialog).not.toBeVisible()
-}
-/** 经正式登录接口取得当前测试账号令牌，供另一个客户端模拟共享配置修改。 */
-async function headers(request: APIRequestContext, account: Account) {
-  const response = await request.post(`${control().url}/api/auth/login`, { data: account })
-  expect(response.ok()).toBe(true)
-  const result = await response.json()
-  expect(result.code).toBe(0)
-  return { Authorization: `Bearer ${result.data.access_token as string}` }
-}
+/** 模型管理全链路：真实页面与随机库，配置重置及 HTTP 辅助由共用 fixture 负责。 */
+import { test, control, provider, model, headers } from '../support/playwright/model-config'
+import { expect, login, send, finished } from '../support/playwright/fixtures'
 
 test('首次配置、主动测试、设默认后返回聊天保留草稿，刷新仍可使用', async ({
   page,
@@ -164,8 +87,8 @@ test('编辑、切换和清除默认，并按引用顺序删除模型及供应�
   await expect(page.getByRole('heading', { name: '从一份供应商配置开始' })).toBeVisible()
 })
 
-// 共享默认可被其他用户随时修改；验证过期页面通过正式聊天错误恢复，无须重新登录。
-test('其他客户端清除默认后发送不落库，当前页面同步状态并保留后续草稿', async ({
+// 全局默认只初始化尚未选择的页面，清除后不能覆盖用户已经看到并确认的具体选择。
+test('其他客户端清除默认不覆盖本地选择，既有会话继续使用确认版本', async ({
   page,
   account,
   request,
@@ -190,15 +113,26 @@ test('其他客户端清除默认后发送不落库，当前页面同步状态�
   })
   expect((await cleared.json()).code).toBe(0)
   await send(page, '默认已从其他客户端清除')
-  await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('尚未配置默认模型')
+  await finished(page)
+  await page.getByRole('button', { name: '刷新模型选项', exact: true }).click()
+  await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('日常问答')
   await expect(page).toHaveURL(/\/$/)
   const history = await request.get(`${control().url}/api/conversations?limit=20`, {
     headers: auth,
   })
-  expect((await history.json()).data.items).toEqual([])
-  await page.getByRole('textbox', { name: '消息内容' }).fill('等待重新配置的草稿')
-  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
-  await expect(page.getByRole('textbox', { name: '消息内容' })).toHaveValue('等待重新配置的草稿')
+  const rows = (await history.json()).data.items
+  expect(rows).toHaveLength(1)
+  const continuing = page.waitForRequest(
+    (sent) => sent.url().endsWith('/api/chat') && sent.method() === 'POST',
+  )
+  await send(page, '沿用会话自己的选择')
+  const body = (await continuing).postDataJSON()
+  expect(body).toEqual({
+    message: '沿用会话自己的选择',
+    conversation_id: rows[0].conversation_id,
+    model_selection_version: rows[0].model_selection_version,
+  })
+  await finished(page)
 })
 
 // 百炼现成兼容地址的配置、测试、修改及聊天都经过正式 API 和隔离数据库。

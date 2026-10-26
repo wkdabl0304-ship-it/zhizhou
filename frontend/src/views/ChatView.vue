@@ -3,33 +3,29 @@
 import { nextTick, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '@/features/chat/store'
-import { useModelConfigStore } from '@/features/model-config/store'
-import DefaultModelStatus from '@/features/model-config/components/DefaultModelStatus.vue'
+import ChatModelSelector from '@/features/model-selection/components/ChatModelSelector.vue'
 import ChatWelcome from '@/features/chat/components/ChatWelcome.vue'
 import ChatComposer from '@/features/chat/components/ChatComposer.vue'
 import MessageList from '@/features/chat/components/MessageList.vue'
-const chat = useChatStore(),
-  modelConfig = useModelConfigStore()
+const chat = useChatStore()
 const { draft } = storeToRefs(chat)
 const composer = ref<InstanceType<typeof ChatComposer> | InstanceType<typeof ChatWelcome>>()
-/** 发送消息后恢复输入焦点，服务端拒绝缺失默认时同步最新配置状态。 */
+/** 在模型选择已确认时发送消息并恢复输入焦点，选择错误恢复由聊天 store 负责。 */
 async function send(text: string): Promise<void> {
-  if (!modelConfig.ready) return
-  void chat.send(text).then((success) => {
-    if (!success && chat.lastErrorCode === 50301) void modelConfig.loadDefault()
-  })
+  if (!chat.selectionReady) return
+  void chat.send(text)
   await nextTick()
   composer.value?.focus()
 }
 </script>
 <template>
-  <DefaultModelStatus />
+  <ChatModelSelector />
   <div v-if="!chat.activeConversation" class="home-scroll">
     <ChatWelcome
       ref="composer"
       v-model="draft"
       :sending="chat.isSending"
-      :send-blocked="!modelConfig.ready"
+      :send-blocked="!chat.selectionReady"
       @send="send"
     />
   </div>
@@ -72,7 +68,7 @@ async function send(text: string): Promise<void> {
           v-model="draft"
           :sending="chat.isSending"
           :disabled="chat.inputBlocked"
-          :send-blocked="!modelConfig.ready"
+          :send-blocked="!chat.selectionReady"
           @send="send"
         />
         <p class="composer-disclaimer">AI 回复仅供参考，请核实重要信息。</p>

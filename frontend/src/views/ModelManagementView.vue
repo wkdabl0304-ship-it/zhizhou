@@ -84,7 +84,7 @@ async function execute(work: () => Promise<void>, message: string): Promise<void
 function select(model: ModelConfiguration): void {
   void execute(
     () => store.setDefault(model.id),
-    `已将“${model.name}”设为全局默认，从下一轮聊天生效。`,
+    `已将“${model.name}”设为全局默认，用于尚未选择模型的会话。`,
   )
 }
 /** 删除前检查可见引用并确认；真正写入仍由服务端校验版本和引用。 */
@@ -125,7 +125,8 @@ function clearDefault(): void {
   error.value = ''
   confirmation.value = {
     title: '清除全局默认模型？',
-    description: '清除后，所有用户的新一轮聊天将暂时无法发送。正在生成的回复和已有历史不受影响。',
+    description:
+      '清除后，新会话需要手动选择可用模型。所有用户的已有会话选择、正在生成的回复和历史不受影响。',
     label: '清除默认',
     danger: true,
     perform: () => store.setDefault(null),
@@ -159,6 +160,24 @@ function closeConfirmation(): void {
 function locateDefault(): void {
   const id = store.selected?.model?.provider_configuration_id
   if (id) store.selectedProvider = id
+}
+/** 启停只修改当前资源，停用前说明影响，不级联改写关联方案或默认引用。 */
+function toggle(
+  kind: 'provider' | 'model',
+  item: ProviderConfiguration | ModelConfiguration,
+): void {
+  const enabled = !item.enabled
+  if (enabled) {
+    void execute(() => store.setEnabled(kind, item, true), '已启用，可用于符合条件的聊天选择')
+    return
+  }
+  confirmation.value = {
+    title: kind === 'provider' ? '停用供应商连接？' : '停用模型方案？',
+    description:
+      '停用后暂时不能在聊天中选择，相关会话下次发送需重新选择。已有配置、默认引用和历史会保留，正在生成的回复不受影响。',
+    label: '确认停用',
+    perform: () => store.setEnabled(kind, item, false),
+  }
 }
 onMounted(() => {
   void store.load()
@@ -197,7 +216,7 @@ onBeforeUnmount(() => store.cancelManagement())
             <h2>
               {{ store.selected.model?.name ?? '还没有默认模型'
               }}<span
-                v-if="store.selected.model && !store.selected.model.available"
+                v-if="store.selected.model && !store.selected.model.selectable"
                 class="config-badge config-badge--invalid"
                 >不可用</span
               >
@@ -225,7 +244,7 @@ onBeforeUnmount(() => store.cancelManagement())
               >清除默认</UiButton
             >
           </div>
-          <p class="config-hint">所有登录用户共享 · 修改从下一轮聊天生效</p>
+          <p class="config-hint">所有登录用户共享 · 默认仅初始化尚无选择的会话</p>
         </div>
       </section>
       <div class="config-management-grid">
@@ -250,7 +269,11 @@ onBeforeUnmount(() => store.cancelManagement())
               :aria-pressed="provider.id === store.selectedProvider"
               @click="store.selectedProvider = provider.id"
             >
-              <strong>{{ provider.name }}</strong
+              <strong
+                >{{ provider.name
+                }}<span v-if="!provider.enabled" class="config-badge config-badge--invalid"
+                  >已停用</span
+                ></strong
               ><small
                 >{{
                   store.brands.find((item) => item.provider === provider.provider)?.display_name
@@ -281,7 +304,12 @@ onBeforeUnmount(() => store.cancelManagement())
           <template v-if="current"
             ><header class="config-provider-summary">
               <div class="config-section-heading">
-                <h2>{{ current.name }}</h2>
+                <h2>
+                  {{ current.name
+                  }}<span v-if="!current.enabled" class="config-badge config-badge--invalid"
+                    >已停用</span
+                  >
+                </h2>
                 <span class="config-badge">{{
                   current.api_key_configured ? '密钥已配置' : '密钥未配置'
                 }}</span>
@@ -300,6 +328,12 @@ onBeforeUnmount(() => store.cancelManagement())
                   :disabled="busy || store.loading"
                   @click="edit('provider', current.id)"
                   >编辑供应商</UiButton
+                ><UiButton
+                  variant="ghost"
+                  size="sm"
+                  :disabled="busy || store.loading"
+                  @click="toggle('provider', current)"
+                  >{{ current.enabled ? '停用连接' : '启用连接' }}</UiButton
                 ><UiButton
                   variant="ghost"
                   size="sm"
@@ -336,6 +370,7 @@ onBeforeUnmount(() => store.cancelManagement())
                 @select="select(model)"
                 @edit="edit('model', model.id)"
                 @delete="remove('model', model)"
+                @toggle="toggle('model', model)"
               />
             </div>
             <div v-if="!models.length" class="config-empty">

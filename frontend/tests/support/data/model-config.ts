@@ -27,6 +27,7 @@ export function modelConfigData() {
     api_format: 'messages',
     endpoint_config: { endpoint_id: 'official' },
     api_key_configured: true,
+    enabled: true,
     version: 1,
     created_at: '2026-10-24T00:00:00Z',
     updated_at: '2026-10-24T00:00:00Z',
@@ -51,6 +52,9 @@ export function modelConfigData() {
     format_constraints: {},
   }
   const model: ModelConfiguration = {
+    enabled: true,
+    selectable: true,
+    reasoning_policy: { mode: 'fixed' },
     id: 'model-one',
     name: '长文分析',
     provider_configuration_id: provider.id,

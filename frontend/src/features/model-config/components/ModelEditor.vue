@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, reactive, ref, toRaw } from 'vue'
 import { ApiError } from '@/features/auth/authenticated'
 import UiButton from '@/shared/components/ui/UiButton.vue'
 import ConfigEditor from './ConfigEditor.vue'
+import ReasoningPolicyEditor from './ReasoningPolicyEditor.vue'
 import { loadCatalog } from '../api'
 import { explainConfigError, useModelConfigStore } from '../store'
 import { describeReasoning, effortLabels, modeLabels, validateModel } from '../validation'
@@ -24,6 +25,8 @@ const draft = reactive<ModelInput>({
   catalog_model_id: previous?.catalog_model_id ?? '',
   reasoning: previous ? { ...previous.reasoning } : { mode: 'default' },
   max_output_tokens: previous?.max_output_tokens ?? 16384,
+  enabled: previous?.enabled ?? true,
+  reasoning_policy: previous ? structuredClone(previous.reasoning_policy) : { mode: 'fixed' },
 })
 let initial = JSON.stringify(draft)
 const busy = ref(false),
@@ -64,6 +67,7 @@ async function load(): Promise<void> {
 function changeModel(event?: Event): void {
   if (event) draft.catalog_model_id = (event.target as HTMLSelectElement).value
   if (!spec.value) return
+  draft.reasoning_policy = { mode: 'fixed' }
   draft.reasoning = spec.value.reasoning.allowed_modes.includes('default')
     ? { mode: 'default' }
     : { ...spec.value.reasoning.default }
@@ -151,6 +155,9 @@ void load()
         </option></select
       ><small>仅展示与当前供应商及接口格式匹配的模型。</small></label
     >
+    <label class="config-switch"
+      ><input v-model="draft.enabled" name="enabled" type="checkbox" />启用此模型方案</label
+    >
     <template v-if="spec">
       <label
         >推理方式<select :value="draft.reasoning.mode" name="reasoning_mode" @change="changeMode">
@@ -200,6 +207,12 @@ void load()
           step="1"
         /><small>最大允许 {{ spec.max_output_tokens.toLocaleString() }}。</small></label
       >
+      <ReasoningPolicyEditor
+        v-model="draft.reasoning_policy!"
+        :model="spec"
+        :reasoning="draft.reasoning"
+        :max-output="draft.max_output_tokens"
+      />
     </template>
   </ConfigEditor>
 </template>

@@ -27,7 +27,7 @@ class MemoryConversationService(ConversationService):
 
     @asynccontextmanager
     async def prepare(
-        self, user_id, message, conversation_id
+        self, user_id, message, conversation_id, *, model_selection=None, model_selection_version=None
     ) -> AsyncIterator[PreparedChat]:
         """提供测试用聊天上下文，让路由无需真实数据库即可执行流式响应。
 

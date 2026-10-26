@@ -107,6 +107,28 @@ it('热更新替换滞留的保存动作，保留原状态实例并使用新版 
   expect(JSON.stringify(store.$state)).not.toContain('fake-hmr-key')
 })
 
+it('停用仅提交目标资源版本与 enabled，重新读取关联可选性', async () => {
+  const data = management(),
+    store = useModelConfigStore()
+  await store.load()
+  fetchMock.mockImplementationOnce(async (_url, init) => {
+    expect(JSON.parse(String(init?.body))).toEqual({
+      version: data.provider.version,
+      enabled: false,
+    })
+    data.provider.enabled = false
+    data.provider.version = 2
+    data.model.selectable = false
+    return response(data.provider)
+  })
+  await store.setEnabled('provider', data.provider, false)
+  expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PATCH')).toBe(true)
+  expect(store.configurations[0]?.enabled).toBe(false)
+  expect(store.models[0]?.enabled).toBe(true)
+  expect(store.models[0]?.selectable).toBe(false)
+  expect(store.selected?.model_configuration_id).toBe(data.model.id)
+})
+
 it('热更新取消旧请求，迟到响应不覆盖缓存，新身份监听仍能在退出时清理状态', async () => {
   const data = management(),
     store = useModelConfigStore()

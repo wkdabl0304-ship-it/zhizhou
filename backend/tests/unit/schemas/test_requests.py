@@ -31,6 +31,11 @@ def test_registration_normalizes_username_but_preserves_password():
         {"message": "hi", "conversation_id": ""},
         {"message": "hi", "conversation_id": "unknown"},
         {"message": " \n"},
+        {"message": "hi", "model_selection_version": 1},
+        {"message": "hi", "model_selection_version": None},
+        {"message": "hi", "conversation_id": str(uuid4()), "model_selection_version": True},
+        {"message": "hi", "conversation_id": str(uuid4()), "model_selection": {
+            "model_configuration_id": str(uuid4()), "reasoning": {"mode": "off"}}},
     ],
 )
 def test_chat_rejects_legacy_names_and_invalid_business_id(body):

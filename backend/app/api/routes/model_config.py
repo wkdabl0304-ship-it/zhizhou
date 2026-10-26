@@ -14,10 +14,17 @@ from app.schemas.model_config import (
 )
 from app.schemas.response import ApiResponse, success
 from app.services.model_config import ModelConfigService
+from app.schemas.model_selection import ModelOptions
 
 router = APIRouter(prefix="/model-config", tags=["模型配置"], dependencies=[Depends(get_current_user)])
 type Service = Annotated[ModelConfigService, Depends(get_model_config_service)]
 type Version = Annotated[int, Query(gt=0)]
+
+
+@router.get("/options", response_model=ApiResponse[ModelOptions])
+async def options(service: Service):
+    """返回聊天允许选择的方案、推理范围和有效默认，不访问供应商。"""
+    return success(await service.selections.options())
 
 
 @router.get("/catalog/providers", response_model=ApiResponse[list[ProviderInfo]])
@@ -83,7 +90,7 @@ async def model(model_id: UUID, service: Service):
 
 @router.patch("/models/{model_id}", response_model=ApiResponse[ModelInfo])
 async def patch_model(model_id: UUID, body: ModelPatch, service: Service):
-    """按版本修改模型方案，默认模型也从下一轮开始使用新参数。"""
+    """按版本修改模型方案，相关会话在下一轮重新校验选择与推理限制。"""
     return success(await service.patch_model(model_id, body))
 
 

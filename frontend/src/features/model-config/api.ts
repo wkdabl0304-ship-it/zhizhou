@@ -1,5 +1,6 @@
 /** 模型配置 HTTP 边界：复用认证和统一信封，验证公开字段后才允许数据进入表单和状态。 */
 import { ApiError, authenticatedFetch, readEnvelope } from '@/features/auth/authenticated'
+import { decodePolicy } from '@/features/model-selection/contract'
 import type {
   ApiFormat,
   CatalogModel,
@@ -130,6 +131,7 @@ export function decodeConfiguration(value: unknown): ProviderConfiguration {
     providers.includes(String(row.provider)) &&
       formats.includes(String(row.api_format)) &&
       typeof row.api_key_configured === 'boolean' &&
+      typeof row.enabled === 'boolean' &&
       (row.provider === 'bailian'
         ? text(endpoint.base_url) && endpoint.endpoint_id == null && endpoint.workspace_id == null
         : text(endpoint.endpoint_id) && endpoint.base_url == null && endpoint.workspace_id == null),
@@ -144,6 +146,7 @@ export function decodeConfiguration(value: unknown): ProviderConfiguration {
         ? { base_url: endpoint.base_url as string }
         : { endpoint_id: endpoint.endpoint_id as string },
     api_key_configured: row.api_key_configured as boolean,
+    enabled: row.enabled as boolean,
     version: row.version as number,
     created_at: row.created_at as string,
     updated_at: row.updated_at as string,
@@ -156,7 +159,9 @@ export function decodeModel(value: unknown): ModelConfiguration {
     text(row.provider_configuration_id) &&
       text(row.catalog_model_id) &&
       positive(row.max_output_tokens) &&
-      typeof row.available === 'boolean',
+      typeof row.available === 'boolean' &&
+      typeof row.enabled === 'boolean' &&
+      typeof row.selectable === 'boolean',
   )
   return {
     id: row.id as string,
@@ -169,6 +174,9 @@ export function decodeModel(value: unknown): ModelConfiguration {
     reasoning: reasoning(row.reasoning),
     max_output_tokens: row.max_output_tokens as number,
     available: row.available as boolean,
+    enabled: row.enabled as boolean,
+    selectable: row.selectable as boolean,
+    reasoning_policy: decodePolicy(row.reasoning_policy),
     catalog: row.catalog === null ? null : decodeCatalog(row.catalog),
   }
 }

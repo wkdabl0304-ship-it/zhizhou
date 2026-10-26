@@ -12,6 +12,7 @@ import { modelConfigData } from '@tests/support/data/model-config'
 import { authenticate } from '@tests/support/vitest/auth'
 import { A, B, info, turn } from '@tests/support/data/chat'
 import { response } from '@tests/support/vitest/http'
+import { withModelOptions } from '@tests/support/vitest/chat'
 
 let pinia: Pinia
 let wrapper: VueWrapper | undefined
@@ -20,7 +21,7 @@ const fetchMock = vi.fn<typeof fetch>()
 beforeEach(async () => {
   pinia = createPinia()
   fetchMock.mockReset()
-  vi.stubGlobal('fetch', fetchMock)
+  vi.stubGlobal('fetch', withModelOptions(fetchMock))
   vi.stubGlobal('matchMedia', () => ({
     matches: false,
     addEventListener: vi.fn<() => void>(),

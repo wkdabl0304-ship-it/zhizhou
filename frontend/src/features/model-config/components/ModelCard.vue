@@ -11,7 +11,7 @@ const props = defineProps<{
   busy: boolean
   test?: { running: boolean; result?: TestResult; error?: string }
 }>()
-defineEmits<{ test: []; select: []; edit: []; delete: [] }>()
+defineEmits<{ test: []; select: []; edit: []; delete: []; toggle: [] }>()
 const stale = computed(
   () =>
     !!props.test?.result &&
@@ -26,10 +26,17 @@ const stale = computed(
       <div class="config-actions">
         <span v-if="current" class="config-badge">当前默认</span
         ><span v-if="!model.available" class="config-badge config-badge--invalid">不可用</span>
+        <span v-if="!model.enabled" class="config-badge config-badge--invalid">已停用</span>
+        <span
+          v-else-if="model.available && !model.selectable"
+          class="config-badge config-badge--invalid"
+          >连接已停用</span
+        >
       </div>
     </div>
     <p class="config-model-id">{{ model.catalog?.display_name ?? model.catalog_model_id }}</p>
     <div class="config-model-options">
+      <span>{{ model.reasoning_policy.mode === 'fixed' ? '固定推理' : '允许用户自选' }}</span>
       <span>{{ describeReasoning(model.reasoning) }}</span
       ><span>输出上限 · {{ model.max_output_tokens.toLocaleString() }}</span>
     </div>
@@ -52,9 +59,12 @@ const stale = computed(
         ><UiButton
           v-if="!current"
           size="sm"
-          :disabled="busy || !model.available"
+          :disabled="busy || !model.selectable"
           @click="$emit('select')"
           >设为默认</UiButton
+        ><UiButton size="sm" variant="ghost" :disabled="busy" @click="$emit('toggle')">{{
+          model.enabled ? '停用' : '启用'
+        }}</UiButton
         ><UiButton size="sm" variant="ghost" :disabled="busy" @click="$emit('edit')">编辑</UiButton
         ><UiButton
           size="sm"

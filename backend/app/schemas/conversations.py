@@ -5,6 +5,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
+from app.schemas.model_selection import ModelSelection, SelectionIssue
 
 
 class ConversationInfo(BaseModel):
@@ -15,6 +16,9 @@ class ConversationInfo(BaseModel):
     title: str
     created_at: datetime
     last_message_at: datetime
+    model_selection: ModelSelection | None = None
+    model_selection_version: int = 1
+    model_selection_issue: SelectionIssue | None = None
 
 
 class ConversationList(BaseModel):

@@ -1,5 +1,6 @@
 /** 聊天展示数据契约：描述安全渲染的消息块和内存会话，API 数据由适配层转换。 */
 import type { JsonValue, ToolKind } from './chat-events'
+import type { ModelSelection, SelectionIssue } from '@/features/model-selection/types'
 
 /** 过程状态；interrupted 表示没有收到完成确认，不等同于工具执行失败。 */
 export type ActivityStatus = 'queued' | 'running' | 'complete' | 'error' | 'interrupted'
@@ -57,6 +58,13 @@ export interface ChatMessage {
 
 /** 会话展示缓存；persisted 时 id 为服务端 ID，否则仅是尚未收到 start 的本地展示键。 */
 export interface Conversation {
+  modelSelection?: ModelSelection | null
+  modelSelectionVersion?: number
+  modelSelectionIssue?: SelectionIssue | null
+  selectionSaving?: boolean
+  selectionError?: string
+  selectionRead?: number
+  rejectedDraft?: string
   id: string
   title: string
   group: string

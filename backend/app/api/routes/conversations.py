@@ -7,11 +7,23 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.dependencies import get_conversation_service, get_current_user
 from app.models import User
-from app.schemas.conversations import ConversationContent, ConversationList
+from app.schemas.conversations import ConversationContent, ConversationList, ConversationInfo
+from app.schemas.model_selection import ModelSelectionUpdate
 from app.schemas.response import ApiResponse, success
 from app.services.conversations import ConversationService
 
 router = APIRouter(prefix="/conversations", tags=["会话"])
+
+
+@router.patch("/{conversation_id}/model-selection", response_model=ApiResponse[ConversationInfo])
+async def update_model_selection(
+    conversation_id: UUID,
+    body: ModelSelectionUpdate,
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[ConversationService, Depends(get_conversation_service)],
+):
+    """按版本立即保存自己的会话模型选择，生成期间拒绝切换。"""
+    return success(await service.update_model_selection(user.id, conversation_id, body))
 
 
 @router.get("", response_model=ApiResponse[ConversationList])

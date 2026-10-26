@@ -47,6 +47,10 @@ _EXAMPLE = "".join(
                     conversation_id="00000000-0000-4000-8000-000000000001",
                     turn_id="00000000-0000-4000-8000-000000000001",
                     is_new=True,
+                    model_selection={
+                        "model_configuration_id": "00000000-0000-4000-8000-000000000002",
+                        "reasoning": {"mode": "effort", "effort": "high"},
+                    },
                 )
             ),
         ),
@@ -131,7 +135,9 @@ async def prepare_chat(
     给路由。依赖采用 request scope，使上下文在 SSE 结束后才退出并释放锁；
     归属或执行冲突在响应建立前返回普通 JSON 错误。
     """
-    async with service.prepare(user.id, body.message, body.conversation_id) as prepared:
+    async with service.prepare(user.id, body.message, body.conversation_id,
+                               model_selection=body.model_selection,
+                               model_selection_version=body.model_selection_version) as prepared:
         yield prepared
 
 
@@ -142,7 +148,7 @@ async def prepare_chat(
     responses={
         200: {
             "description": (
-                "SSE：start 返回后端生成的 conversation_id、turn_id 和 is_new；delta 按 message_id 输出 text；done 包含最终 reply。"
+                "SSE：start 返回 conversation_id、turn_id、is_new 及确认的 model_selection/model_selection_version；delta 按 message_id 输出 text；done 包含最终 reply。"
                 "成功事件 code=0；error 使用非零错误码且 data=null，之后不再发送 done。"
                 "delta 可能包含工具调用前的助手文字，done.reply 是最终完整回答。"
                 "工具调用前通过 delta 输出行动说明，不对外返回模型推理。"

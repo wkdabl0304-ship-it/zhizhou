@@ -27,6 +27,8 @@ class ModelSnapshot:
     base_url: str
     parameters: dict[str, Any]
     api_key: SecretStr = field(repr=False)
+    # 正式快照始终写入具体推理值；默认空值保留独立客户端测试的构造兼容。
+    reasoning: dict[str, Any] | None = None
 
     @property
     def origin(self) -> str:
@@ -37,7 +39,10 @@ class ModelSnapshot:
 
     def public_snapshot(self) -> dict[str, Any]:
         """返回轮次可持久化的实际执行参数，不包含明文、密文或加密主密钥。"""
-        return {"provider_configuration_id": str(self.provider_configuration_id), "model_configuration_id": str(self.configuration_id),
+        value = {"provider_configuration_id": str(self.provider_configuration_id), "model_configuration_id": str(self.configuration_id),
                 "provider_configuration_version": self.provider_configuration_version, "model_version": self.model_version,
                 "provider": self.provider, "api_format": self.api_format,
                 "catalog_model_id": self.catalog_model_id, "parameters": deepcopy(self.parameters)}
+        if self.reasoning is not None:
+            value["reasoning"] = deepcopy(self.reasoning)
+        return value

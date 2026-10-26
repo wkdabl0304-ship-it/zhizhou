@@ -1,4 +1,5 @@
 /** 模型配置公开契约：对应后端 model_config schema，写入密钥与公开响应类型分离。 */
+import type { ReasoningPolicy } from '@/features/model-selection/types'
 export type Provider = 'openai' | 'anthropic' | 'deepseek' | 'bailian'
 export type ApiFormat = 'responses' | 'chat_completions' | 'messages'
 export type Reasoning =
@@ -28,6 +29,7 @@ export interface ProviderConfiguration {
   api_format: ApiFormat
   endpoint_config: Endpoint
   api_key_configured: boolean
+  enabled: boolean
   version: number
   created_at: string
   updated_at: string
@@ -57,8 +59,13 @@ export interface ModelInput {
   catalog_model_id: string
   reasoning: Reasoning
   max_output_tokens: number
+  enabled?: boolean
+  reasoning_policy?: ReasoningPolicy
 }
 export interface ModelConfiguration extends ModelInput {
+  enabled: boolean
+  reasoning_policy: ReasoningPolicy
+  selectable: boolean
   id: string
   version: number
   created_at: string
@@ -78,6 +85,7 @@ export interface ProviderInput {
   api_format: ApiFormat
   endpoint_config: Endpoint
   api_key: string
+  enabled?: boolean
 }
 export type ProviderPatch = Partial<Omit<ProviderInput, 'provider'>> & { version: number }
 export type ModelPatch = Partial<Omit<ModelInput, 'provider_configuration_id'>> & {

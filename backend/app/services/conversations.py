@@ -38,6 +38,7 @@ from app.services.cursors import (
 from app.llm.types import ModelSnapshot
 from app.llm.runtime import ConfiguredChatAgent
 from app.services.model_config import ModelConfigService
+from app.schemas.model_selection import ModelSelection, ModelSelectionUpdate
 
 logger = logging.getLogger(__name__)
 
@@ -53,6 +54,8 @@ class PreparedChat:
     public_events: list[dict] = field(default_factory=list)
     terminal: bool = False
     model_runtime: ModelSnapshot | None = field(default=None, repr=False)
+    model_selection: ModelSelection | None = None
+    model_selection_version: int = 1
 
 
 class ConversationService:
@@ -79,6 +82,36 @@ class ConversationService:
             if await repository.owned(session, user_id, conversation_id) is None:
                 raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
 
+    async def _conversation_infos(self, session, rows) -> list[ConversationInfo]:
+        """批量补齐选择失效原因，使配置删除和停用不影响历史接口可读性。"""
+        issues = await self.model_config.selections.issues(session, rows) if self.model_config is not None else {}
+        return [ConversationInfo.model_validate(row).model_copy(update={"model_selection_issue": issues.get(row.id)}) for row in rows]
+
+    async def update_model_selection(self, user_id: UUID, conversation_id: UUID, body: ModelSelectionUpdate) -> ConversationInfo:
+        """立即保存自己的会话选择，复用执行锁和独立版本防止并发覆盖。
+
+        配置验证和保存均在短事务内完成，失败不会改变旧选择；不更新最近消息时间，
+        也不解密凭据或调用供应商。生成期间与删除、续聊竞争同一跨进程锁。
+        """
+        await self.require_owned(user_id, conversation_id)
+        async with self.locks.hold(conversation_id) as acquired:
+            if not acquired:
+                raise RequestError(ErrorCode.CONVERSATION_BUSY)
+            async with self.database.sessions.begin() as session:
+                conversation = await repository.owned(session, user_id, conversation_id)
+                if conversation is None:
+                    raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
+                if conversation.model_selection_version != body.model_selection_version:
+                    raise RequestError(ErrorCode.MODEL_SELECTION_VERSION_CONFLICT)
+                if self.model_config is None:
+                    raise RuntimeError("模型选择服务尚未装配")
+                await self.model_config.selections.validate(session, body.model_selection)
+                conversation.model_selection = body.model_selection.model_dump(mode="json")
+                conversation.model_selection_version += 1
+                conversation.updated_at = datetime.now(UTC)
+                await session.flush()
+                return ConversationInfo.model_validate(conversation)
+
     async def list_recent(
         self, user_id: UUID, limit: int, cursor: str | None
     ) -> ConversationList:
@@ -96,6 +129,7 @@ class ConversationService:
             before = (parsed.at, parsed.id)
         async with self.database.sessions() as session:
             rows = await repository.recent(session, user_id, limit + 1, before)
+            infos = await self._conversation_infos(session, rows[:limit])
         selected = rows[:limit]
         next_cursor = None
         if len(rows) > limit:
@@ -110,7 +144,7 @@ class ConversationService:
                 )
             )
         return ConversationList(
-            items=[ConversationInfo.model_validate(row) for row in selected],
+            items=infos,
             next_cursor=next_cursor,
         )
 
@@ -151,7 +185,7 @@ class ConversationService:
                     )
                 )
             return ConversationContent(
-                conversation=ConversationInfo.model_validate(conversation),
+                conversation=(await self._conversation_infos(session, [conversation]))[0],
                 items=[TurnInfo.model_validate(row) for row in reversed(selected)],
                 next_cursor=next_cursor,
             )
@@ -209,7 +243,8 @@ class ConversationService:
 
     @asynccontextmanager
     async def prepare(
-        self, user_id: UUID, message: str, conversation_id: UUID | None
+        self, user_id: UUID, message: str, conversation_id: UUID | None, *,
+        model_selection: ModelSelection | None = None, model_selection_version: int | None = None,
     ) -> AsyncIterator[PreparedChat]:
         """为新一轮聊天创建可供 SSE 使用的业务执行上下文。
 
@@ -220,28 +255,42 @@ class ConversationService:
         事件之前，也会标记中断并释放锁。新会话与首轮输入在同一事务中创建。
         """
         is_new = conversation_id is None
+        if (not is_new and model_selection is not None) or (is_new and model_selection_version is not None):
+            raise RequestError(ErrorCode.INVALID_ARGUMENT)
         if not is_new:
             await self.require_owned(user_id, conversation_id)
         conversation_id = conversation_id or uuid4()
         async with self.locks.hold(conversation_id) as acquired:
             if not acquired:
                 raise RequestError(ErrorCode.CONVERSATION_BUSY)
-            # 所有权和执行锁校验后再解析模型；未配置时不产生会话或轮次记录。
-            snapshot = await self.model_config.snapshot() if self.model_config is not None else None
             async with self.database.sessions.begin() as session:
                 if is_new:
                     conversation = Conversation(
-                        id=conversation_id, user_id=user_id, title=message.strip()[:24]
+                        id=conversation_id, user_id=user_id, title=message.strip()[:24], model_selection_version=1
                     )
-                    session.add(conversation)
-                    await session.flush()
                 else:
                     conversation = await repository.owned(
                         session, user_id, conversation_id
                     )
                     if conversation is None:
                         raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
-                await repository.interrupt_running( # 把这个会话里之前还处于 running 状态、但实际上已经没继续跑的旧轮次标记成 interrupted
+                    if model_selection_version is not None and conversation.model_selection_version != model_selection_version:
+                        raise RequestError(ErrorCode.MODEL_SELECTION_VERSION_CONFLICT)
+                # 在创建会话或轮次前读取一致模型快照；无效选择不会留下消息或触发上游调用。
+                selected = model_selection if is_new else (
+                    ModelSelection.model_validate(conversation.model_selection) if conversation.model_selection is not None else None)
+                snapshot = await self.model_config.selections.snapshot(session, selected) if self.model_config is not None else None
+                if snapshot is not None:
+                    selected = ModelSelection(model_configuration_id=snapshot.configuration_id, reasoning=snapshot.reasoning)
+                    if conversation.model_selection is None:
+                        conversation.model_selection = selected.model_dump(mode="json")
+                        if not is_new:
+                            conversation.model_selection_version += 1
+                if is_new:
+                    session.add(conversation)
+                    await session.flush()
+                # 取得执行锁后才能确认旧 running 轮次已失去执行者，不自动重放工具。
+                await repository.interrupt_running(
                     session, conversation_id, datetime.now(UTC)
                 )
                 turn = await repository.add_turn(
@@ -249,6 +298,8 @@ class ConversationService:
                 )
                 prepared = PreparedChat(conversation_id, turn.id, message, is_new)
                 prepared.model_runtime = snapshot
+                prepared.model_selection = selected
+                prepared.model_selection_version = conversation.model_selection_version
                 if snapshot is not None:
                     turn.model_snapshot = snapshot.public_snapshot()
             try:
@@ -321,6 +372,8 @@ class ConversationService:
             conversation_id=conversation_id,
             turn_id=prepared.turn_id,
             is_new=prepared.is_new,
+            model_selection=prepared.model_selection,
+            model_selection_version=prepared.model_selection_version,
         )
         saved_at = monotonic()
         buffered_bytes = 0

@@ -1,4 +1,5 @@
 /** SSE 传输回归：验证真实字节流的拆包、UTF-8、事件顺序和 reader 清理，不启动外部服务。 */
+import { modelOptionsData } from '@tests/support/data/model-selection'
 import { createTestPinia as createPinia } from '@tests/support/vitest/mount'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { streamChatMessage, type ChatStreamEvent } from '@/features/chat/api/stream'
@@ -68,7 +69,14 @@ describe('POST SSE 解析', () => {
     // CR 单独作为末尾换行时，EOF 才能确认它不是下一块 CRLF 的前半段。
     stream.close()
     expect(await pending).toEqual([
-      { type: 'start', conversationId: conversation_id, turnId: 'test-turn', isNew: false },
+      {
+        type: 'start',
+        conversationId: conversation_id,
+        turnId: 'test-turn',
+        isNew: false,
+        modelSelection: modelOptionsData().default_selection,
+        modelSelectionVersion: 1,
+      },
       { type: 'delta', messageId: message_id, text: '你好🌊\n第二行' },
       { type: 'done', messageId: message_id, reply: '最终回答' },
     ])
@@ -85,6 +93,8 @@ describe('POST SSE 解析', () => {
       conversationId: conversation_id,
       turnId: 'test-turn',
       isNew: false,
+      modelSelection: modelOptionsData().default_selection,
+      modelSelectionVersion: 1,
     })
     stream.push(eventFrame('delta', { conversation_id, message_id, text: '第一段' }))
     expect((await events.next()).value).toEqual({
@@ -240,7 +250,14 @@ describe('POST SSE 解析', () => {
       ),
     )
     expect(await collect()).toEqual([
-      { type: 'start', conversationId: conversation_id, turnId: 'test-turn', isNew: false },
+      {
+        type: 'start',
+        conversationId: conversation_id,
+        turnId: 'test-turn',
+        isNew: false,
+        modelSelection: modelOptionsData().default_selection,
+        modelSelectionVersion: 1,
+      },
       { type: 'delta', messageId: message_id, text: '先读取工作目录。' },
       {
         type: 'tool_call',

@@ -8,6 +8,7 @@ import { createTestPinia } from '@tests/support/vitest/mount'
 import { authenticate } from '@tests/support/vitest/auth'
 import { installMediaQuery } from '@tests/support/vitest/browser'
 import { modelConfigData } from '@tests/support/data/model-config'
+import { modelOptionsData } from '@tests/support/data/model-selection'
 import { response } from '@tests/support/vitest/http'
 import { success } from '@tests/support/vitest/chat'
 import { useAuthStore } from '@/features/auth/store'
@@ -29,6 +30,7 @@ it('模型管理与聊天共用导航实例，保留折叠状态和目录，选�
   await authenticate(pinia, fetchMock)
   fetchMock.mockImplementation(async (input) => {
     const url = String(input)
+    if (url.endsWith('/options')) return response(modelOptionsData())
     if (url.endsWith('/default')) return response(data.selected)
     if (url.endsWith('/catalog/providers')) return response([data.brand])
     if (url.endsWith('/provider-configurations')) return response([data.provider])
@@ -74,6 +76,7 @@ it('工作区导航被离页守卫取消时保留当前管理页与聊天草稿'
   await authenticate(pinia, fetchMock)
   fetchMock.mockImplementation(async (input) => {
     const url = String(input)
+    if (url.endsWith('/options')) return response(modelOptionsData())
     if (url.endsWith('/default')) return response(data.selected)
     if (url.endsWith('/catalog/providers')) return response([data.brand])
     if (url.endsWith('/provider-configurations')) return response([data.provider])
@@ -124,6 +127,11 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
   fetchMock.mockImplementation(async (input, init) => {
     const url = String(input)
     if (url === '/api/chat') return success('server-config-chat', '配置后的回复')
+    if (url.endsWith('/options'))
+      return response({
+        ...modelOptionsData(),
+        default_selection: selected.model ? modelOptionsData().default_selection : null,
+      })
     if (url === '/api/model-config/default') {
       if (init?.method === 'PUT') selected = { ...data.selected, version: 2 }
       return response(selected)
@@ -138,36 +146,35 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
   const page = mount(App, { attachTo: document.body, global: { plugins: [pinia, router] } })
   await flushPromises()
   await page.get('textarea').setValue('配置前写下的想法')
-  await page.get('form').trigger('submit')
+  await page.get('form.chat-composer').trigger('submit')
   expect(fetchMock.mock.calls.filter(([url]) => url === '/api/chat')).toHaveLength(0)
-  expect(page.get('button[type="submit"]').attributes('disabled')).toBeDefined()
+  expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
   await page.get('a[href="/models"]').trigger('click')
   await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('models'))
   await flushPromises()
   const select = page.findAll('button').find((button) => button.text() === '设为默认')!
   await select.trigger('click')
   await flushPromises()
-  expect(page.text()).toContain('从下一轮聊天生效')
+  expect(page.text()).toContain('用于尚未选择模型的会话')
   expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/test'))).toBe(false)
   await router.push('/')
   await flushPromises()
   expect((page.get('textarea').element as HTMLTextAreaElement).value).toBe('配置前写下的想法')
-  await page.get('form').trigger('submit')
+  await page.get('form.chat-composer').trigger('submit')
   await flushPromises()
   expect(page.text()).toContain('配置后的回复')
-  expect(page.text()).toContain('全局默认 · 长文分析')
+  expect(page.text()).toContain('模型 · 长文分析')
   useAuthStore().logout()
   await flushPromises()
   expect(useModelConfigStore().selected).toBeNull()
   await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
 })
 
-it('默认读取失败保留草稿并可重试，窗口激活后同步不可用状态', async () => {
-  const pinia = createTestPinia(),
-    data = modelConfigData()
+it('选项读取失败保留草稿并可重试，窗口激活后同步不可用状态', async () => {
+  const pinia = createTestPinia()
   await authenticate(pinia, fetchMock)
   fetchMock.mockImplementation(async (input) =>
-    String(input).endsWith('/default')
+    String(input).endsWith('/options')
       ? response(null, 500, 50000, '服务暂时不可用')
       : response({ items: [], next_cursor: null }),
   )
@@ -176,56 +183,73 @@ it('默认读取失败保留草稿并可重试，窗口激活后同步不可用�
   const page = mount(App, { global: { plugins: [pinia, router] } })
   await flushPromises()
   await page.get('textarea').setValue('重试后保留的草稿')
-  expect(page.get('button[type="submit"]').attributes('disabled')).toBeDefined()
-  fetchMock.mockResolvedValueOnce(response(data.selected))
+  expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
+  fetchMock.mockResolvedValueOnce(response(modelOptionsData()))
   await page
     .findAll('button')
-    .find((button) => button.text() === '重试读取默认模型')!
+    .find((button) => button.text() === '刷新模型选项')!
     .trigger('click')
   await flushPromises()
-  expect(page.get('button[type="submit"]').attributes('disabled')).toBeUndefined()
-  fetchMock.mockResolvedValueOnce(
-    response({ ...data.selected, model: { ...data.model, available: false, catalog: null } }),
-  )
+  expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeUndefined()
+  fetchMock.mockResolvedValueOnce(response({ default_selection: null, providers: [] }))
   window.dispatchEvent(new Event('focus'))
   await flushPromises()
-  expect(page.text()).toContain('默认模型暂不可用')
+  expect(page.text()).toContain('暂无可用模型')
   expect((page.get('textarea').element as HTMLTextAreaElement).value).toBe('重试后保留的草稿')
-  await page.get('form').trigger('submit')
+  await page.get('form.chat-composer').trigger('submit')
   expect(fetchMock.mock.calls.some(([url]) => url === '/api/chat')).toBe(false)
 })
 
-// 页面仍缓存可用默认时，服务端拒绝发送也应同步共享配置，不要求用户退出或刷新页面。
-it('默认被外部清除后发送失败会更新状态，保留登录并阻止继续发送', async () => {
+// 默认仅初始化空选择；外部清除默认不能改写当前会话的已确认选择。
+it('无全局默认仍可手动选方案发送，默认清除后已有会话继续使用原选择', async () => {
   const pinia = createTestPinia(),
-    data = modelConfigData()
+    data = modelOptionsData()
+  data.default_selection = null
   await authenticate(pinia, fetchMock)
-  let cleared = false
   fetchMock.mockImplementation(async (input) => {
-    const url = String(input)
-    if (url === '/api/chat') return response(null, 503, 50301, '尚未配置默认模型')
-    if (url.endsWith('/default'))
-      return response(
-        cleared
-          ? { ...data.selected, version: 2, model_configuration_id: null, model: null }
-          : data.selected,
-      )
+    if (String(input).endsWith('/options')) return response(data)
+    if (input === '/api/chat') return success(A, '手动选择后的回复')
     return response({ items: [], next_cursor: null })
   })
   const router = createAppRouter(createMemoryHistory())
   await router.push('/')
   const page = mount(App, { global: { plugins: [pinia, router] } })
   await flushPromises()
-  cleared = true
-  await page.get('textarea').setValue('默认已被其他用户清除')
-  await page.get('form').trigger('submit')
+  await page.get('textarea').setValue('没有默认也能发送')
+  expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
+  await page
+    .get('[name="chat_model"]')
+    .setValue(data.providers[0]!.models[0]!.model_configuration_id)
   await flushPromises()
-  expect(page.get('[aria-label="聊天模型状态"]').text()).toContain('尚未配置默认模型')
+  expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeUndefined()
+  await page.get('form.chat-composer').trigger('submit')
+  await flushPromises()
+  const posted = fetchMock.mock.calls.find(([url]) => url === '/api/chat')!
+  expect(JSON.parse(String(posted[1]?.body))).toEqual({
+    message: '没有默认也能发送',
+    model_selection: {
+      model_configuration_id: data.providers[0]!.models[0]!.model_configuration_id,
+      reasoning: { mode: 'budget', budget_tokens: 4096 },
+    },
+  })
+  expect(page.text()).toContain('手动选择后的回复')
+  fetchMock.mockImplementation(async (input) =>
+    String(input).endsWith('/options')
+      ? response(data)
+      : response({
+          conversation: {
+            ...info(),
+            model_selection: useChatStore().effectiveSelection,
+            model_selection_version: 1,
+            model_selection_issue: null,
+          },
+        }),
+  )
+  window.dispatchEvent(new Event('focus'))
+  await flushPromises()
+  expect(useChatStore().selectionReady).toBe(true)
+  expect(useChatStore().effectiveSelection?.model_configuration_id).toBe(
+    data.providers[0]!.models[0]!.model_configuration_id,
+  )
   expect(useAuthStore().isAuthenticated).toBe(true)
-  expect(router.currentRoute.value.name).toBe('chat')
-  await page.get('textarea').setValue('配置恢复前的草稿')
-  expect(page.get('button[type="submit"]').attributes('disabled')).toBeDefined()
-  await page.get('form').trigger('submit')
-  expect(fetchMock.mock.calls.filter(([url]) => url === '/api/chat')).toHaveLength(1)
-  expect((page.get('textarea').element as HTMLTextAreaElement).value).toBe('配置恢复前的草稿')
 })

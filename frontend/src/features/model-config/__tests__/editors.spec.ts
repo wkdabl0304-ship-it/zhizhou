@@ -70,6 +70,7 @@ it('编辑供应商留空密钥不发送密钥，冲突后草稿及旧版本保�
   expect(JSON.parse(String(fetchMock.mock.lastCall?.[1]?.body))).toEqual({
     version: 1,
     name: '我的修改',
+    enabled: true,
     api_format: 'messages',
     endpoint_config: { endpoint_id: 'official' },
   })
@@ -112,6 +113,7 @@ it('百炼编辑显示完整地址，粘贴后保存规范 URL 且留空密钥�
   expect(JSON.parse(String(write[1]?.body))).toEqual({
     version: 1,
     name: provider.name,
+    enabled: true,
     api_format: 'chat_completions',
     endpoint_config: { base_url: address },
   })

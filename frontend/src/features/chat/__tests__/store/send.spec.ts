@@ -62,6 +62,7 @@ describe('服务端聊天会话', () => {
     expect(JSON.parse(fetchMock.mock.calls[1]![1]!.body as string)).toEqual({
       message: '继续',
       conversation_id: id,
+      model_selection_version: 1,
     })
     expect(chat.activeConversation?.messages).toHaveLength(4)
     expect(chat.activeConversation?.messages[3]?.status).toBe('complete')

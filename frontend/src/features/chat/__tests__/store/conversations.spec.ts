@@ -127,6 +127,7 @@ describe('会话目录与历史', () => {
     expect(JSON.parse(fetchMock.mock.calls[3]![1]!.body as string)).toEqual({
       message: '继续',
       conversation_id: A,
+      model_selection_version: 1,
     })
   })
 
