@@ -8,7 +8,7 @@ import ChatSidebar from '@/features/chat/components/ChatSidebar.vue'
 import ConversationDialogs from '@/features/chat/components/ConversationDialogs.vue'
 import type { ConversationDialogRequest } from '@/features/chat/types'
 import UiPageHeader from '@/shared/components/ui/UiPageHeader.vue'
-import RiverBackdrop from '@/features/chat/components/RiverBackdrop.vue'
+import RiverBackdrop from '@/shared/components/RiverBackdrop.vue'
 import { useMediaQuery } from '@/shared/composables/useMediaQuery'
 import { useMotionPreference } from '@/shared/composables/useMotionPreference'
 import UiDrawer from '@/shared/components/ui/UiDrawer.vue'
@@ -267,7 +267,7 @@ watch(
   outline: none;
 }
 .header-edition {
-  color: var(--text-muted);
+  color: var(--accent);
   font-size: 9px;
   letter-spacing: 1.5px;
 }

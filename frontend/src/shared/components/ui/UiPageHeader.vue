@@ -78,7 +78,7 @@ defineExpose({ focus, titleElement })
 }
 .ui-page-eyebrow {
   margin: 0 0 5px;
-  color: var(--text-muted);
+  color: var(--accent);
   font-size: 11px;
   letter-spacing: 1.5px;
 }

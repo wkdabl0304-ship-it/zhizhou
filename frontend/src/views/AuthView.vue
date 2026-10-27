@@ -113,7 +113,7 @@ onBeforeUnmount(() => controller?.abort())
 .form-eyebrow {
   display: block;
   margin-bottom: 18px;
-  color: var(--brand);
+  color: var(--accent);
   font-size: 10px;
   letter-spacing: 1.7px;
 }

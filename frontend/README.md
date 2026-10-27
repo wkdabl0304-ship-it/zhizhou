@@ -86,9 +86,9 @@ Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会�
 
 ## 公共样式与组件约定
 
-正式界面采用青蓝水墨与“现代宋体”标题，保留文案“心有山海，自有知舟”，通过宋体笔锋、疏朗字距和青蓝强调线呈现品牌。`WelcomeHeading.vue` 承载首页标题，桌面字号上限 74px，窄屏使用 49px；宋体使用本机字体，跨设备字形可能不同，正文仍使用公共无衬线字体。界面使用冷白、深靛与青蓝色彩，并保留侧栏收起、消息复制、主题记忆和窄屏抽屉。`BrandLogo.vue` 与 `RiverBackdrop.vue` 分别导入舟形和水墨素材。`ChatWelcome.vue` 组合首页视觉与真实输入区，不直接依赖会话 store。
+正式界面采用青蓝水墨与“现代宋体”标题，保留文案“心有山海，自有知舟”，通过宋体笔锋、疏朗字距和青蓝强调线呈现品牌。`WelcomeHeading.vue` 承载首页标题，桌面字号上限 74px，窄屏使用 49px；宋体使用本机字体，跨设备字形可能不同，正文仍使用公共无衬线字体。浅色采用暖白纸面、清晰墨色与青碧主色，朱砂作为印记和次要强调；深色独立采用靛青画布、蓝灰界面层级、青玉操作色与月金辅助色，并保留侧栏收起、消息复制、主题记忆和窄屏抽屉。`BrandLogo.vue` 与 `RiverBackdrop.vue` 分别导入舟形和水墨素材。`ChatWelcome.vue` 组合首页视觉与真实输入区，不直接依赖会话 store。
 
-首页水墨由 `RiverBackdrop.vue` 铺满整个主区域（含页头），与限宽标题和输入区独立；按容器比例裁切素材，窄屏也不会露出局部插图边框。山景以 14 秒单程周期漂移，双层流雾和水面光带以 7–9 秒单程周期错向移动；标题两行轻微错拍浮动，字形内的青蓝流光与强调水线独立播放，输入区保持稳定。进入对话正文后卸载首页背景和标题。`useMotionPreference` 管理首页动效：系统减少动态效果优先，页面隐藏时暂停动画（含伪元素上的雾带与水线）。页面和弹层统一使用根主题。水墨 PNG 由内置 imagegen 生成，Logo 为原创 SVG；素材与最终提示词见[生成记录](src/assets/brand/generation-notes.md)。基础组件预览页不进入生产包。
+首页水墨由 `RiverBackdrop.vue` 铺满整个主区域（含页头），与限宽标题和输入区独立；按容器比例裁切素材，窄屏也不会露出局部插图边框。山景以 14 秒单程周期漂移，双层流雾和水面光带以 7–9 秒单程周期错向移动；标题两行轻微错拍浮动，字形内的青蓝流光与强调水线独立播放，输入区保持稳定。进入对话正文后卸载首页背景和标题。`useMotionPreference` 管理首页动效：系统减少动态效果优先，页面隐藏时暂停动画（含伪元素上的雾带与水线）。页面和弹层统一使用根主题。明暗背景分别使用独立 PNG：浅色使用透明青蓝水墨，深色使用重新生成的月夜山海，不使用反相或色相滤镜。背景组件位于 `shared/components/RiverBackdrop.vue`，认证和聊天共用；夜景采用独立雾色、光带透明度与文字遮罩，图片尚未加载时只显示对应主题画布，减少切换闪烁。外观菜单用两张配色预览显示“青碧 · 朱砂”和“靛夜 · 月金”，保留浅色/深色语义、偏好记忆和收起入口，支持方向键浏览、Enter 确认和 Esc 取消。关键正文、辅助文字、主辅色及按钮文字组合由实际色板对比度测试检查，至少达到 4.5:1。水墨 PNG 由内置 imagegen 生成，Logo 为原创 SVG；素材与最终提示词见[生成记录](src/assets/brand/generation-notes.md)。基础组件预览页不进入生产包。
 
 - `src/styles/tokens.css` 是设计变量的维护位置，统一颜色、字体、间距、圆角、阴影和层级。默认浅色；深色由根元素的 `data-theme="dark"` 启用。`zhizhou-theme` 是唯一写入 localStorage 的偏好，不保存聊天正文。
 - `src/styles/base.css` 定义基础样式及共享 UI 外观。消息、侧栏、输入区等业务组件使用各自局部样式；业务组件引用语义变量，避免散落明暗配色。
@@ -189,7 +189,7 @@ pnpm test:e2e -- tests/e2e/model-selection.spec.ts --project=model-config-deskto
 - `src/features/chat/`：聊天与会话的完整业务模块。`components/` 维护侧栏、会话条目、消息、首页与输入区；`store.ts` 协调目录、分页历史、删除和流式续聊；`types.ts` 与 `chat-events.ts` 定义展示数据及公开事件契约。
 - `src/features/chat/api/`：`stream.ts` 处理聊天 SSE 传输、会话及事件顺序校验，`conversations.ts` 处理会话 JSON 接口和游标，二者共同使用 `events.ts` 校验公开正文与工具事件字段，历史读取不依赖 SSE 传输实现。
 - `src/features/chat/history.ts`、`activity.ts`：分别将持久化轮次转换为展示消息，以及归并实时或历史正文、工具执行与最终回答。聊天 store 保存原会话引用消费事件，并单独维护最终正文。
-- `src/shared/components/`：舟形 Logo、主题菜单和通用 Markdown 展示；`ui/` 提供按钮、受控开关、输入框、提示、菜单与弹窗等通用交互组件。
+- `src/shared/components/`：舟形 Logo、主题预览菜单、共享山海背景和通用 Markdown 展示；`ui/` 提供按钮、受控开关、输入框、提示、菜单与弹窗等通用交互组件。
 - `src/shared/composables/`、`src/shared/stores/theme.ts`：可清理的媒体查询、动效偏好和应用主题状态。
 - `src/shared/utils/markdown.ts`：Markdown 安全选项、代码高亮与受控 HTML 渲染；共享 `MarkdownContent.vue` 负责展示样式和代码复制。
 - `src/styles/`、`src/assets/`：设计变量、基础样式和构建处理的品牌素材；`src/dev/demo.ts` 保留开发演示会话数据，仅供开发组件预览，正式首页不展示示例。

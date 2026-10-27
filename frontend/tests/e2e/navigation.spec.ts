@@ -104,20 +104,61 @@ test('删除必须确认，取消保留数据，确认后刷新目录仍不显�
   await expect(navigation).toContainText('还没有对话')
 })
 
-test('主题切换后刷新保持选择，Portal 菜单同步当前主题', async ({ page, account }) => {
+test('主题切换后刷新保持选择，Portal 菜单同步当前主题', async ({ page, account }, testInfo) => {
   await login(page, account)
+  const artwork = page.locator('.river-landscape-art')
+  await expect(artwork).toHaveClass(/is-loaded/)
+  const day = await artwork.getAttribute('src')
+  await page.screenshot({ path: testInfo.outputPath('appearance-light-home.png'), fullPage: true })
   const navigation = await sidebar(page)
   await navigation.getByRole('button', { name: /外观.*浅色/ }).click()
-  await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
+  const light = page.getByRole('menuitemradio', { name: '浅色', exact: true })
+  const dark = page.getByRole('menuitemradio', { name: '深色', exact: true })
+  await expect(light).toHaveAttribute('aria-checked', 'true')
+  await expect(page.getByText('青碧 · 朱砂', { exact: true })).toBeVisible()
+  await expect(page.getByText('靛夜 · 月金', { exact: true })).toBeVisible()
+  const menuBox = await page.getByRole('menu').boundingBox()
+  expect(menuBox!.x).toBeGreaterThanOrEqual(0)
+  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await page.screenshot({ path: testInfo.outputPath('appearance-light-menu.png'), fullPage: true })
+  // 双列选项允许左右浏览；浏览不修改偏好，确认后才切换。
+  await light.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(dark).toBeFocused()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await page.keyboard.press('Enter')
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await closeSidebar(page)
+  await expect(artwork).toHaveClass(/is-loaded/)
+  await expect(artwork).toHaveAttribute('src', /indigo-night/)
+  expect(await artwork.getAttribute('src')).not.toBe(day)
+  expect(await artwork.evaluate((element) => getComputedStyle(element).filter)).toBe('none')
+  await page.screenshot({ path: testInfo.outputPath('appearance-dark-home.png'), fullPage: true })
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
-  await (await sidebar(page)).getByRole('button', { name: /外观.*深色/ }).click()
+  await expect(artwork).toHaveAttribute('src', /indigo-night/)
+  const appearance = (await sidebar(page)).getByRole('button', { name: /外观.*深色/ })
+  await appearance.click()
   await expect(page.getByRole('menuitemradio', { name: '深色', exact: true })).toHaveAttribute(
     'aria-checked',
     'true',
   )
+  await page.screenshot({ path: testInfo.outputPath('appearance-dark-menu.png'), fullPage: true })
+  // 刷新恢复后浏览另一方案再取消，不能误改当前主题，关闭时应回到外观入口。
+  await dark.focus()
+  await page.keyboard.press('ArrowLeft')
+  await expect(light).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await expect(appearance).toBeFocused()
+  await closeSidebar(page)
+  // 页面画布不通过整体滤镜实现主题，主辅色都来自独立设计的语义变量。
+  const colors = await page.locator('html').evaluate((element) => {
+    const style = getComputedStyle(element)
+    return { brand: style.getPropertyValue('--brand'), accent: style.getPropertyValue('--accent') }
+  })
+  expect(colors.brand).not.toBe(colors.accent)
 })
 
 test('抽屉约束焦点，Esc 恢复入口，切回桌面恢复页面交互', async ({ page, account }) => {

@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import BrandLogo from '@/shared/components/BrandLogo.vue'
 import ThemeMenu from '@/shared/components/ThemeMenu.vue'
-import RiverBackdrop from '@/features/chat/components/RiverBackdrop.vue'
+import RiverBackdrop from '@/shared/components/RiverBackdrop.vue'
 import { useMotionPreference } from '@/shared/composables/useMotionPreference'
 
 const { enabled, visible } = useMotionPreference()
@@ -128,7 +128,7 @@ const { enabled, visible } = useMotionPreference()
   animation: auth-arrive 1100ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
 .auth-eyebrow {
-  color: var(--brand);
+  color: var(--accent);
   font-size: 10px;
   font-weight: 500;
   letter-spacing: 2px;

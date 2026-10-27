@@ -1,12 +1,38 @@
-<!-- 首页环境背景：山景、双层流雾与水面光带错速流动，独立于标题和输入区；使用 CSS 动画并遵循减少动态效果偏好。 -->
+<!-- 共享山海环境背景：供认证页与聊天首页使用，山景、双层流雾与水面光带错速流动，独立于标题和输入区；使用 CSS 动画并遵循减少动态效果偏好。 -->
 <script setup lang="ts">
-import riverArtwork from '@/assets/brand/indigo-ink.png'
+import { computed, ref, watch } from 'vue'
+import { useThemeStore } from '@/shared/stores/theme'
+import dayArtwork from '@/assets/brand/indigo-ink.png'
+import nightArtwork from '@/assets/brand/indigo-night.png'
 withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
+const theme = useThemeStore()
+const artwork = computed(() => (theme.theme === 'dark' ? nightArtwork : dayArtwork))
+const ready = ref(false)
+// 换图时先露出同主题画布，避免夜景未载入时短暂显示旧的白昼山景。
+watch(
+  artwork,
+  () => {
+    ready.value = false
+  },
+  { flush: 'sync' },
+)
 </script>
 <template>
-  <div class="river-backdrop" :data-motion="motion ? 'on' : 'off'" aria-hidden="true">
+  <div
+    class="river-backdrop"
+    :data-motion="motion ? 'on' : 'off'"
+    :data-theme="theme.theme"
+    aria-hidden="true"
+  >
     <div class="river-landscape">
-      <img class="river-landscape-art" :src="riverArtwork" alt="" fetchpriority="high" />
+      <img
+        class="river-landscape-art"
+        :class="{ 'is-loaded': ready }"
+        :src="artwork"
+        alt=""
+        fetchpriority="high"
+        @load="ready = true"
+      />
     </div>
     <div class="river-mist" />
     <div class="river-current" />
@@ -26,7 +52,7 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
 .river-landscape {
   position: absolute;
   inset: -8%;
-  opacity: 0.85;
+  opacity: var(--hero-art-opacity);
 }
 .river-landscape-art {
   display: block;
@@ -34,7 +60,14 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   height: 100%;
   object-fit: cover;
   object-position: center 64%;
-  filter: var(--hero-art-filter);
+  opacity: 0;
+  transition: opacity 450ms ease;
+}
+.river-landscape-art.is-loaded {
+  opacity: 1;
+}
+.river-backdrop[data-theme='dark'] .river-landscape-art {
+  object-position: right center;
 }
 /* 狭长雾带形成可辨认的前景，和山景错向移动；扩大画布为位移保留裁切余量。 */
 .river-mist {
@@ -43,16 +76,16 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   background:
     radial-gradient(
       ellipse 42% 12% at 26% 46%,
-      color-mix(in srgb, var(--surface) 86%, transparent),
+      color-mix(in srgb, var(--hero-mist) 86%, transparent),
       transparent 76%
     ),
     radial-gradient(
       ellipse 36% 10% at 76% 70%,
-      color-mix(in srgb, var(--surface) 76%, transparent),
+      color-mix(in srgb, var(--hero-mist) 76%, transparent),
       transparent 78%
     );
   filter: blur(8px);
-  opacity: 0.8;
+  opacity: var(--hero-mist-opacity);
 }
 /* 第二层薄雾独立运动，形成掠过山腰的层次，避免只放大原图的整体位移。 */
 .river-mist::after {
@@ -61,7 +94,7 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   inset: 4% -8% 16%;
   background: radial-gradient(
     ellipse 48% 9% at 50% 52%,
-    color-mix(in srgb, var(--surface) 88%, transparent),
+    color-mix(in srgb, var(--hero-mist) 88%, transparent),
     transparent 78%
   );
 }
@@ -86,7 +119,7 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
       transparent 62%
     );
   filter: blur(5px);
-  opacity: 0.75;
+  opacity: var(--hero-current-opacity);
 }
 /* 文字附近留出柔和的纸面，底部渐淡保障说明文字对比度，蒙层本身不参与动画。 */
 .river-wash {
@@ -95,14 +128,14 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
   background:
     radial-gradient(
       ellipse at 50% 32%,
-      color-mix(in srgb, var(--bg) 88%, transparent),
+      color-mix(in srgb, var(--bg) var(--hero-wash-focus), transparent),
       transparent 48%
     ),
     linear-gradient(
       180deg,
-      color-mix(in srgb, var(--bg) 36%, transparent),
+      color-mix(in srgb, var(--bg) var(--hero-wash-top), transparent),
       transparent 50%,
-      color-mix(in srgb, var(--bg) 80%, transparent)
+      color-mix(in srgb, var(--bg) var(--hero-wash-bottom), transparent)
     );
 }
 .river-backdrop[data-motion='on'] .river-landscape {
@@ -128,11 +161,11 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
 @keyframes river-mist-flow {
   from {
     transform: translate3d(12%, 3%, 0);
-    opacity: 0.55;
+    opacity: calc(var(--hero-mist-opacity) * 0.65);
   }
   to {
     transform: translate3d(-12%, -3%, 0);
-    opacity: 0.95;
+    opacity: var(--hero-mist-opacity);
   }
 }
 @keyframes river-mist-counterflow {
@@ -146,11 +179,11 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
 @keyframes river-current-flow {
   from {
     transform: translate3d(-20%, 2%, 0) skewX(-6deg);
-    opacity: 0.45;
+    opacity: calc(var(--hero-current-opacity) * 0.6);
   }
   to {
     transform: translate3d(20%, -2%, 0) skewX(6deg);
-    opacity: 0.9;
+    opacity: var(--hero-current-opacity);
   }
 }
 @media (max-width: 760px) {
@@ -158,17 +191,27 @@ withDefaults(defineProps<{ motion?: boolean }>(), { motion: true })
     object-position: 62% center;
   }
   .river-landscape {
-    opacity: 0.65;
+    opacity: var(--hero-art-opacity);
   }
   .river-mist {
-    opacity: 0.4;
+    opacity: var(--hero-mist-opacity);
   }
+  .river-backdrop[data-theme='dark'] .river-landscape-art {
+    object-position: 94% center;
+  }
+}
+.river-backdrop[data-motion='off'] .river-landscape-art {
+  transition: none;
 }
 /* 组件本身也保护系统偏好，独立预览不依赖聊天页的外层动画规则。 */
 @media (prefers-reduced-motion: reduce) {
   .river-backdrop[data-motion] > *,
   .river-backdrop[data-motion] .river-mist::after {
     animation: none;
+    transition: none;
+  }
+  .river-landscape-art {
+    transition: none;
   }
 }
 </style>

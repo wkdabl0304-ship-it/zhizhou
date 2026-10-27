@@ -29,3 +29,21 @@ test('生产构建不提供开发预览路由', async ({ page }) => {
   await page.goto('/dev/ui')
   await expect(page.getByRole('heading', { name: '这条航线还没有开通' })).toBeVisible()
 })
+
+// 认证与工作区共用主题及独立图片，验证收起入口和跨路由恢复不丢失用户偏好。
+test('认证页使用独立夜景，选择深色后登录仍保留夜色方案', async ({ page, account }, testInfo) => {
+  await page.goto('/login')
+  const artwork = page.locator('.river-landscape-art')
+  await expect(artwork).toHaveClass(/is-loaded/)
+  await expect(artwork).toHaveAttribute('src', /indigo-ink/)
+  await page.screenshot({ path: testInfo.outputPath('appearance-auth-light.png'), fullPage: true })
+  await page.getByRole('button', { name: '选择外观', exact: true }).click()
+  await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
+  await expect(artwork).toHaveAttribute('src', /indigo-night/)
+  await expect(artwork).toHaveClass(/is-loaded/)
+  expect(await artwork.evaluate((element) => getComputedStyle(element).filter)).toBe('none')
+  await page.screenshot({ path: testInfo.outputPath('appearance-auth-dark.png'), fullPage: true })
+  await login(page, account)
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await expect(artwork).toHaveAttribute('src', /indigo-night/)
+})

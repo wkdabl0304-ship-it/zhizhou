@@ -1,6 +1,6 @@
 <!-- 菜单骨架：统一 Portal、定位和外观，菜单项由使用方通过插槽组合 Reka 组件。 -->
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, type HTMLAttributes } from 'vue'
 import {
   DropdownMenuRoot,
   DropdownMenuTrigger,
@@ -12,7 +12,11 @@ import {
   type DropdownMenuContentProps,
 } from 'reka-ui'
 
-const props = defineProps<DropdownMenuRootProps & { contentProps?: DropdownMenuContentProps }>()
+const props = defineProps<
+  DropdownMenuRootProps & {
+    contentProps?: DropdownMenuContentProps & Pick<HTMLAttributes, 'class' | 'style'>
+  }
+>()
 const emit = defineEmits<DropdownMenuRootEmits>()
 // 菜单保持 Reka 的受控与非受控约定，页面按需使用 v-model:open。
 const rootProps = computed(() => ({

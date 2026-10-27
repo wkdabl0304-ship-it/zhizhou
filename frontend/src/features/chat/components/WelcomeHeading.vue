@@ -66,7 +66,7 @@
     90deg,
     transparent,
     var(--brand),
-    color-mix(in srgb, var(--brand) 28%, transparent),
+    color-mix(in srgb, var(--accent) 70%, transparent),
     transparent
   );
   transform-origin: left center;

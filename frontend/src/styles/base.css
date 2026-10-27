@@ -241,31 +241,6 @@ svg {
   right: 12px;
   top: 18px;
 }
-.theme-trigger {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  min-height: 40px;
-  padding: 8px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  font-size: 13px;
-  text-align: left;
-  color: var(--text-secondary);
-}
-.theme-trigger:hover {
-  background: var(--surface-hover);
-}
-.theme-trigger-icon {
-  display: inline-flex;
-}
-.theme-trigger-value {
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: 12px;
-}
 .spin {
   animation: spin 1s linear infinite;
 }

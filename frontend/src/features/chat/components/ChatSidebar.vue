@@ -234,7 +234,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   margin-top: 3px;
   font-size: 9px;
   letter-spacing: 3px;
-  color: var(--text-muted);
+  color: var(--accent);
   font-weight: 400;
 }
 .new-chat-button {
@@ -327,7 +327,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
 .workspace-note-dot {
   width: 5px;
   height: 5px;
-  background: var(--brand);
+  background: var(--accent);
   border-radius: 50%;
   opacity: 0.7;
 }

@@ -36,8 +36,8 @@ import WelcomeHeading from './WelcomeHeading.vue'
   display: inline-block;
   margin: 0;
   padding: 3px 9px;
-  background: color-mix(in srgb, var(--bg) 84%, transparent);
   color: var(--text-secondary);
+  text-shadow: 0 1px 6px var(--bg);
   font-size: 12px;
   letter-spacing: 0.8px;
 }
@@ -46,9 +46,10 @@ import WelcomeHeading from './WelcomeHeading.vue'
   right: 32px;
   bottom: 42px;
   padding: 6px 4px;
-  border: 1px solid var(--brand);
+  border: 1px solid var(--accent);
   writing-mode: vertical-rl;
-  color: var(--brand);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 75%, transparent);
   font-family: 'Songti SC', SimSun, serif;
   font-size: 13px;
   letter-spacing: 3px;
@@ -86,8 +87,10 @@ import WelcomeHeading from './WelcomeHeading.vue'
   .river-caption {
     right: 20px;
     bottom: 0;
-    font-size: 7px;
-    letter-spacing: 1px;
+    /* 手机只保留方向标记，英文装饰让位于中文说明，避免两行文字互相挤压。 */
+    font-size: 0;
+    letter-spacing: 0;
+    gap: 0;
   }
 }
 </style>
