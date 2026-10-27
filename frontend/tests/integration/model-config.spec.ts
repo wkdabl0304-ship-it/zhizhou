@@ -1,6 +1,6 @@
 /** 模型配置跨业务集成：验证受保护路由、配置默认到聊天发送及草稿和身份边界，HTTP 以契约替身隔离。 */
 import { beforeEach, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, type NavigationFailure, type Router } from 'vue-router'
 import App from '@/App.vue'
 import { createAppRouter } from '@/router'
@@ -184,7 +184,22 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
   )!
   select.click()
   await flushPromises()
-  expect(document.body.textContent).toContain('用于尚未选择模型的会话')
+  // 默认保存通过真实请求及卡片状态确认；列表成功通知移除后，仍须验证用户操作确实生效。
+  const updates = fetchMock.mock.calls.filter(
+    ([url, init]) => url === '/api/model-config/default' && init?.method === 'PUT',
+  )
+  expect(updates).toHaveLength(1)
+  expect(JSON.parse(String(updates[0]![1]?.body))).toEqual({
+    version: 1,
+    model_configuration_id: data.model.id,
+  })
+  const card = new DOMWrapper(document.body).get(
+    `article[aria-label="模型方案：${data.model.name}"]`,
+  )
+  expect(card.get('.config-badge').text()).toBe('当前默认')
+  expect(card.findAll('button').map((button) => button.text())).toContain('清除默认')
+  expect(document.querySelector('.config-notice')).toBeNull()
+  expect(document.body.textContent).not.toContain('用于尚未选择模型的会话')
   expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/test'))).toBe(false)
   await router.push('/')
   await flushPromises()

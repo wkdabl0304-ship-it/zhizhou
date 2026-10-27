@@ -41,7 +41,6 @@ const catalog = ref<CatalogModel[]>([])
 const loading = ref(false),
   catalogError = ref(''),
   error = ref(''),
-  notice = ref(''),
   busy = ref(false)
 const rows = computed(() => catalogRows(catalog.value, models.value))
 const edit = ref<{ kind: 'provider' | 'model'; id?: string; key: number } | null>(null)
@@ -132,15 +131,13 @@ function providerSaved(): void {
     selectedId.value = store.selectedProvider
   endEdit()
 }
-/** 执行一次显式写入，错误保持可见；页面不预先改变开关或自动重试创建。 */
-async function execute(work: () => Promise<void>, message = '配置已更新'): Promise<void> {
+/** 执行一次显式写入，失败保留原状态并同步快照；不维护列表底部的操作通知。 */
+async function execute(work: () => Promise<void>): Promise<void> {
   if (locked.value) return
   busy.value = true
   error.value = ''
-  notice.value = ''
   try {
     await work()
-    notice.value = message
   } catch (failure) {
     if (!(failure instanceof DOMException && failure.name === 'AbortError')) {
       error.value = explainConfigError(failure)
@@ -159,10 +156,7 @@ function toggle(row: CatalogRow): void {
     void execute(() => store.setEnabled('model', model, !model.enabled))
   } else if (row.catalog?.available) {
     const entry = row.catalog
-    void execute(
-      () => store.saveModel(initialModel(connection.id, entry)),
-      '模型已启用，可手动设为默认。',
-    )
+    void execute(() => store.saveModel(initialModel(connection.id, entry)))
   }
 }
 /** 独立启停指定连接，不切换当前选择，也不改关联模型的启用标记。 */
@@ -171,14 +165,11 @@ function toggleConnection(connection: ProviderConfiguration): void {
 }
 /** 保持默认选择显式，启停与高级参数保存都不触发此操作。 */
 function select(model: ModelConfiguration): void {
-  void execute(
-    () => store.setDefault(model.id),
-    `已将“${model.name}”设为全局默认，用于尚未选择模型的会话。`,
-  )
+  void execute(() => store.setDefault(model.id))
 }
 /** 立即清除全局默认，保留已有会话的独立模型选择。 */
 function clearDefault(): void {
-  void execute(() => store.setDefault(null), '全局默认已清除')
+  void execute(() => store.setDefault(null))
 }
 /** 删除前保留引用限制及不可撤销提示，目录项在删除后重新显示为关闭。 */
 function remove(
@@ -213,7 +204,7 @@ function remove(
 }
 /** 直接测试模型连接，由统一执行锁防止重复请求，结果显示在原模型卡片。 */
 function test(model: ModelConfiguration): void {
-  void execute(() => store.test(model.id), '')
+  void execute(() => store.test(model.id))
 }
 /** 确认后先释放确认层，再执行原先受保护的动作。 */
 function confirm(): void {
@@ -336,7 +327,6 @@ onBeforeUnmount(() => store.cancelManagement())
         <p v-if="!loading && !catalogError && !rows.length" class="config-hint">
           当前接口格式下没有可用模型。
         </p>
-        <p v-if="notice" class="config-notice" role="status">{{ notice }}</p>
       </section>
     </div>
     <ProviderEditor

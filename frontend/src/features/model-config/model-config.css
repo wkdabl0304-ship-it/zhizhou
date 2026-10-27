@@ -360,13 +360,6 @@
   font-size: 13px;
   overflow-wrap: anywhere;
 }
-.config-notice {
-  padding: 12px;
-  border-left: 3px solid var(--brand);
-  background: var(--surface);
-  color: var(--text-secondary);
-  font-size: 13px;
-}
 .config-fields {
   min-height: 0;
   overflow: auto;

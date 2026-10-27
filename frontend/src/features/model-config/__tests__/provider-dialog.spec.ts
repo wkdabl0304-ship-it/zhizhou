@@ -190,6 +190,8 @@ it('首次开关只创建一次配置且不设默认，等待保存时保留关�
     'true',
   )
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
+  expect(document.querySelector('.catalog-model-list')?.nextElementSibling).toBeNull()
+  expect(document.body.textContent).not.toContain('模型已启用，可手动设为默认。')
 })
 
 it('启停失败保留原状态，版本冲突显示服务端错误，可读取最新配置后重试', async () => {
@@ -202,11 +204,13 @@ it('启停失败保留原状态，版本冲突显示服务端错误，可读取�
     'true',
   )
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('已被修改')
+  expect(document.querySelector('.catalog-model-list')?.nextElementSibling).toBeNull()
   await click(`启用模型 ${data.model.name}`)
   expect(document.querySelector('[aria-label^="启用模型"]')?.getAttribute('aria-checked')).toBe(
     'false',
   )
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+  expect(document.body.textContent).not.toContain('配置已更新')
 })
 
 it('停用连接不改模型启用标记，旧方案和默认 ID 保持不变', async () => {
