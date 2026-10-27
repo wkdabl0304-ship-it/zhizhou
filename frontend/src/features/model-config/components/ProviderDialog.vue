@@ -4,6 +4,7 @@ import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '@/features/auth/store'
 import UiModal from '@/shared/components/ui/UiModal.vue'
+import UiConfirmDialog from '@/shared/components/ui/UiConfirmDialog.vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
 import { Plus } from '@lucide/vue'
 import ProviderConnectionCard from './ProviderConnectionCard.vue'
@@ -357,18 +358,15 @@ onBeforeUnmount(() => store.cancelManagement())
       @state="editState = $event"
       @close="endEdit"
     />
-    <UiModal
+    <UiConfirmDialog
       v-if="confirmation"
       :open="true"
       :title="confirmation.title"
       :description="confirmation.description"
+      :confirm-label="confirmation.label"
+      :cancel-label="confirmation.label === '放弃更改' ? '继续编辑' : '取消'"
       @update:open="confirmation = null"
-      ><div class="config-actions config-confirm-actions">
-        <UiButton @click="confirmation = null">{{
-          confirmation.label === '放弃更改' ? '继续编辑' : '取消'
-        }}</UiButton
-        ><UiButton @click="confirm">{{ confirmation.label }}</UiButton>
-      </div></UiModal
-    >
+      @confirm="confirm"
+    />
   </UiModal>
 </template>

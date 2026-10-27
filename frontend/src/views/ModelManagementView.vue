@@ -6,6 +6,7 @@ import type { ProviderInfo } from '@/features/model-config/types'
 import ProviderCard from '@/features/model-config/components/ProviderCard.vue'
 import ProviderDialog from '@/features/model-config/components/ProviderDialog.vue'
 import '@/features/model-config/model-config.css'
+import UiPageHeader from '@/shared/components/ui/UiPageHeader.vue'
 const store = useModelConfigStore()
 const activeBrand = ref<ProviderInfo | null>(null)
 const brandOrder = ['openai', 'anthropic', 'deepseek', 'bailian']
@@ -23,12 +24,13 @@ onBeforeUnmount(() => store.cancelManagement())
 <template>
   <section class="model-management-main" aria-label="模型管理工作区">
     <div class="config-page">
-      <header class="model-management-title-row">
-        <div>
-          <p class="config-eyebrow">MODEL PROVIDERS</p>
-          <h1 tabindex="-1">模型管理</h1>
-        </div>
-      </header>
+      <UiPageHeader
+        class="model-management-title-row"
+        title="模型管理"
+        eyebrow="MODEL PROVIDERS"
+        size="lg"
+        serif
+      />
       <section aria-label="供应商配置列表">
         <div class="config-section-heading provider-grid-heading">
           <h2>

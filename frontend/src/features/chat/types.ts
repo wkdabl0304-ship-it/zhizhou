@@ -67,6 +67,12 @@ export interface Conversation {
   rejectedDraft?: string
   id: string
   title: string
+  /** 标题读写序号独立于模型选择版本，防止旧目录或历史覆盖刚保存的手动标题。 */
+  titleRead?: number
+  titleSaving?: boolean
+  titleError?: string
+  /** 保留业务弹窗当前操作的目录条目，避免首屏同步挤掉已加载的较早会话。 */
+  actionOpen?: boolean
   group: string
   messages: ChatMessage[]
   persisted?: boolean
@@ -82,4 +88,11 @@ export interface Conversation {
   unavailable?: boolean
   /** 本地消息的变更序号，防止较早发出的目录刷新覆盖刚创建或更新的会话。 */
   localRevision?: number
+}
+
+/** 工作区会话弹窗请求，触发元素用于取消或保存后恢复键盘焦点。 */
+export interface ConversationDialogRequest {
+  id: string
+  kind: 'rename' | 'delete'
+  trigger: HTMLElement | null
 }

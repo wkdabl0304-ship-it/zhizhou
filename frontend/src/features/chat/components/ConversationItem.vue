@@ -1,17 +1,47 @@
-<!-- 会话条目：负责选择事件与当前状态语义，不直接读取或修改会话 store。 -->
+<!-- 会话条目：报告选择、双击改名及按钮操作，业务弹窗统一由工作区宿主管理。 -->
 <script setup lang="ts">
-import { ref } from 'vue'
-import { MessageSquare, Trash2 } from '@lucide/vue'
-defineProps<{ title: string; active: boolean; removable?: boolean; busy?: boolean }>()
-const emit = defineEmits<{ select: []; delete: [] }>()
-const confirming = ref(false)
-/** 确认删除后关闭本条提示，并将业务操作交给父级统一处理。 */
-function confirmDelete(): void {
-  confirming.value = false
-  emit('delete')
+import { MessageSquare, Pencil, Trash2 } from '@lucide/vue'
+import { onBeforeUnmount, ref } from 'vue'
+const props = defineProps<{
+  title: string
+  active: boolean
+  removable?: boolean
+  busy?: boolean
+  renamable?: boolean
+  renameDisabled?: boolean
+}>()
+const emit = defineEmits<{
+  select: []
+  rename: [trigger: HTMLElement]
+  delete: [trigger: HTMLElement]
+}>()
+let selectionTimer: ReturnType<typeof setTimeout> | undefined
+const selecting = ref(false)
+/** 释放尚未确认的单击，避免双击改名时又触发导航、关闭抽屉或清空消息草稿。 */
+function cancelSelection(): void {
+  clearTimeout(selectionTimer)
+  selectionTimer = undefined
+  selecting.value = false
+}
+/** 鼠标单击等待短暂双击窗口，键盘选择立即执行。 */
+function select(event: MouseEvent): void {
+  cancelSelection()
+  if (!props.renamable || event.detail === 0) emit('select')
+  else if (event.detail === 1) {
+    selecting.value = true
+    selectionTimer = setTimeout(() => {
+      selecting.value = false
+      emit('select')
+    }, 300)
+  }
+}
+onBeforeUnmount(cancelSelection)
+/** 从铅笔按钮或双击标题进入同一改名流程，保留真实触发元素以恢复焦点。 */
+function rename(event: MouseEvent): void {
+  cancelSelection()
+  if (props.renamable && !props.renameDisabled) emit('rename', event.currentTarget as HTMLElement)
 }
 </script>
-
 <template>
   <div class="conversation-row">
     <button
@@ -19,9 +49,21 @@ function confirmDelete(): void {
       class="conversation-item"
       :class="{ 'is-active': active }"
       :aria-current="active ? 'true' : undefined"
-      @click="$emit('select')"
+      :aria-busy="selecting || undefined"
+      @click="select"
+      @dblclick.stop="rename"
     >
       <MessageSquare :size="15" aria-hidden="true" /><span>{{ title }}</span>
+    </button>
+    <button
+      v-if="renamable"
+      type="button"
+      class="conversation-rename"
+      :aria-label="`修改会话标题：${title}`"
+      :disabled="renameDisabled"
+      @click="rename"
+    >
+      <Pencil :size="13" aria-hidden="true" />
     </button>
     <button
       v-if="removable"
@@ -29,20 +71,10 @@ function confirmDelete(): void {
       class="conversation-delete"
       :aria-label="`删除会话：${title}`"
       :disabled="busy"
-      @click="confirming = !confirming"
+      @click="emit('delete', $event.currentTarget as HTMLElement)"
     >
-      <Trash2 :size="14" />
+      <Trash2 :size="14" aria-hidden="true" />
     </button>
-  </div>
-  <div
-    v-if="confirming"
-    class="delete-confirmation"
-    role="group"
-    :aria-label="`确认删除会话：${title}`"
-  >
-    <span>删除这段对话？</span>
-    <button type="button" :disabled="busy" @click="confirmDelete">确认删除</button>
-    <button type="button" :disabled="busy" @click="confirming = false">取消</button>
   </div>
 </template>
 
@@ -56,7 +88,8 @@ function confirmDelete(): void {
   flex: 1;
   min-width: 0;
 }
-.conversation-delete {
+.conversation-delete,
+.conversation-rename {
   display: grid;
   place-items: center;
   padding: 8px;
@@ -65,23 +98,22 @@ function confirmDelete(): void {
   background: transparent;
   color: var(--text-muted);
 }
+.conversation-rename:hover {
+  color: var(--brand);
+  background: var(--surface-hover);
+}
+.conversation-rename:focus-visible,
+.conversation-delete:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: -2px;
+}
+.conversation-rename:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 .conversation-delete:hover {
   color: var(--danger);
   background: var(--danger-soft);
-}
-.delete-confirmation {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 8px;
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-.delete-confirmation button {
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--surface);
-  padding: 3px 7px;
 }
 .conversation-item {
   display: flex;
@@ -106,6 +138,9 @@ function confirmDelete(): void {
   color: var(--text-muted);
 }
 .conversation-item:hover {
+  background: var(--surface-hover);
+}
+.conversation-item[aria-busy='true'] {
   background: var(--surface-hover);
 }
 .conversation-item.is-active {

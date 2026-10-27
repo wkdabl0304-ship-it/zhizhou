@@ -5,6 +5,10 @@ import { ArrowLeft, PanelLeft, Plus } from '@lucide/vue'
 import { DropdownMenuItem } from 'reka-ui'
 import ThemeMenu from '@/shared/components/ThemeMenu.vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
+import UiPageHeader from '@/shared/components/ui/UiPageHeader.vue'
+import UiModal from '@/shared/components/ui/UiModal.vue'
+import UiConfirmDialog from '@/shared/components/ui/UiConfirmDialog.vue'
+import UiDialogActions from '@/shared/components/ui/UiDialogActions.vue'
 import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
 import UiDrawer from '@/shared/components/ui/UiDrawer.vue'
@@ -13,6 +17,8 @@ import ChatComposer from '@/features/chat/components/ChatComposer.vue'
 import MessageItem from '@/features/chat/components/MessageItem.vue'
 import type { ChatMessage } from '@/features/chat/types'
 
+const exampleModal = ref(false),
+  exampleConfirm = ref(false)
 const draft = ref('')
 const drawer = ref(false)
 const submitted = ref('')
@@ -202,9 +208,12 @@ function record(text: string): void {
       <RouterLink to="/" class="back-link"><ArrowLeft :size="17" />返回知舟</RouterLink
       ><ThemeMenu />
     </header>
-    <div class="preview-eyebrow">ZHIZHOU · DESIGN FOUNDATION</div>
-    <h1>组件与交互预览</h1>
-    <p class="preview-intro">开发专用 · 所有示例都使用演示数据。通过外观菜单检查明暗主题。</p>
+    <UiPageHeader
+      title="组件与交互预览"
+      eyebrow="ZHIZHOU · DESIGN FOUNDATION"
+      description="开发专用 · 所有示例都使用演示数据。通过外观菜单检查明暗主题。"
+      size="lg"
+    />
     <section>
       <h2>基础操作</h2>
       <div class="preview-row">
@@ -215,6 +224,36 @@ function record(text: string): void {
           ><UiIconButton label="示例提示"><Plus :size="18" /></UiIconButton
         ></UiTooltip>
       </div>
+    </section>
+    <section>
+      <h2>公共弹窗与确认</h2>
+      <div class="preview-row">
+        <UiButton @click="exampleModal = true">打开内容弹窗</UiButton
+        ><UiButton variant="danger" @click="exampleConfirm = true">打开确认弹窗</UiButton>
+      </div>
+      <UiModal
+        v-if="exampleModal"
+        :open="true"
+        title="公共内容弹窗"
+        description="内容、底栏与关闭行为可以独立配置。"
+        size="md"
+        @update:open="exampleModal = false"
+        ><p>使用同一套主题、焦点约束及明暗配色。</p>
+        <template #footer
+          ><UiDialogActions
+            confirm-label="完成"
+            @cancel="exampleModal = false"
+            @confirm="exampleModal = false" /></template
+      ></UiModal>
+      <UiConfirmDialog
+        v-if="exampleConfirm"
+        :open="true"
+        title="确认执行示例操作？"
+        description="此示例不会调用接口或删除任何数据。"
+        confirm-label="确认操作"
+        @update:open="exampleConfirm = false"
+        @confirm="exampleConfirm = false"
+      />
     </section>
     <section>
       <h2>菜单与抽屉</h2>

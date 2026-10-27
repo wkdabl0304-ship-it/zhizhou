@@ -10,6 +10,38 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import ChatTurn, Conversation
 
 
+async def update_title(
+    session: AsyncSession, user_id: UUID, conversation_id: UUID, title: str, *, source: str
+) -> Conversation | None:
+    """原子保存标题及来源，自动更新仅匹配临时标题，避免覆盖并发手动修改。
+
+    用户归属和未删除条件始终包含在 SQL 内；返回匹配行或 None，不修改最近消息时间，
+    不持有聊天执行锁，事务由服务层提交。source 只由服务传入 auto 或 manual。
+    """
+    statement = update(Conversation).where(
+        Conversation.id == conversation_id,
+        Conversation.user_id == user_id,
+        Conversation.deleted_at.is_(None),
+    )
+    if source == "auto":
+        statement = statement.where(Conversation.title_source == "provisional")
+    return await session.scalar(statement.values(
+        title=title, title_source=source, updated_at=func.now()
+    ).returning(Conversation))
+
+
+async def title_question(session: AsyncSession, user_id: UUID, conversation_id: UUID) -> str | None:
+    """读取仍需生成标题的会话首条问题，手动、正式或不可访问的会话返回 None。"""
+    return await session.scalar(select(ChatTurn.user_content).join(
+        Conversation, ChatTurn.conversation_id == Conversation.id
+    ).where(
+        Conversation.id == conversation_id,
+        Conversation.user_id == user_id,
+        Conversation.deleted_at.is_(None),
+        Conversation.title_source == "provisional",
+    ).order_by(ChatTurn.seq).limit(1))
+
+
 async def owned(
     session: AsyncSession,
     user_id: UUID,

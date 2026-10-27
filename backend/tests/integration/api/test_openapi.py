@@ -29,6 +29,18 @@ def test_test_application_matches_production_openapi():
     assert make_app().openapi() == app.openapi()
 
 
+def test_title_patch_requires_bearer_and_exposes_only_title_input():
+    """改名接口采用原会话响应，不公开内部来源字段，也不接受客户端伪造来源。"""
+    schema = make_app().openapi()
+    operation = schema["paths"]["/api/conversations/{conversation_id}/title"]["patch"]
+    assert operation["security"] == [{"HTTPBearer": []}]
+    body = schema["components"]["schemas"]["ConversationTitleUpdate"]
+    assert set(body["properties"]) == {"title"} and body["required"] == ["title"]
+    assert body["additionalProperties"] is False
+    assert "title_source" not in schema["components"]["schemas"]["ConversationInfo"]["properties"]
+    assert body["properties"]["title"]["maxLength"] == 100
+
+
 def test_openapi_uses_provider_configuration_names():
     """公开接口、引用字段及模型测试结果采用供应商配置命名，便于配置页面对接。"""
     schema = make_app().openapi()

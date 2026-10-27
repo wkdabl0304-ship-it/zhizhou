@@ -243,20 +243,26 @@ it('存量空选择先保存预览的默认值，再按已确认版本续聊，s
   fetchMock.mockImplementation(async (_url, init) =>
     init?.method === 'PATCH'
       ? saving.promise
-      : sseResponse(
-          eventFrame('start', {
-            conversation_id: A,
-            turn_id: 'legacy-turn',
-            is_new: false,
-            model_selection: data.default_selection,
-            model_selection_version: 4,
-          }) +
-            eventFrame('done', {
+      : init?.method === 'GET'
+        ? response({
+            conversation: { ...info(), model_selection_version: 4 },
+            items: [],
+            next_cursor: null,
+          })
+        : sseResponse(
+            eventFrame('start', {
               conversation_id: A,
-              message_id: 'legacy-reply',
-              reply: '已沿用保存的模型选择',
-            }),
-        ),
+              turn_id: 'legacy-turn',
+              is_new: false,
+              model_selection: data.default_selection,
+              model_selection_version: 4,
+            }) +
+              eventFrame('done', {
+                conversation_id: A,
+                message_id: 'legacy-reply',
+                reply: '已沿用保存的模型选择',
+              }),
+          ),
   )
   const sending = chat.send('存量会话继续聊')
   expect(fetchMock.mock.calls).toHaveLength(1)
@@ -270,7 +276,8 @@ it('存量空选择先保存预览的默认值，再按已确认版本续聊，s
     }),
   )
   expect(await sending).toBe(true)
-  expect(fetchMock.mock.calls).toHaveLength(2)
+  expect(fetchMock.mock.calls).toHaveLength(3)
+  expect(fetchMock.mock.calls[2]?.[1]?.method).toBe('GET')
   expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1]?.body))).toEqual({
     model_selection_version: 3,
     model_selection: data.default_selection,

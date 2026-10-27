@@ -20,7 +20,12 @@ import {
   validateSelection,
 } from '@/features/model-selection/contract'
 import type { ModelSelection } from '@/features/model-selection/types'
-import { getSelectionInfo, patchModelSelection } from '@/features/chat/api/conversations'
+import {
+  getConversationInfo,
+  patchConversationTitle,
+  patchModelSelection,
+} from '@/features/chat/api/conversations'
+import { normalizeTitle, titleIssue } from './titles'
 
 /** 将安全接口错误转换为页面说明；取消与未知异常不泄露底层细节。 */
 function explain(error: unknown): string {
@@ -114,6 +119,55 @@ export const useChatStore = defineStore('chat', () => {
   let sequence = 0
   let mutation = 0
   let selectionRead = 0
+  let titleRead = 0
+
+  /** 接受尚未过期的标题快照，编辑写入期间和手动保存以前发出的读取均不能覆盖新标题。 */
+  function titleMetadata(row: Conversation, info: ConversationInfo, stamp: number): void {
+    if (row.titleSaving || stamp < (row.titleRead ?? 0)) return
+    row.title = info.title
+    row.titleRead = stamp
+  }
+  /** 回答完成后同步后端已生成的标题；失败保留原标题，后续目录同步仍可恢复。 */
+  async function synchronizeTitle(row: Conversation): Promise<void> {
+    const version = epoch,
+      stamp = ++titleRead,
+      request = controller()
+    try {
+      const info = await getConversationInfo(row.id, request.signal)
+      if (current(version, row) && !request.signal.aborted) titleMetadata(row, info, stamp)
+    } catch {
+      // 标题读取失败不影响已经完成的回答，也不重发聊天；重新可见时的目录同步会再次读取。
+    } finally {
+      controllers.delete(request)
+    }
+  }
+  /** 保存自己的会话标题，允许生成中改名；只合并标题，不回滚并行更新的模型选择或正文。 */
+  async function rename(id: string, value: string): Promise<boolean> {
+    const row = conversations.value.find((item) => item.id === id)
+    if (!row?.persisted || row.titleSaving || row.deleting || row.unavailable) return false
+    row.titleError = titleIssue(value)
+    if (row.titleError) return false
+    const version = epoch,
+      request = controller()
+    row.titleSaving = true
+    row.localRevision = ++mutation
+    try {
+      const info = await patchConversationTitle(id, normalizeTitle(value), request.signal)
+      if (!current(version, row) || request.signal.aborted) return false
+      row.title = info.title
+      return true
+    } catch (error) {
+      if (current(version, row) && !request.signal.aborted) row.titleError = explain(error)
+      return false
+    } finally {
+      controllers.delete(request)
+      if (current(version, row)) {
+        row.titleSaving = false
+        row.titleRead = ++titleRead
+        row.localRevision = ++mutation
+      }
+    }
+  }
 
   /** 按确认版本与读取序号合并选择，返回是否接受快照，避免旧响应清除最新错误。 */
   function selectionMetadata(row: Conversation, info: ConversationInfo, stamp: number): boolean {
@@ -137,10 +191,12 @@ export const useChatStore = defineStore('chat', () => {
     if (!row?.persisted || (row.selectionSaving && !duringRecovery)) return
     const version = epoch,
       stamp = ++selectionRead,
+      titleStamp = ++titleRead,
       request = controller()
     try {
-      const info = await getSelectionInfo(row.id, request.signal)
+      const info = await getConversationInfo(row.id, request.signal)
       if (current(version, row) && !request.signal.aborted) {
+        titleMetadata(row, info, titleStamp)
         if (selectionMetadata(row, info, stamp)) row.selectionError = ''
       }
     } catch (error) {
@@ -242,9 +298,14 @@ export const useChatStore = defineStore('chat', () => {
     )
   }
   /** 将服务端元数据写入展示缓存，不丢失已有正文、分页与请求状态。 */
-  function metadata(row: Conversation, info: ConversationInfo, stamp: number): void {
+  function metadata(
+    row: Conversation,
+    info: ConversationInfo,
+    stamp: number,
+    titleStamp: number,
+  ): void {
     selectionMetadata(row, info, stamp)
-    row.title = info.title
+    titleMetadata(row, info, titleStamp)
     row.createdAt = info.created_at
     row.lastMessageAt = info.last_message_at
     row.group = group(info.last_message_at)
@@ -301,6 +362,7 @@ export const useChatStore = defineStore('chat', () => {
     const version = epoch
     const stamp = mutation
     const choiceStamp = ++selectionRead
+    const titleStamp = ++titleRead
     const request = controller()
     const cursor = more ? nextCursor.value : null
     listing.value = true
@@ -312,7 +374,8 @@ export const useChatStore = defineStore('chat', () => {
       const existing = new Map(conversations.value.map((row) => [row.id, row]))
       const incoming = page.items.map((info) => {
         const row = existing.get(info.conversation_id) ?? entry(info)
-        if ((row.localRevision ?? 0) <= stamp && !row.running) metadata(row, info, choiceStamp)
+        if ((row.localRevision ?? 0) <= stamp && !row.running)
+          metadata(row, info, choiceStamp, titleStamp)
         return row
       })
       const retained = more
@@ -321,6 +384,8 @@ export const useChatStore = defineStore('chat', () => {
             (row) =>
               row.id === activeId.value ||
               row.running ||
+              row.titleSaving ||
+              row.actionOpen ||
               !row.persisted ||
               (row.localRevision ?? 0) > stamp,
           )
@@ -346,6 +411,7 @@ export const useChatStore = defineStore('chat', () => {
     histories.set(row, request)
     const cursor = more ? row.nextCursor : null
     const choiceStamp = ++selectionRead
+    const titleStamp = ++titleRead
     row.loading = true
     row.historyError = ''
     try {
@@ -361,7 +427,7 @@ export const useChatStore = defineStore('chat', () => {
       row.unavailable = false
       row.remoteRunning =
         (more && row.remoteRunning) || page.items.some((turn) => turn.status === 'running')
-      metadata(row, page.conversation, choiceStamp)
+      metadata(row, page.conversation, choiceStamp, titleStamp)
       sort()
     } catch (error) {
       if (current(version, row)) {
@@ -404,9 +470,9 @@ export const useChatStore = defineStore('chat', () => {
     if (activeConversation.value) await loadHistory(activeConversation.value)
   }
   /** 软删除会话，失败保留目录和正文；本地生成中拒绝删除，跨窗口冲突交由后端确认。 */
-  async function remove(id: string): Promise<void> {
+  async function remove(id: string): Promise<boolean> {
     const row = conversations.value.find((item) => item.id === id)
-    if (!row || row.running || row.deleting || !row.persisted) return
+    if (!row || row.running || row.deleting || row.titleSaving || !row.persisted) return false
     const version = epoch
     const request = controller()
     row.deleting = true
@@ -417,12 +483,14 @@ export const useChatStore = defineStore('chat', () => {
       } catch (error) {
         if (!(error instanceof ApiError && error.status === 404)) throw error
       }
-      if (!current(version, row)) return
+      if (!current(version, row)) return false
       histories.get(row)?.abort()
       conversations.value = conversations.value.filter((item) => item !== row)
       if (activeId.value === id) activeId.value = null
+      return true
     } catch (error) {
       if (current(version, row)) actionError.value = explain(error)
+      return false
     } finally {
       controllers.delete(request)
       if (current(version, row)) row.deleting = false
@@ -462,7 +530,7 @@ export const useChatStore = defineStore('chat', () => {
       const id = `draft-${++sequence}`
       conversations.value.unshift({
         id,
-        title: Array.from(content).slice(0, 24).join(''),
+        title: Array.from(normalizeTitle(content)).slice(0, 24).join(''),
         group: '今天',
         messages: [],
         loaded: true,
@@ -541,6 +609,8 @@ export const useChatStore = defineStore('chat', () => {
           assistant.blocks = [{ type: 'paragraph', text: event.reply }]
           assistant.status = 'complete'
           finishActivities(assistant, true)
+          // 后端在 done 前完成标题阶段；独立读取不延长发送锁，也不替换本页消息。
+          void synchronizeTitle(row)
         }
       }
       return true
@@ -613,5 +683,6 @@ export const useChatStore = defineStore('chat', () => {
     loadEarlier,
     refreshHistory,
     remove,
+    rename,
   }
 })

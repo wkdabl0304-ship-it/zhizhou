@@ -4,7 +4,7 @@ import { LoaderCircle } from '@lucide/vue'
 
 withDefaults(
   defineProps<{
-    variant?: 'primary' | 'secondary' | 'ghost'
+    variant?: 'primary' | 'secondary' | 'ghost' | 'danger'
     size?: 'sm' | 'md'
     type?: 'button' | 'submit' | 'reset'
     disabled?: boolean

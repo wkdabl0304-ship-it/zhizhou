@@ -8,6 +8,8 @@ import { useAuthStore } from '@/features/auth/store'
 import { authenticate } from '@tests/support/vitest/auth'
 import { controlledStream, sseResponse } from '@tests/support/vitest/sse'
 import { eventFrame, success } from '@tests/support/vitest/chat'
+import { info } from '@tests/support/data/chat'
+import { response } from '@tests/support/vitest/http'
 
 const fetchMock = vi.fn<typeof fetch>()
 let pinia: Pinia
@@ -21,6 +23,11 @@ beforeEach(async () => {
   vi.stubGlobal('fetch', fetchMock)
   await authenticate(pinia, fetchMock)
   fetchMock.mockImplementation(async (_url, options) => {
+    // 完成回答后单独读取标题；保持该读取与 POST 的服务器 ID 生成职责独立。
+    if (options?.method === 'GET') {
+      const id = String(_url).split('/').at(-1)!.split('?')[0]!
+      return response({ conversation: info(id, '服务端标题'), items: [], next_cursor: null })
+    }
     const body = JSON.parse(options!.body as string) as { conversation_id?: string }
     return success(
       body.conversation_id ??
@@ -59,7 +66,7 @@ describe('服务端聊天会话', () => {
       'Bearer test-access-token',
     )
     expect(await chat.send('继续')).toBe(true)
-    expect(JSON.parse(fetchMock.mock.calls[1]![1]!.body as string)).toEqual({
+    expect(JSON.parse(fetchMock.mock.calls[2]![1]!.body as string)).toEqual({
       message: '继续',
       conversation_id: id,
       model_selection_version: 1,
@@ -71,7 +78,8 @@ describe('服务端聊天会话', () => {
     expect(chat.activeId).not.toBe(id)
     await chat.select(id)
     expect(chat.activeId).toBe(id)
-    expect(fetchMock).toHaveBeenCalledTimes(3)
+    expect(fetchMock).toHaveBeenCalledTimes(6)
+    expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'GET')).toHaveLength(3)
   })
 
   // 每会话只允许一轮，但用户可以切到另一会话；迟到的旧 start 不应抢回当前选择。

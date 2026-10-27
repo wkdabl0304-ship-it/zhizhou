@@ -114,8 +114,12 @@ export async function sidebar(page: Page): Promise<Locator> {
 
 /** 关闭当前窄屏导航，防止模态层遮挡正文或输入区。 */
 export async function closeSidebar(page: Page): Promise<void> {
+  // 等待用户已经触发的选中和子弹窗关闭完成，不用 Esc 抢先取消双击判定中的单击。
+  await expect(page.locator('.conversation-item[aria-busy="true"]')).toHaveCount(0)
+  await expect(page.locator('.ui-modal[data-state="open"]')).toHaveCount(0)
   const dialog = page.getByRole('dialog', { name: '会话导航', exact: true })
-  if (await dialog.isVisible()) {
+  if (await page.locator('.ui-drawer[data-state="open"]').isVisible()) {
+    await expect(dialog).toBeVisible()
     await page.keyboard.press('Escape')
     await expect(dialog).not.toBeVisible()
   }
@@ -123,6 +127,7 @@ export async function closeSidebar(page: Page): Promise<void> {
 
 /** 通过实际输入与发送按钮开启一轮请求，不注入前端 store 或替换业务接口。 */
 export async function send(page: Page, message: string): Promise<void> {
+  await expect(page.locator('.conversation-item[aria-busy="true"]')).toHaveCount(0)
   await page.getByRole('textbox', { name: '消息内容' }).fill(message)
   await page.getByRole('button', { name: '发送消息', exact: true }).click()
 }

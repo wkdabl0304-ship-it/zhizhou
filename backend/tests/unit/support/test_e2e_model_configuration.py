@@ -1,5 +1,6 @@
 """模型配置 E2E 支撑回归：验证边界替身、控制授权与按引用顺序重置，禁止真实模型调用。"""
 from types import SimpleNamespace
+from contextlib import asynccontextmanager
 from unittest.mock import AsyncMock
 
 import httpx
@@ -8,7 +9,34 @@ import pytest
 
 from app.core.errors.codes import ErrorCode
 from app.llm.providers.failures import ProviderFailure
+from app.services.conversation_titles import ConversationTitleService
 from tests.support.e2e import ControlledModel, build_test_app, open_test_model, reset_model_configuration
+
+
+@pytest.mark.anyio
+async def test_e2e_lifespan_replaces_and_restores_title_model_boundary(monkeypatch):
+    """浏览器测试使用本地标题模型，退出恢复原工厂，不让假凭据触发真实网络。"""
+    import app.main as main
+
+    titles = ConversationTitleService()
+    original = titles.model_opener
+    configuration = SimpleNamespace(model_opener=object())
+    original_configuration = configuration.model_opener
+
+    @asynccontextmanager
+    async def lifespan(app):
+        """只提供所需服务占位，隔离数据库并检查包装器确实恢复注入点。"""
+        app.state.model_config_service = configuration
+        app.state.conversation_service = SimpleNamespace(title_generator=titles)
+        yield
+
+    monkeypatch.setattr(main, "lifespan", lifespan)
+    app = build_test_app(None, ControlledModel(), "token")
+    async with app.router.lifespan_context(app):
+        assert titles.model_opener is not original
+        assert await titles.generate(object(), "  测试\n标题  ", "回答") == "测试 标题"
+    assert titles.model_opener is original
+    assert configuration.model_opener is original_configuration
 
 
 @pytest.mark.anyio

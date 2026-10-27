@@ -1,4 +1,4 @@
-"""会话业务服务：所有权、游标读取、软删除、轮次快照及 SSE 生命周期。
+"""会话业务服务：所有权、标题编排、游标读取、软删除、轮次快照及 SSE 生命周期。
 
 公开历史只由白名单事件构造，与模型 checkpoint 分开提交；短事务不跨越模型等待。
 """
@@ -27,7 +27,9 @@ from app.schemas.conversations import (
     ConversationContent,
     ConversationInfo,
     ConversationList,
+    ConversationTitleUpdate,
     TurnInfo,
+    normalize_title,
 )
 from app.services.cursors import (
     ConversationCursor,
@@ -38,9 +40,13 @@ from app.services.cursors import (
 from app.llm.types import ModelSnapshot
 from app.llm.runtime import ConfiguredChatAgent
 from app.services.model_config import ModelConfigService
+from app.services.conversation_titles import ConversationTitleService
 from app.schemas.model_selection import ModelSelection, ModelSelectionUpdate
 
 logger = logging.getLogger(__name__)
+
+# 整个标题阶段（读取、模型调用、保存）共用期限，避免首轮结束无界等待。
+TITLE_TIMEOUT_SECONDS = 15
 
 
 @dataclass
@@ -56,21 +62,53 @@ class PreparedChat:
     model_runtime: ModelSnapshot | None = field(default=None, repr=False)
     model_selection: ModelSelection | None = None
     model_selection_version: int = 1
+    user_id: UUID | None = None
 
 
 class ConversationService:
     """组织会话业务，所有访问都要求传入经过认证的用户 ID。"""
 
-    def __init__(self, database: BusinessDatabase, *, model_config: ModelConfigService | None = None) -> None:
+    def __init__(self, database: BusinessDatabase, *, model_config: ModelConfigService | None = None,
+                 title_generator: ConversationTitleService | None = None) -> None:
         """初始化会话服务使用的数据库入口和执行锁管理器。
 
         服务对象可以跨请求复用，但不持有请求级 Session；每次读取或写入
         分别创建短事务，模型生成期间只保留专用连接上的跨进程会话锁。
-        正式入口注入 model_config；纯会话测试可省略它以单独验证会话职责。
+        正式入口注入 model_config 和 title_generator；纯会话测试可省略模型依赖。
         """
         self.database = database
         self.model_config = model_config
+        self.title_generator = title_generator
         self.locks = ConversationLocks(database.lock_engine)
+
+    async def update_title(self, user_id: UUID, conversation_id: UUID, body: ConversationTitleUpdate) -> ConversationInfo:
+        """立即保存自己的手动标题，允许生成期间修改并永久停止自动覆盖。"""
+        async with self.database.sessions.begin() as session:
+            row = await repository.update_title(session, user_id, conversation_id, body.title, source="manual")
+            if row is None:
+                raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
+            return (await self._conversation_infos(session, [row]))[0]
+
+    async def _generate_title(self, prepared: PreparedChat, response: ChatResponse) -> None:
+        """为成功回答补齐正式标题，失败保留临时标题且不改变已完成的聊天结果。
+
+        读取与保存各用短事务；模型等待期间不占用事务，保存条件再次检查来源。
+        取消不被吞掉，供应商负责资源关闭；日志只包含标识与异常类型，避免泄露模型输入。
+        """
+        if prepared.model_runtime is None or prepared.user_id is None or self.title_generator is None:
+            return
+        try:
+            async with asyncio.timeout(TITLE_TIMEOUT_SECONDS):
+                async with self.database.sessions() as session:
+                    question = await repository.title_question(session, prepared.user_id, prepared.conversation_id)
+                if question is None:
+                    return
+                title = await self.title_generator.generate(prepared.model_runtime, question, response.reply)
+                async with self.database.sessions.begin() as session:
+                    await repository.update_title(session, prepared.user_id, prepared.conversation_id, title, source="auto")
+        except Exception as error:
+            logger.warning("生成会话标题失败 conversation_id=%s turn_id=%s error_type=%s",
+                           prepared.conversation_id, prepared.turn_id, type(error).__name__)
 
     async def require_owned(self, user_id: UUID, conversation_id: UUID) -> None:
         """确认指定会话存在、未删除且属于当前用户。
@@ -266,7 +304,8 @@ class ConversationService:
             async with self.database.sessions.begin() as session:
                 if is_new:
                     conversation = Conversation(
-                        id=conversation_id, user_id=user_id, title=message.strip()[:24], model_selection_version=1
+                        id=conversation_id, user_id=user_id, title=normalize_title(message)[:24],
+                        title_source="provisional", model_selection_version=1
                     )
                 else:
                     conversation = await repository.owned(
@@ -297,6 +336,7 @@ class ConversationService:
                     session, conversation, message, datetime.now(UTC)
                 )
                 prepared = PreparedChat(conversation_id, turn.id, message, is_new)
+                prepared.user_id = user_id
                 prepared.model_runtime = snapshot
                 prepared.model_selection = selected
                 prepared.model_selection_version = conversation.model_selection_version
@@ -364,7 +404,7 @@ class ConversationService:
 
         prepared 必须来自仍有效的 prepare 上下文。先 yield 开始事件，
         再执行一次 Agent；相邻正文合并为历史快照，工具边界立即保存，
-        正文按字节数或时间间隔保存。最终回答提交成功后才 yield done。
+        正文按字节数或时间间隔保存。最终回答提交后尝试补齐标题，再 yield done。
         执行异常会尝试保存失败状态后继续传播；取消后的中断保存由 prepare 负责。
         """
         conversation_id = str(prepared.conversation_id)
@@ -387,6 +427,7 @@ class ConversationService:
                         raise ValueError("Agent 事件归属与业务会话不一致")
                     if isinstance(event, ChatResponse):
                         await self.persist(prepared, status="completed", response=event)
+                        await self._generate_title(prepared, event)
                         yield event
                         return
                     data = event.model_dump(mode="json")

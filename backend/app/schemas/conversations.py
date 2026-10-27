@@ -1,11 +1,29 @@
-"""会话目录及历史读取的公开结构；游标用于继续读取更早记录，不提供页码或总数。"""
+"""会话标题修改、目录及历史读取的公开结构；游标用于向前读取，不提供页码或总数。"""
 
 from datetime import datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from app.schemas.model_selection import ModelSelection, SelectionIssue
+
+
+def normalize_title(value: str) -> str:
+    """将标题中的连续空白合并为一个空格，供临时标题和正式标题共用。"""
+    return " ".join(value.split())
+
+
+class ConversationTitleUpdate(BaseModel):
+    """接收用户标题，先规范化空白，再按 Unicode 字符数校验长度。"""
+
+    model_config = ConfigDict(extra="forbid")
+    title: str = Field(strict=True, min_length=1, max_length=100)
+
+    @field_validator("title", mode="before")
+    @classmethod
+    def normalize(cls, value: object) -> object:
+        """规范化字符串标题，同时保留非字符串值交给严格类型校验拒绝。"""
+        return normalize_title(value) if isinstance(value, str) else value
 
 
 class ConversationInfo(BaseModel):

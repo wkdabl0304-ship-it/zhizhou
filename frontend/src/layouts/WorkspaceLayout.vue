@@ -5,6 +5,9 @@ import { useRoute, useRouter } from 'vue-router'
 import { PanelLeft, SquarePen } from '@lucide/vue'
 import { useChatStore } from '@/features/chat/store'
 import ChatSidebar from '@/features/chat/components/ChatSidebar.vue'
+import ConversationDialogs from '@/features/chat/components/ConversationDialogs.vue'
+import type { ConversationDialogRequest } from '@/features/chat/types'
+import UiPageHeader from '@/shared/components/ui/UiPageHeader.vue'
 import RiverBackdrop from '@/features/chat/components/RiverBackdrop.vue'
 import { useMediaQuery } from '@/shared/composables/useMediaQuery'
 import { useMotionPreference } from '@/shared/composables/useMotionPreference'
@@ -19,7 +22,8 @@ const narrow = useMediaQuery('(max-width: 760px)')
 const { enabled, visible } = useMotionPreference()
 const collapsed = ref(false),
   drawerOpen = ref(false),
-  headerTitle = ref<HTMLElement>()
+  headerTitle = ref<InstanceType<typeof UiPageHeader>>()
+const actionRequest = ref<ConversationDialogRequest | null>(null)
 const management = computed(() => route.name === 'models')
 const home = computed(() => !management.value && !chat.activeConversation)
 const title = computed(() =>
@@ -32,6 +36,10 @@ async function navigate(id?: string): Promise<void> {
     const failure = await router.push({ name: 'chat' })
     if (failure) return
   }
+  if (id === chat.activeId && route.name === 'chat') {
+    drawerOpen.value = false
+    return
+  }
   if (id) void chat.select(id)
   else chat.startNew()
   chat.draft = ''
@@ -42,11 +50,20 @@ async function restoreFocus(event: Event): Promise<void> {
   if (!narrow.value) {
     event.preventDefault()
     await nextTick()
-    const target = headerTitle.value?.isConnected
-      ? headerTitle.value
-      : document.querySelector<HTMLElement>('main h1[tabindex]')
-    target?.focus()
+    if (headerTitle.value) headerTitle.value.focus()
+    else document.querySelector<HTMLElement>('main h1[tabindex]')?.focus()
   }
+}
+/** 固定会话操作目标和触发器，导航、标题双击与按钮都共用一个弹窗宿主。 */
+function openAction(kind: 'rename' | 'delete', id: string, trigger: HTMLElement | null): void {
+  const row = chat.conversations.find((item) => item.id === id)
+  if (!row?.persisted || row.deleting || row.titleSaving || (kind === 'delete' && row.running))
+    return
+  actionRequest.value = { id, kind, trigger }
+}
+/** 双击聊天页标题改名，键盘用户仍可从侧栏铅笔按钮进入。 */
+function renameActive(event: MouseEvent): void {
+  if (chat.activeId) openAction('rename', chat.activeId, event.currentTarget as HTMLElement)
 }
 /** 工作区重新可见时同步目录和已保存历史，保留草稿且不覆盖本地生成中的消息。 */
 function synchronize(): void {
@@ -84,6 +101,7 @@ watch(
   () => route.fullPath,
   () => {
     drawerOpen.value = false
+    actionRequest.value = null
   },
 )
 </script>
@@ -103,9 +121,11 @@ watch(
         :error="chat.listError"
         :action-error="chat.actionError"
         :has-more="Boolean(chat.nextCursor)"
+        renamable
         @retry="chat.loadConversations()"
         @more="chat.loadConversations(true)"
-        @delete="chat.remove"
+        @delete="(id, trigger) => openAction('delete', id, trigger)"
+        @rename="(id, trigger) => openAction('rename', id, trigger)"
         @new="navigate()"
         @select="navigate"
         @toggle="collapsed = !collapsed"
@@ -113,28 +133,36 @@ watch(
     </aside>
     <main class="chat-main" :class="{ 'is-home': home, 'is-management': management }">
       <RiverBackdrop v-if="home" :motion="enabled" />
-      <header v-if="!management" class="chat-header">
-        <div class="header-start">
-          <component
-            :is="management ? 'p' : 'h1'"
-            ref="headerTitle"
-            tabindex="-1"
-            class="header-title"
-            >{{ title }}</component
-          >
-        </div>
-        <div class="header-end">
-          <span class="header-edition">KNOWLEDGE IN FLOW</span
-          ><span class="prototype-badge"><span />知舟 AI</span
-          ><UiTooltip v-if="!management && chat.activeConversation" text="新建对话"
-            ><UiIconButton label="新建对话" @click="navigate()"
-              ><SquarePen :size="18" /></UiIconButton
-          ></UiTooltip>
-        </div>
-      </header>
+      <UiPageHeader
+        v-if="!management"
+        ref="headerTitle"
+        class="chat-header"
+        :title="title"
+        size="sm"
+        truncate
+        :editable="!!chat.activeConversation?.persisted"
+        @title-dblclick="renameActive"
+      >
+        <template #actions
+          ><div class="header-end">
+            <span class="header-edition">KNOWLEDGE IN FLOW</span
+            ><span class="prototype-badge"><span />知舟 AI</span
+            ><UiTooltip v-if="!management && chat.activeConversation" text="新建对话"
+              ><UiIconButton label="新建对话" @click="navigate()"
+                ><SquarePen :size="18" /></UiIconButton
+            ></UiTooltip></div
+        ></template>
+      </UiPageHeader>
       <RouterView v-slot="{ Component, route: childRoute }"
         ><component :is="Component" :key="childRoute.name ?? childRoute.path"
       /></RouterView>
+      <ConversationDialogs
+        v-if="actionRequest"
+        :key="actionRequest.kind + actionRequest.id"
+        :request="actionRequest"
+        :nested="drawerOpen"
+        @close="actionRequest = null"
+      />
       <!-- 手机导航独立于子页面挂载，管理页中与标题同行，切换页面不会丢失入口。 -->
       <div v-if="narrow" class="workspace-mobile-navigation">
         <UiDrawer
@@ -154,9 +182,11 @@ watch(
             :error="chat.listError"
             :action-error="chat.actionError"
             :has-more="Boolean(chat.nextCursor)"
+            renamable
             @retry="chat.loadConversations()"
             @more="chat.loadConversations(true)"
-            @delete="chat.remove"
+            @delete="(id, trigger) => openAction('delete', id, trigger)"
+            @rename="(id, trigger) => openAction('rename', id, trigger)"
             @new="navigate()"
             @select="navigate"
           />
@@ -285,9 +315,8 @@ watch(
     min-height: 58px;
     padding: 10px 16px;
   }
-  .header-start {
-    gap: 8px;
-    padding-left: 44px;
+  .chat-header {
+    padding-left: 60px;
   }
   .prototype-badge {
     white-space: nowrap;

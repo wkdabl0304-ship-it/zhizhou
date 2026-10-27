@@ -14,13 +14,14 @@ OVERRIDE = "00000000-0000-4000-8000-000000000003"
 class MemoryConversationService(ConversationService):
     """保留正式流聚合逻辑，仅替换数据库提交，避免传输回归依赖外部服务。"""
 
-    def __init__(self, database=None, *, model_config=None):
+    def __init__(self, database=None, *, model_config=None, title_generator=None):
         """初始化内存会话服务替身，供 HTTP 和流式测试隔离数据库。
 
         不调用正式服务的资源初始化，只建立提交记录列表，供断言观察
         最终完成事件与快照保存的先后顺序。
         """
         self.saved = []
+        self.title_generator = title_generator
 
     async def recover(self):
         """替代正式服务的启动恢复入口；内存替身没有持久化轮次，因此不执行恢复。"""

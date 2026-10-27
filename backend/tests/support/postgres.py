@@ -19,12 +19,14 @@ from app.db.checkpoint import build_conninfo, open_checkpointer
 from app.schemas.auth import LoginRequest, RegisterRequest
 from app.services.auth import AuthService
 from app.services.conversations import ConversationService
+from app.services.conversation_titles import ConversationTitleService
 from app.services.model_config import ModelConfigService
 from app.schemas.model_config import ProviderConfigurationCreate, ModelCreate, DefaultUpdate
 from app.llm.runtime import ConfiguredChatAgent
 from app.llm.types import ModelSnapshot
 from tests.support.apps import make_app
 from tests.support.fakes.chat import StubChatModel
+from tests.support.fakes.titles import TitleModelStub
 from tests.support.processes import run_python
 from tests.support.sse import parse_events
 
@@ -130,6 +132,7 @@ class PostgresRuntime:
     model_config: ModelConfigService
     snapshots: list[ModelSnapshot]
     agent: ConfiguredChatAgent
+    title_model: TitleModelStub
 
 
 async def seed_model_configuration(service: ModelConfigService):
@@ -164,7 +167,9 @@ async def open_runtime(settings: Settings, model=None, *, configured=True) -> As
         configuration = ModelConfigService(database, settings.model_config_encryption_key, model_opener=open_stub)
         if configured:
             await seed_model_configuration(configuration)
-        conversations = ConversationService(database, model_config=configuration)
+        title_model = TitleModelStub(reply=None)
+        conversations = ConversationService(database, model_config=configuration,
+            title_generator=ConversationTitleService(model_opener=title_model.open))
         # 独立图仅供历史状态断言查询；执行使用每轮图并共享同一正式保存器。
         graph = build_agent(actual_model, [get_weather], checkpointer)
         agent = ConfiguredChatAgent(checkpointer, [get_weather], model_opener=open_stub)
@@ -176,7 +181,7 @@ async def open_runtime(settings: Settings, model=None, *, configured=True) -> As
             yield PostgresRuntime(
                 database=database, auth=auth, conversations=conversations,
                 graph=graph, client=client,
-                model_config=configuration, snapshots=snapshots, agent=agent,
+                model_config=configuration, snapshots=snapshots, agent=agent, title_model=title_model,
             )
 
 

@@ -160,11 +160,34 @@ export async function patchModelSelection(
   return result
 }
 
-/** 单独刷新会话元数据，不用历史内容覆盖本页正在进行的生成。 */
-export async function getSelectionInfo(id: string, signal: AbortSignal): Promise<ConversationInfo> {
+/** 读取安全会话元数据，供标题和选择同步共用，不用历史内容覆盖本页正在进行的生成。 */
+export async function getConversationInfo(
+  id: string,
+  signal: AbortSignal,
+): Promise<ConversationInfo> {
   const raw = await request(url(`/api/conversations/${encodeURIComponent(id)}`), signal)
   if (!record(raw)) throw new ApiError('会话选择响应格式无效')
   const result = info(raw.conversation)
   if (result.conversation_id !== id) throw new ApiError('会话选择归属无效')
+  return result
+}
+
+/** 保存手动标题并校验确认归属，不携带模型参数或触发聊天请求。 */
+export async function patchConversationTitle(
+  id: string,
+  title: string,
+  signal: AbortSignal,
+): Promise<ConversationInfo> {
+  const result = info(
+    await readEnvelope(
+      await authenticatedFetch(`/api/conversations/${encodeURIComponent(id)}/title`, {
+        method: 'PATCH',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
+      }),
+    ),
+  )
+  if (result.conversation_id !== id) throw new ApiError('会话标题确认归属无效')
   return result
 }

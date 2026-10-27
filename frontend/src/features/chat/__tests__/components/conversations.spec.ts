@@ -1,7 +1,7 @@
 /** 会话页面集成：真实侧栏、历史 Markdown、游标按钮和删除确认，不连接模型与数据库。 */
 import { createTestPinia as createPinia } from '@tests/support/vitest/mount'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
+import { DOMWrapper, mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { disposePinia, type Pinia } from 'pinia'
 import { defineComponent } from 'vue'
 import { TooltipProvider } from 'reka-ui'
@@ -51,6 +51,7 @@ async function open() {
     template: '<TooltipProvider><RouterView /></TooltipProvider>',
   })
   wrapper = mount(Host, {
+    attachTo: document.body,
     global: { plugins: [pinia, router] },
   })
   await flushPromises()
@@ -91,13 +92,19 @@ describe('会话导航与历史界面', () => {
     expect(page.findAll('.conversation-item')).toHaveLength(2)
     await page.get('textarea').setValue('当前会话未发送的草稿')
     await page.get('[aria-label="删除会话：历史话题"]').trigger('click')
-    const confirmation = page.get('[aria-label="确认删除会话：历史话题"]')
-    await confirmation.findAll('button')[1]!.trigger('click')
+    await flushPromises()
+    const confirmation = new DOMWrapper(document.querySelector('[role="dialog"]')!)
+    await confirmation.get('[data-confirm-cancel]').trigger('click')
+    await flushPromises()
     expect(fetchMock.mock.calls.filter(([, options]) => options?.method === 'DELETE')).toHaveLength(
       0,
     )
     await page.get('[aria-label="删除会话：历史话题"]').trigger('click')
-    await page.get('[aria-label="确认删除会话：历史话题"]').findAll('button')[0]!.trigger('click')
+    await flushPromises()
+    await new DOMWrapper(document.querySelector('[role="dialog"]')!)
+      .findAll('button')
+      .at(-1)!
+      .trigger('click')
     await flushPromises()
     expect(page.findAll('.conversation-item')).toHaveLength(1)
     expect(page.find('.welcome').exists()).toBe(true)
@@ -116,6 +123,49 @@ describe('会话导航与历史界面', () => {
     expect(page.find('[role="alert"]').exists()).toBe(false)
     expect(page.get('.conversation-item').text()).toContain('历史话题')
   })
+})
+
+// 编辑由侧栏发起、状态层 PATCH 后同步到页头；消息草稿不参与标题保存。
+it('侧栏弹窗改名更新列表与页头，取消和保存都恢复焦点且不清空消息草稿', async () => {
+  let title = '历史话题'
+  fetchMock.mockImplementation(async (url, init) => {
+    if (init?.method === 'PATCH' && String(url).endsWith('/title')) {
+      title = JSON.parse(String(init.body)).title
+      return response(info(A, title))
+    }
+    if (String(url).includes('/' + A + '?'))
+      return response({ conversation: info(A, title), items: [turn()], next_cursor: null })
+    return response({ items: [info(A, title)], next_cursor: null })
+  })
+  const page = await open()
+  await page.get('.conversation-item').trigger('click')
+  await flushPromises()
+  await page.get('textarea').setValue('消息草稿')
+  await page.get('[aria-label="修改会话标题：历史话题"]').trigger('click')
+  await flushPromises()
+  await new DOMWrapper(document.querySelector('[name="conversation_title"]')!).setValue('取消输入')
+  await new DOMWrapper(document.querySelector('[name="conversation_title"]')!).trigger('keydown', {
+    key: 'Escape',
+  })
+  await flushPromises()
+  expect(fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH')).toHaveLength(0)
+  await vi.waitFor(() =>
+    expect(document.activeElement).toBe(page.get('[aria-label="修改会话标题：历史话题"]').element),
+  )
+  await page.get('[aria-label="修改会话标题：历史话题"]').trigger('click')
+  await flushPromises()
+  await new DOMWrapper(document.querySelector('[name="conversation_title"]')!).setValue(
+    '  学习  Vue  ',
+  )
+  await new DOMWrapper(document.querySelector('form[aria-label="修改会话标题"]')!).trigger('submit')
+  await flushPromises()
+  expect(page.get('.header-title').text()).toBe('学习 Vue')
+  expect(page.get('.conversation-item').text()).toContain('学习 Vue')
+  expect((page.get('textarea').element as HTMLTextAreaElement).value).toBe('消息草稿')
+  expect(document.querySelector('[name="conversation_title"]')).toBeNull()
+  await vi.waitFor(() =>
+    expect(document.activeElement).toBe(page.get('[aria-label="修改会话标题：学习 Vue"]').element),
+  )
 })
 
 // 自动同步仅轮询当前远端生成会话；完成后停止，不能要求用户点击刷新。

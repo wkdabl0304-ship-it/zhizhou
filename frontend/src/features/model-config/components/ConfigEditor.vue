@@ -1,10 +1,11 @@
 <!-- 配置编辑器外壳：统一提交、冲突提示、未保存关闭确认和离页保护，表单字段由业务插槽提供。 -->
 <script setup lang="ts">
-import { onBeforeUnmount, ref, watchEffect } from 'vue'
+import { onBeforeUnmount, ref, watchEffect, useId } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '@/features/auth/store'
 import UiModal from '@/shared/components/ui/UiModal.vue'
-import UiButton from '@/shared/components/ui/UiButton.vue'
+import UiConfirmDialog from '@/shared/components/ui/UiConfirmDialog.vue'
+import UiDialogActions from '@/shared/components/ui/UiDialogActions.vue'
 const props = defineProps<{
   title: string
   dirty: boolean
@@ -23,6 +24,8 @@ const emit = defineEmits<{
 // 父级供应商面板据此保护保存过程，未保存草稿仍只由当前编辑弹窗持有。
 watchEffect(() => emit('state', { dirty: props.dirty, busy: props.busy }))
 const discarding = ref(false)
+// 每个编辑器分配独立表单标识，公共底栏可跨内容区域提交正确的表单。
+const formId = useId()
 let leaving: ((allowed: boolean) => void) | undefined
 const auth = useAuthStore()
 /** 关闭时保留正在保存的表单；有修改时先展示明确的放弃确认。 */
@@ -64,47 +67,37 @@ onBeforeUnmount(() => {
     :open="true"
     :title="title"
     :description="description ?? '保存配置后，可单独测试或设为全局默认。'"
-    editor
+    size="lg"
+    layout="panel"
     :return-focus="returnFocus"
     :close-disabled="busy"
     @update:open="close"
   >
-    <form
-      id="model-config-editor"
-      class="config-fields"
-      novalidate
-      @submit.prevent="emit('submit')"
-    >
+    <form :id="formId" class="config-fields" novalidate @submit.prevent="emit('submit')">
       <fieldset :disabled="busy || loading"><slot /></fieldset>
       <p v-if="error" class="config-error" role="alert">{{ error }}</p>
       <p v-if="conflict" class="config-hint">当前输入仍保留。关闭后重新编辑，可使用最新配置。</p>
     </form>
-    <footer class="config-editor-footer">
-      <small>修改从下一轮聊天生效</small>
-      <div class="config-actions">
-        <UiButton size="sm" :disabled="busy" @click="close">取消</UiButton
-        ><UiButton
-          form="model-config-editor"
-          type="submit"
-          variant="primary"
-          size="sm"
-          :loading="busy"
-          :disabled="loading"
-          >保存配置</UiButton
-        >
-      </div>
-    </footer>
-    <UiModal
+    <template #footer
+      ><UiDialogActions
+        :form="formId"
+        confirm-type="submit"
+        confirm-label="保存配置"
+        :busy="busy"
+        :disabled="loading"
+        @cancel="close"
+        ><small>修改从下一轮聊天生效</small></UiDialogActions
+      ></template
+    >
+    <UiConfirmDialog
       v-if="discarding"
       :open="true"
       title="放弃未保存的更改？"
       description="本次填写的内容不会保存。"
+      confirm-label="放弃更改"
+      cancel-label="继续编辑"
       @update:open="keep"
-    >
-      <div class="config-actions config-confirm-actions">
-        <UiButton @click="keep">继续编辑</UiButton
-        ><UiButton class="config-danger" @click="discard">放弃更改</UiButton>
-      </div>
-    </UiModal>
+      @confirm="discard"
+    />
   </UiModal>
 </template>

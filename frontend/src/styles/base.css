@@ -97,6 +97,14 @@ svg {
   background: var(--action);
   color: var(--action-contrast);
 }
+.ui-button--danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: var(--danger);
+}
+.ui-button--danger:hover:not(:disabled) {
+  opacity: 0.85;
+}
 .ui-button--primary:hover:not(:disabled) {
   opacity: 0.88;
 }

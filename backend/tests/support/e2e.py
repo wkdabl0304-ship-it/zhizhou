@@ -30,6 +30,7 @@ from app.core.event_loop import create_event_loop
 from app.core.settings import load_database_settings
 from tests.support.apps import make_app
 from tests.support.fakes.chat import StubChatModel
+from tests.support.fakes.titles import TitleModelStub
 from tests.support.postgres import temporary_database
 from tests.support.postgres import seed_model_configuration
 from app.db.business import open_business_database
@@ -147,10 +148,15 @@ def build_test_app(settings, model: ControlledModel, control_token: str):
             service = app.state.model_config_service
             original = service.model_opener
             service.model_opener = partial(open_test_model, model=model)
+            # 标题独立调用本地替身，保留正式标题流程且不会误用假凭据访问供应商。
+            title_service = app.state.conversation_service.title_generator
+            original_title_opener = title_service.model_opener
+            title_service.model_opener = TitleModelStub(reply=None).open
             try:
                 yield
             finally:
                 service.model_opener = original
+                title_service.model_opener = original_title_opener
 
     app = make_app(lifespan=test_lifespan)
 

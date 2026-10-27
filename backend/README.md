@@ -1,10 +1,10 @@
 # 知舟后端
 
-使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现账号密码注册、JWT 登录、用户会话隔离、游标读取最近及更早的会话和历史、软删除，以及异步 SSE 聊天与公开工具过程持久化。业务数据使用 SQLAlchemy 2.1 异步 ORM 与 Alembic，模型上下文由 LangGraph 的 PostgreSQL checkpoint 独立保存。模型通过供应商层和模型处理层接入 OpenAI、Anthropic、DeepSeek 与阿里云百炼，可经接口维护全局供应商配置、模型方案和默认选择，不对外返回模型推理。天气工具返回固定演示内容。
+使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现账号密码注册、JWT 登录、用户会话隔离、游标读取最近及更早的会话和历史、软删除、AI 自动标题与手动改名，以及异步 SSE 聊天与公开工具过程持久化。业务数据使用 SQLAlchemy 2.1 异步 ORM 与 Alembic，模型上下文由 LangGraph 的 PostgreSQL checkpoint 独立保存。模型通过供应商层和模型处理层接入 OpenAI、Anthropic、DeepSeek 与阿里云百炼，可经接口维护全局供应商配置、模型方案和默认选择，不对外返回模型推理。天气工具返回固定演示内容。
 
 前端已接入注册、登录、当前用户校验及服务端会话目录、游标历史、流式续聊和软删除。页面、身份生命周期及跨窗口生成的交互边界见[前端文档](../frontend/README.md#页面与聊天边界)，也可通过 Swagger 或 HTTP 客户端验收接口。
 
-项目定位和功能规划见[根 README](../README.md)。前后端已接通供应商连接/模型启停、受限推理策略和按会话保存选择；接口、状态恢复和错误处理见[前端对接文档](../docs/model-selection-frontend.md)。
+项目定位和功能规划见[根 README](../README.md)。前后端已接通供应商连接/模型启停、受限推理策略和按会话保存选择；界面状态恢复见[前端文档](../frontend/README.md#模型管理)，后端契约见[模型配置接口](#模型配置接口与两层适配)。
 
 ## 开发命令
 
@@ -69,8 +69,9 @@ SQLAlchemy 业务引擎和 Session 工厂在生命周期中创建，短事务独
 | `GET /api/conversations` | `limit=20&cursor=...` | `{items,next_cursor}` |
 | `GET /api/conversations/{conversation_id}` | `limit=20&cursor=...` | `{conversation,items,next_cursor}` |
 | `DELETE /api/conversations/{conversation_id}` | 无请求体 | `null` |
+| `PATCH /api/conversations/{conversation_id}/title` | `{title}`，规范化后 1–100 字符 | 更新后的会话信息，允许生成中改名 |
 | `PATCH /api/conversations/{conversation_id}/model-selection` | `{model_selection_version,model_selection}` | 更新后的会话信息 |
-| `POST /api/chat` | `{message,conversation_id?,model_selection?,model_selection_version?}` | SSE，首轮选择与续聊版本不能混用，见[对接文档](../docs/model-selection-frontend.md) |
+| `POST /api/chat` | `{message,conversation_id?,model_selection?,model_selection_version?}` | SSE，首轮选择与续聊版本不能混用，见[聊天接口](#启动与聊天接口) |
 
 注册成功后单独登录。用户名去除首尾空白并转小写，限定 3～32 位 ASCII 字母、数字或下划线；密码 8～128 个字符，不去除空格，使用 Argon2 摘要，哈希与校验在线程池执行。角色仅允许 `user` 和 `super_admin`，默认 `user`；两种角色均只能操作自己的会话，当前没有跨用户管理功能。
 
@@ -82,11 +83,35 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 
 两个读取接口均不接收页码或 OFFSET，也不返回总数、总页数。首次省略 `cursor`，默认取最近 20 条，`limit` 范围 1～100。`next_cursor` 是继续读取更早记录的版本化 Base64URL 文本，返回 `null` 表示当前没有更多记录；空字符串、非法编码或错误归属返回 422。
 
-目录 `items` 每项含 `conversation_id / title / created_at / last_message_at`，按 `(last_message_at DESC, id DESC)` 排序，同时间使用 UUID 次键。最近消息时间在接受用户输入时更新，标题取首条消息去除首尾空白后的前 24 个字符。游标限定用户，查询始终过滤当前用户和软删除状态；Base64 不是授权或加密机制。目录为实时视图，向前读取期间收到新消息的旧会话可能前移，刷新后重新同步，不提供跨请求快照。
+目录 `items` 每项含 `conversation_id / title / created_at / last_message_at`，按 `(last_message_at DESC, id DESC)` 排序，同时间使用 UUID 次键。最近消息时间在接受用户输入时更新，标题变更不改变排序。标题生命周期见[自动标题与手动改名](#自动标题与手动改名)。游标限定用户，查询始终过滤当前用户和软删除状态；Base64 不是授权或加密机制。目录为实时视图，向前读取期间收到新消息的旧会话可能前移，刷新后重新同步，不提供跨请求快照。
 
 内容 `items` 为问答轮次，每项含 `turn_id / seq / user_content / assistant_content / assistant_message_id / public_events / status / error_code / created_at / updated_at / finished_at`。首次返回最近轮次，再携带游标读取更小的 `seq`；每批按 `seq` 正序返回，游标限定当前用户和当前会话。一个轮次包含一次用户输入、其公开行动与工具过程、最终回答。`status` 为 `running / completed / failed / interrupted`；部分回答保存在公开过程里，不冒充最终回答。
 
 软删除只设置 `deleted_at`，保留轮次和 checkpoint；之后列表隐藏，内容及续聊返回 404。自己的已删除会话重复删除仍成功，他人的会话始终返回 404。生成期间拒绝删除，不自动取消；本期没有恢复、永久清理或单独创建会话接口。
+
+### 自动标题与手动改名
+
+新会话先把首条问题中的连续空白合并成一个空格、去除首尾空白，再取前 24 个 Unicode 字符作为临时标题。回答成功保存后，用本轮固定的模型快照概括首条问题与本次回答：问题、回答各最多取 2,000 字符，目标标题不超过 20 字，规范化后必须为 1–100 字符。标题模型独立调用，不绑定工具，不读取或写入聊天 checkpoint，不把标题或内部推理保存到公开聊天历史。
+
+整个标题阶段（查询、调用、保存）共用 15 秒期限；异常、空白或超长输出均保留临时标题并照常发送 `done`，不回滚成功回答。后续成功轮次用首条问题和当前回答重试，正式标题生成后停止。客户端在标题阶段断开时关闭模型资源，已经保存的轮次仍是 `completed`，之后可继续重试标题；尚未完成回答时断开仍按原规则保存为 `interrupted`。
+
+```http
+PATCH /api/conversations/7bcd0b65-c775-4dc3-baf3-46d433a620ba/title
+Authorization: Bearer <access_token>
+Content-Type: application/json
+
+{"title":"Vue 项目结构与模块划分"}
+```
+
+请求只允许 `title` 字符串，去除首尾空白并合并连续空白（含换行）后校验 1–100 字符；拒绝 `null`、非字符串、空白、超长及额外字段。成功返回 `{code:0,message:"成功",data:ConversationInfo}`，与目录单条结构一致，包含 `conversation_id / title / created_at / last_message_at / model_selection / model_selection_version / model_selection_issue`，不公开内部标题来源。
+
+该接口只更新当前用户未删除的会话。未登录返回 `401 / 40101`；不存在、已删除或属于他人的会话统一 `404 / 40401`；非法 UUID 或请求体返回 `422 / 42200`；系统故障沿用 `500 / 50000`。生成期间也可改名，不取得聊天执行锁，不调用模型，不改变最近消息时间或模型选择；即使提交相同标题，也停止自动覆盖。多个手动请求按数据库实际写入顺序生效。
+
+内部 `title_source` 为 `provisional / auto / manual`。自动保存仅匹配当前用户、未删除且仍为 `provisional` 的行；手动修改原子写入 `manual`，因此无论自动和手动更新按哪种顺序完成，最终均保留手动标题。模型等待期间不占用业务事务，读取和条件保存分别使用短事务。
+
+当前迁移 `0005_conversation_titles` 在已有 `conversations` 中增加 `title_source VARCHAR(20) NOT NULL DEFAULT 'manual'` 及枚举 CHECK，不增加表或索引；旧标题原样保留并保护为 `manual`，新建会话显式写入 `provisional`。升级执行 `uv run alembic upgrade head`；降级仅移除来源字段及约束，保留当前标题。
+
+SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到后从会话列表的 `data.items[].title` 或详情的 `data.conversation.title` 读取最终标题。本期前端尚未提供改名入口或聊天完成后的标题刷新，现有目录刷新仍可读取新标题；不提供手动重新生成接口。
 
 ### 业务数据与执行边界
 
@@ -95,12 +120,12 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 | 表 | 主要字段与约束 |
 | --- | --- |
 | `users` | UUID 主键、唯一 username、password_hash、role、is_active、created_at、updated_at；角色 CHECK 约束 |
-| `conversations` | UUID 主键、user_id 外键、title、last_message_at、created_at、updated_at、deleted_at；未删除会话的用户与复合排序部分索引 |
+| `conversations` | UUID 主键、user_id 外键、title、title_source、last_message_at、created_at、updated_at、deleted_at；标题来源 CHECK；未删除会话的用户与复合排序部分索引 |
 | `chat_turns` | UUID 主键、conversation_id 外键、seq、用户与最终助手正文、assistant_message_id、JSONB public_events、状态与错误码、时间；会话内 seq 唯一及状态 CHECK 约束 |
 
 数据库时间为带时区时间，ID 由应用生成。仓储只执行 ORM 查询及 flush，由服务提交事务。公开历史从白名单 SSE 事件构造，`public_events` 是有序 `{event,data}` 数组，不含 start/done 或内部推理；相邻同一消息的 delta 合并，工具事件保持原顺序，成功确认后的最终正文独立保存，不在过程里重复。
 
-聊天先取得跨进程 PostgreSQL advisory lock，再用短事务创建或核验会话、保存用户输入和 running 轮次，提交后发 start。生成期间不保持业务事务，工具边界立即保存快照，正文在收到增量时按一秒或累计 16 KiB 阈值提交。checkpoint 与业务历史分别提交，二者均完成后才发送 done；最终业务写入失败只发 error。
+聊天先取得跨进程 PostgreSQL advisory lock，再用短事务创建或核验会话、保存用户输入和 running 轮次，提交后发 start。生成期间不保持业务事务，工具边界立即保存快照，正文在收到增量时按一秒或累计 16 KiB 阈值提交。checkpoint 与业务历史分别提交，二者均完成并结束本次标题处理后才发送 done；最终业务写入失败只发 error。
 
 聊天与删除共用执行锁，同会话冲突立即 409，不同会话可并发。锁连接使用异步 SQLAlchemy、自动提交和 NullPool，退出时解锁并关闭物理连接，避免带锁连接返回池。启动和内容读取检查遗留 running 记录，仅在取得执行锁、确认没有活跃生成时标记 interrupted，不自动重放工具。取消尽力保存所有已接收公开内容；进程强制退出可能损失最后一次快照之后的片段。
 
@@ -125,7 +150,7 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 
 ### 数据表与一致性
 
-实体位于 `app/models/model_config.py`，最新迁移为 `0004_model_selection`。模型目录不入库，用户保存的模型方案才入库。
+实体位于 `app/models/model_config.py`，模型选择迁移为 `0004_model_selection`；当前最新迁移 `0005_conversation_titles` 另增加[标题来源](#自动标题与手动改名)。模型目录不入库，用户保存的模型方案才入库。
 
 供应商配置保存品牌、API 格式、官方端点及 API Key；模型方案引用供应商配置，再选择具体模型和推理设置。升级执行 `uv run alembic upgrade head`，迁移保留已有配置、默认引用和轮次快照；原方案默认启用且推理固定，旧会话选择为空。接口统一使用 `/provider-configurations`，引用字段为 `provider_configuration_id`。
 
@@ -141,7 +166,7 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用�
 
 所有配置写事务先锁定单例设置行，随后校验目标资源版本与引用，防止检查后被其他写请求插入关联；网络调用不持这个锁。模型快照用单条联表查询取得，业务事务在访问供应商前结束。已有会话保存独立选择，不跟随全局默认切换；供应商及方案配置在下一轮重新验证，失效时要求重选，不影响已接受轮次及工具后续步骤。
 
-推理策略由 `app/llm/models/selection.py` 验证，选项、批量失效判断和快照装配由 `app/services/model_selection.py` 承担，配置 CRUD 留在原模型配置服务。会话的选择保存、版本和跨进程锁由会话服务负责，避免继续将运行装配堆入配置管理。目录/详情响应增加选择、选择版本和动态失效原因，切换选择不改变最近消息时间。完整 JSON 结构及状态转换统一维护在[前端对接文档](../docs/model-selection-frontend.md)。
+推理策略由 `app/llm/models/selection.py` 验证，选项、批量失效判断和快照装配由 `app/services/model_selection.py` 承担，配置 CRUD 留在原模型配置服务。会话的选择保存、版本和跨进程锁由会话服务负责，避免继续将运行装配堆入配置管理。目录/详情响应增加选择、选择版本和动态失效原因，切换选择不改变最近消息时间。接口结构见下节，界面状态恢复见[前端文档](../frontend/README.md#模型管理)。
 
 ### 接口契约
 
@@ -223,7 +248,7 @@ OpenAI、Anthropic、DeepSeek 的 `endpoint_id` 为 `official`。百炼直接填
 
 模型测试使用固定短提示，只验证该次文本流可完成，不执行天气等业务工具、不创建聊天历史、不自动设置默认。真实调用可能产生供应商费用。上游鉴权、限流/额度、超时及其他预期失败分别使用业务码 `20002 / 20003 / 20004 / 20005`，HTTP 仍为 200；不会因上游 401 令用户退出登录，也不回传供应商原始响应。
 
-管理测试允许测试停用方案，使用方案默认推理。配置元数据、启停和凭据轮换可独立于模型目录管理；端点/格式修改仍校验全部关联方案，运行参数和策略修改仍要求完整有效。新增会话选择错误及所有前端恢复规则见[对接文档错误码表](../docs/model-selection-frontend.md#8-错误码和恢复动作)。
+管理测试允许测试停用方案，使用方案默认推理。配置元数据、启停和凭据轮换可独立于模型目录管理；端点/格式修改仍校验全部关联方案，运行参数和策略修改仍要求完整有效。错误码以 `app/core/errors/codes.py` 为准，前端恢复规则见[前端文档](../frontend/README.md#模型管理)。
 
 ## 启动与聊天接口
 
@@ -327,9 +352,9 @@ data: {"code":50001,"message":"对话执行失败，请稍后重试","data":null
 
 相同业务会话 ID 可继续自己的未删除会话，不同用户或不同会话的历史隔离；服务重启后仍可继续。HTTP 并发由数据库执行锁协调，Agent 内部锁只作为单实例的附加保护。身份、归属和执行冲突在 SSE 响应头发送前校验，流建立后发生的失败通过 error 结束。
 
-客户端断开会关闭模型流，尽力保存公开过程并将未完成轮次标记 interrupted，不回滚已经写入的 checkpoint，不自动重试或重放工具。完整的失败和恢复语义见[业务数据与执行边界](#业务数据与执行边界)。
+客户端断开会关闭模型流，尽力保存公开过程并将未完成轮次标记 interrupted；回答已保存、仅在等待标题时断开，轮次保持 completed。不回滚已经写入的 checkpoint，不自动重试或重放工具。完整的失败和恢复语义见[业务数据与执行边界](#业务数据与执行边界)。
 
-浏览器调用使用 POST fetch 响应流解析 SSE，代理需要关闭流缓冲。前端聊天与会话请求携带 Bearer JWT；首次聊天省略会话 ID，从 start 取得 conversation_id，续聊时传回该 ID；目录和历史按服务端游标读取，删除成功后更新界面。历史 running 快照通过显式刷新同步，不提供自动轮询或 SSE 重放。具体页面行为统一维护在[前端文档](../frontend/README.md#页面与聊天边界)。
+浏览器调用使用 POST fetch 响应流解析 SSE，代理需要关闭流缓冲。前端聊天与会话请求携带 Bearer JWT；首次聊天省略会话 ID，从 start 取得 conversation_id，续聊时传回该 ID；目录和历史按服务端游标读取，删除成功后更新界面。客户端通过历史读取接口自动同步远端 running 快照，服务端不提供 SSE 重放。具体同步时机和页面行为统一维护在[前端文档](../frontend/README.md#页面与聊天边界)。
 
 ## 分级 API 路由
 
@@ -495,6 +520,8 @@ CLI 子进程的标准输出和错误输出通过两条管道并发读取，再�
 
 ### 覆盖的关键行为
 
+标题专项单元测试覆盖规范化、严格类型、Unicode 长度、输入截断及关闭资源；PostgreSQL 专项 `test_conversation_titles.py` 与 `test_conversation_title_migration.py` 覆盖标题先于 done、问答历史隔离、失败/超时/取消重试、并发手动改名、角色隔离、排序、选择失效仍可改名、迁移往返与来源约束。供应商协议测试用五种正式客户端格式验证无工具标题调用；聊天 E2E 通过真实改名接口验证刷新及续聊后标题保留。
+
 集成测试覆盖注册竞争、JWT 声明与账号状态、ORM 约束和索引、Alembic 排除 checkpoint 表、两种角色所有权隔离、游标边界、公开工具历史、软删除、跨连接锁、取消清理、遗留状态恢复及最终提交失败。模型仍使用本地替身，不访问真实模型。其他测试覆盖配置优先级、资源释放、接口协议、导入无外部副作用，以及真实 LangChain 图的多轮对话和工具调用；日志配置在独立子进程中验证。
 
 受限模型选择专项位于 `tests/unit/llm/test_selection.py`、`tests/integration/postgres/test_model_selection.py` 和 `test_model_selection_migration.py`：覆盖固定/自选范围、预算边界、启停与默认、立即保存、版本竞争、所有权、执行锁、目录批量查询、配置失效、无效输入无副作用和迁移往返。已有供应商协议测试继续验证跨模型历史与凭据轮换兼容。
@@ -521,7 +548,7 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 - `app/api/`：API 总路由、公共请求依赖、按业务划分的子路由、SSE 编码与断开清理，以及统一异常处理器和错误响应文档；结构与扩展步骤见[分级 API 路由](#分级-api-路由)。
 - `app/models/`：SQLAlchemy 业务实体。
 - `app/repositories/`：无隐式提交的异步 ORM 读写，事务提交由业务服务负责。
-- `app/services/`：认证、会话所有权、游标读取及轮次持久化；具体 SQL 查询交给仓储，HTTP/SSE 编码交给 API 层。
+- `app/services/`：认证、会话所有权、游标读取及轮次持久化；`conversation_titles.py` 独立承担无工具标题概括，超时和保存由会话服务编排；具体 SQL 查询交给仓储，HTTP/SSE 编码交给 API 层。
 - `app/utils/`：预留不包含业务规则的通用辅助函数，当前尚无具体实现；游标、SSE 编码和数据库锁仍归属各自模块。
 - `migrations/`：Alembic 异步环境和版本迁移，仅管理业务表。
 - `tests/`：按单元与集成层级组织测试，共享支撑位于 `tests/support/`；归属、资源隔离和运行命令见[测试](#测试)。

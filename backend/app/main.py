@@ -20,6 +20,7 @@ from app.db.business import open_business_database
 from app.db.checkpoint import open_checkpointer
 from app.services.auth import AuthService
 from app.services.conversations import ConversationService
+from app.services.conversation_titles import ConversationTitleService
 from app.services.model_config import ModelConfigService
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             auth_service = AuthService(database, settings) # 初始化 AuthService
             await auth_service.initialize()
             model_config = ModelConfigService(database, settings.model_config_encryption_key)
-            conversation_service = ConversationService(database, model_config=model_config)
+            conversation_service = ConversationService(database, model_config=model_config,
+                                                       title_generator=ConversationTitleService())
             await conversation_service.recover()
             checkpointer = await resources.enter_async_context(open_checkpointer(settings))
             # 启动不创建供应商客户端，无模型配置时仍可登录和完成首次设置。

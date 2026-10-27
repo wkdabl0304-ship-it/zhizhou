@@ -15,7 +15,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.settings import DatabaseSettings, Settings
 
-SCHEMA_REVISION = "0004_model_selection"
+SCHEMA_REVISION = "0005_conversation_titles"
 
 
 def database_url(settings: Settings | DatabaseSettings) -> URL:

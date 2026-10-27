@@ -9,26 +9,74 @@ import {
   DialogDescription,
 } from 'reka-ui'
 import { X } from '@lucide/vue'
-import { inject, nextTick, onUnmounted, provide } from 'vue'
+import { computed, nextTick, onUnmounted, watch } from 'vue'
+import { useDialogLayer } from '@/shared/composables/useDialogLayer'
 import UiIconButton from './UiIconButton.vue'
-const props = defineProps<{
-  open: boolean
-  title: string
-  description: string
-  drawer?: boolean
-  wide?: boolean
-  editor?: boolean
-  returnFocus?: HTMLElement | null
-  closeDisabled?: boolean
-}>()
-const emit = defineEmits<{ 'update:open': [value: boolean] }>()
+const props = withDefaults(
+  defineProps<{
+    open: boolean
+    title: string
+    description?: string
+    size?: 'sm' | 'md' | 'lg' | 'xl'
+    layout?: 'content' | 'panel'
+    height?: string
+    busy?: boolean
+    closeOnEscape?: boolean
+    closeOnOutside?: boolean
+    initialFocus?: string
+    layer?: number
+    drawer?: boolean
+    wide?: boolean
+    editor?: boolean
+    returnFocus?: HTMLElement | null
+    closeDisabled?: boolean
+  }>(),
+  { closeOnEscape: true, closeOnOutside: true },
+)
+const emit = defineEmits<{ 'update:open': [value: boolean]; openAutoFocus: [event: Event] }>()
 // Portal 保留 Vue 的注入链；每层遮罩必须高于上一层内容，确认框才能覆盖编辑弹窗。
-const depth = inject('zhizhou:modal-depth', 0)
-provide('zhizhou:modal-depth', depth + 1)
-const overlayStyle = depth ? { zIndex: `calc(var(--z-drawer) + ${depth * 2 - 1})` } : undefined
-const contentStyle = depth ? { zIndex: `calc(var(--z-drawer) + ${depth * 2})` } : undefined
+const { overlayStyle, contentStyle } = useDialogLayer(props.layer)
+const blocked = computed(() => props.busy || props.closeDisabled)
+const style = computed(() => ({
+  ...contentStyle,
+  width: props.size
+    ? `min(${{ sm: 400, md: 480, lg: 680, xl: 1120 }[props.size]}px, calc(100vw - 32px))`
+    : undefined,
+  height: props.height,
+}))
 // 编辑开始会禁用原卡片按钮；调用方可提前保存触发器，避免浏览器清空焦点后丢失返回位置。
-const previous = props.returnFocus ?? document.activeElement
+let previous = props.returnFocus ?? document.activeElement
+// 常驻组件从关闭切到打开时重新记录触发器，不能一直使用首次挂载时的焦点。
+watch(
+  () => props.open,
+  (open) => {
+    if (open) previous = props.returnFocus ?? document.activeElement
+  },
+  { flush: 'sync' },
+)
+/** 请求关闭当前层，保存期间统一拦截关闭按钮、Esc 和遮罩关闭。 */
+function requestClose(value = false): void {
+  if (!blocked.value) emit('update:open', value)
+}
+/** 按调用方配置聚焦内容中的控件，默认仍交给 Reka，并开放事件供特殊表单定制。 */
+function focusInitial(event: Event): void {
+  emit('openAutoFocus', event)
+  if (event.defaultPrevented || !props.initialFocus || !(event.target instanceof HTMLElement))
+    return
+  const target = event.target.querySelector<HTMLElement>(props.initialFocus)
+  if (target) {
+    event.preventDefault()
+    target.focus()
+  }
+}
+/** 根据关闭策略拦截 Esc，嵌套层始终由 Reka 分发到最上层。 */
+function escape(event: Event): void {
+  if (blocked.value || props.closeOnEscape === false) event.preventDefault()
+}
+/** 根据关闭策略拦截外部交互，忙碌表单不会被遮罩点击提前关闭。 */
+function outside(event: Event): void {
+  if (blocked.value || props.closeOnOutside === false) event.preventDefault()
+}
 /** 模态关闭后恢复触发元素；列表重绘移除触发器时回到页面标题。 */
 function restoreFocus(event: Event): void {
   event.preventDefault()
@@ -36,10 +84,11 @@ function restoreFocus(event: Event): void {
 }
 /** 在焦点约束已释放后恢复仍存在的入口，避免嵌套弹层卸载互相抢焦点。 */
 function restoreTarget(): void {
-  if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
+  if (previous instanceof HTMLElement && previous.isConnected && !previous.matches(':disabled'))
+    previous.focus()
   else {
     // 编辑器与放弃确认可能同帧卸载；确认层不能把已恢复到主面板的焦点再次移到页面外。
-    const dialogs = document.querySelectorAll<HTMLElement>('.config-modal[data-state="open"]')
+    const dialogs = document.querySelectorAll<HTMLElement>('[data-ui-dialog][data-state="open"]')
     const remaining = dialogs[dialogs.length - 1]
     if (remaining) {
       if (!remaining.contains(document.activeElement)) remaining.focus()
@@ -53,35 +102,46 @@ function restoreTarget(): void {
 // 页面使用 v-if 移除整个 DialogRoot 时，内部事件可能随祖先卸载而停止转发。
 // Reka 2.11 的 FocusScope 在下一宏任务释放焦点约束；其后补回入口，兼容多层同帧卸载。
 onUnmounted(() => {
+  if (!props.open) return
   void nextTick(() => {
     setTimeout(restoreTarget, 0)
   })
 })
 </script>
 <template>
-  <DialogRoot :open="open" @update:open="emit('update:open', $event)">
+  <DialogRoot :open="open" @update:open="requestClose">
     <DialogPortal>
       <DialogOverlay class="config-modal-overlay" :style="overlayStyle" />
       <DialogContent
-        class="config-modal"
+        class="config-modal ui-modal"
+        data-ui-dialog
         :class="{
           'config-modal--drawer': drawer,
           'config-modal--wide': wide,
-          'config-modal--editor': editor,
+          'config-modal--editor': editor || layout === 'panel',
         }"
-        :style="contentStyle"
+        :style="style"
+        @open-auto-focus="focusInitial"
+        @escape-key-down="escape"
+        @interact-outside="outside"
         @close-auto-focus="restoreFocus"
       >
         <header class="config-modal-heading">
           <div>
             <DialogTitle>{{ title }}</DialogTitle
-            ><DialogDescription>{{ description }}</DialogDescription>
+            ><DialogDescription :class="{ 'sr-only': !description }">{{
+              description || title
+            }}</DialogDescription>
           </div>
-          <UiIconButton label="关闭" :disabled="closeDisabled" @click="emit('update:open', false)"
+          <slot name="header-actions" />
+          <UiIconButton label="关闭" :disabled="blocked" @click="requestClose()"
             ><X :size="18"
           /></UiIconButton>
         </header>
         <div class="config-modal-body"><slot /></div>
+        <footer v-if="$slots.footer" class="ui-modal-footer">
+          <slot name="footer" :close="requestClose" />
+        </footer>
       </DialogContent>
     </DialogPortal>
   </DialogRoot>
@@ -139,6 +199,17 @@ onUnmounted(() => {
   margin: 0;
   color: var(--text-secondary);
   font-size: 12px;
+}
+.ui-modal-footer {
+  flex-shrink: 0;
+  margin: 20px -24px -24px;
+  padding: 16px 24px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+.config-modal--editor > .ui-modal-footer {
+  margin: 0;
+  padding: 18px 26px;
 }
 .config-modal--drawer {
   inset: 0 0 0 auto;

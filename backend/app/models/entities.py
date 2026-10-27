@@ -53,6 +53,7 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
     __table_args__ = (
+        CheckConstraint("title_source IN ('provisional', 'auto', 'manual')", name="ck_conversations_title_source"),
         CheckConstraint("model_selection_version > 0", name="ck_conversations_model_selection_version"),
         CheckConstraint("model_selection IS NULL OR jsonb_typeof(model_selection) = 'object'", name="ck_conversations_model_selection"),
     )
@@ -60,6 +61,8 @@ class Conversation(Base):
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"))
     title: Mapped[str] = mapped_column(String(100))
+    # 只有 provisional 允许自动生成；默认 manual 保护存量及未显式指定来源的写入。
+    title_source: Mapped[str] = mapped_column(String(20), default="manual", server_default="manual")
     # 选择允许随配置删除而失效，JSON 内的方案引用不建立外键，也不级联修改历史。
     model_selection: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     model_selection_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")

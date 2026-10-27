@@ -18,6 +18,8 @@ import {
   type DialogContentEmits,
 } from 'reka-ui'
 import UiIconButton from './UiIconButton.vue'
+import { useDialogLayer } from '@/shared/composables/useDialogLayer'
+const { overlayStyle, contentStyle } = useDialogLayer()
 
 const props = defineProps<
   DialogRootProps & { title: string; description: string; contentProps?: DialogContentProps }
@@ -36,9 +38,11 @@ const forwarded = useForwardProps(rootProps)
   <DialogRoot v-bind="forwarded" @update:open="emit('update:open', $event)">
     <DialogTrigger as-child><slot name="trigger" /></DialogTrigger>
     <DialogPortal>
-      <DialogOverlay class="ui-drawer-overlay" />
+      <DialogOverlay class="ui-drawer-overlay" :style="overlayStyle" />
       <DialogContent
         class="ui-drawer"
+        data-ui-dialog
+        :style="contentStyle"
         v-bind="contentProps"
         @open-auto-focus="emit('openAutoFocus', $event)"
         @close-auto-focus="emit('closeAutoFocus', $event)"

@@ -1,4 +1,4 @@
-"""用户会话目录、内容游标读取和软删除接口；不提供单独创建会话接口。"""
+"""用户会话目录、历史游标、标题与模型选择维护及软删除接口；会话由首条聊天创建。"""
 
 from typing import Annotated
 from uuid import UUID
@@ -7,12 +7,23 @@ from fastapi import APIRouter, Depends, Query
 
 from app.api.dependencies import get_conversation_service, get_current_user
 from app.models import User
-from app.schemas.conversations import ConversationContent, ConversationList, ConversationInfo
+from app.schemas.conversations import ConversationContent, ConversationList, ConversationInfo, ConversationTitleUpdate
 from app.schemas.model_selection import ModelSelectionUpdate
 from app.schemas.response import ApiResponse, success
 from app.services.conversations import ConversationService
 
 router = APIRouter(prefix="/conversations", tags=["会话"])
+
+
+@router.patch("/{conversation_id}/title", response_model=ApiResponse[ConversationInfo])
+async def update_title(
+    conversation_id: UUID,
+    body: ConversationTitleUpdate,
+    user: Annotated[User, Depends(get_current_user)],
+    service: Annotated[ConversationService, Depends(get_conversation_service)],
+):
+    """修改自己的会话标题，允许生成期间保存，手动标题不再被自动生成覆盖。"""
+    return success(await service.update_title(user.id, conversation_id, body))
 
 
 @router.patch("/{conversation_id}/model-selection", response_model=ApiResponse[ConversationInfo])

@@ -7,6 +7,7 @@ import {
   conversationHistory,
   listConversations,
   deleteConversation,
+  patchConversationTitle,
 } from '@/features/chat/api/conversations'
 import { A, B, info, turn } from '@tests/support/data/chat'
 import { response } from '@tests/support/vitest/http'
@@ -28,6 +29,23 @@ afterEach(() => {
 })
 
 describe('会话响应边界', () => {
+  // 改名只发送标题与 Bearer，响应必须属于原会话，不能将错误归属写进侧栏。
+  it('标题更新遵循认证与响应归属约定', async () => {
+    fetchMock
+      .mockResolvedValueOnce(response(info(A, '新标题')))
+      .mockResolvedValueOnce(response(info(B)))
+    expect((await patchConversationTitle(A, '新标题', new AbortController().signal)).title).toBe(
+      '新标题',
+    )
+    const [url, init] = fetchMock.mock.calls[0]!
+    expect(url).toBe(`/api/conversations/${A}/title`)
+    expect(init?.method).toBe('PATCH')
+    expect(JSON.parse(String(init?.body))).toEqual({ title: '新标题' })
+    expect(new Headers(init?.headers).get('authorization')).toBe('Bearer test-access-token')
+    await expect(patchConversationTitle(A, '新标题', new AbortController().signal)).rejects.toThrow(
+      '归属无效',
+    )
+  })
   // JSON 外壳、日期、游标和数组缺失均应拒绝，不显示虚假的空目录。
   it.each([
     null,

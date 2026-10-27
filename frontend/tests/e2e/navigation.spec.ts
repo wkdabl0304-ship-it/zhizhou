@@ -85,10 +85,16 @@ test('删除必须确认，取消保留数据，确认后刷新目录仍不显�
   await finished(page)
   let navigation = await sidebar(page)
   await navigation.getByRole('button', { name: '删除会话：待删除会话', exact: true }).click()
-  await navigation.getByRole('button', { name: '取消', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: '删除会话？', exact: true })
+    .getByRole('button', { name: '取消', exact: true })
+    .click()
   await expect(navigation.getByRole('button', { name: '待删除会话', exact: true })).toBeVisible()
   await navigation.getByRole('button', { name: '删除会话：待删除会话', exact: true }).click()
-  await navigation.getByRole('button', { name: '确认删除', exact: true }).click()
+  await page
+    .getByRole('dialog', { name: '删除会话？', exact: true })
+    .getByRole('button', { name: '确认删除', exact: true })
+    .click()
   await expect(navigation.getByRole('button', { name: '待删除会话', exact: true })).toHaveCount(0)
   await closeSidebar(page)
   await expect(page.getByRole('article')).toHaveCount(0)

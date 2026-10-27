@@ -22,6 +22,7 @@ from app.llm.providers.failures import ProviderFailure
 from app.llm.runtime import ConfiguredChatAgent
 from app.llm.types import ModelSnapshot
 from app.schemas.model_config import DefaultReasoning
+from app.services.conversation_titles import ConversationTitleService
 
 
 def make_snapshot(provider, api_format, model_id):
@@ -102,6 +103,44 @@ def responses_response(model_id, tool):
     response.update(status="completed", output=[item])
     events.append({"type": "response.completed", "response": response})
     return encode_frames(events)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("provider,api_format,model_id", [
+    ("deepseek", "chat_completions", "deepseek-flash"),
+    ("bailian", "chat_completions", "qwen3.8-max"),
+    ("openai", "chat_completions", "gpt-5.6-terra"),
+    ("openai", "responses", "gpt-6.1-sol"),
+    ("anthropic", "messages", "claude-sonnet-5"),
+])
+async def test_title_generation_uses_native_stream_without_tools(provider, api_format, model_id):
+    """标题服务适配全部既有供应商格式，仅提取正文、保留原参数并关闭客户端。"""
+    snapshot = make_snapshot(provider, api_format, model_id)
+    requests, clients = [], []
+
+    async def respond(request):
+        """让正式 SDK 解析既有协议帧，检查标题请求未绑定工具且包含问答数据。"""
+        body = json.loads(request.content)
+        requests.append(body)
+        assert body["model"] == model_id and not body.get("tools")
+        assert "待概括的问题" in json.dumps(body, ensure_ascii=False)
+        if api_format == "messages":
+            response = anthropic_response(model_id, False)
+            return httpx2.Response(200, headers=dict(response.headers), content=response.content)
+        return responses_response(model_id, False) if api_format == "responses" else chat_response(model_id, False)
+
+    @asynccontextmanager
+    async def opener(actual):
+        """在唯一模型边界注入模拟传输，并记录客户端用于确认资源释放。"""
+        assert actual is snapshot
+        transport = httpx2.MockTransport(respond) if provider == "anthropic" else httpx.MockTransport(respond)
+        async with open_model(actual, transport=transport) as model:
+            clients.append(model._owned_async if provider == "anthropic" else model.http_async_client)
+            yield model
+
+    result = await ConversationTitleService(model_opener=opener).generate(snapshot, "待概括的问题", "已有回答")
+    assert result == "最终回答" and len(requests) == 1
+    assert all(client.is_closed for client in clients)
 
 
 @pytest.mark.anyio

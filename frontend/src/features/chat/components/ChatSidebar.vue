@@ -21,6 +21,7 @@ const props = defineProps<{
   error?: string
   actionError?: string
   hasMore?: boolean
+  renamable?: boolean
 }>()
 defineEmits<{
   select: [id: string]
@@ -28,7 +29,8 @@ defineEmits<{
   toggle: []
   more: []
   retry: []
-  delete: [id: string]
+  delete: [id: string, trigger: HTMLElement]
+  rename: [id: string, trigger: HTMLElement]
 }>()
 const isDev = import.meta.env.DEV
 // 根据本页会话自身分组，新增会话自动进入“今天”。
@@ -93,9 +95,14 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
             :title="conversation.title"
             :active="conversation.id === activeId"
             :removable="conversation.persisted"
-            :busy="conversation.running || conversation.deleting"
+            :busy="conversation.running || conversation.deleting || conversation.titleSaving"
+            :renamable="renamable && conversation.persisted"
+            :rename-disabled="
+              conversation.deleting || conversation.titleSaving || conversation.unavailable
+            "
+            @rename="$emit('rename', conversation.id, $event)"
             @select="$emit('select', conversation.id)"
-            @delete="$emit('delete', conversation.id)"
+            @delete="$emit('delete', conversation.id, $event)"
         /></template>
       </section>
       <button
