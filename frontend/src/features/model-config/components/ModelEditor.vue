@@ -24,7 +24,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   close: []
-  reload: []
   state: [value: { dirty: boolean; busy: boolean }]
 }>()
 const store = useModelConfigStore()
@@ -108,15 +107,11 @@ async function save(): Promise<void> {
     if (!(failure instanceof DOMException && failure.name === 'AbortError')) {
       error.value = explainConfigError(failure)
       conflict.value = failure instanceof ApiError && failure.code === 40902
+      if (conflict.value) await store.load()
     }
   } finally {
     busy.value = false
   }
-}
-/** 显式刷新列表并重建表单，用户重新基于最新实体编辑。 */
-async function reload(): Promise<void> {
-  await store.load()
-  if (!store.loadError) emit('reload')
 }
 onBeforeUnmount(() => controller.abort())
 void load()
@@ -133,7 +128,6 @@ void load()
     :return-focus="returnFocus"
     @submit="save"
     @close="emit('close')"
-    @reload="reload"
     @state="emit('state', $event)"
   >
     <div class="config-editor-context">

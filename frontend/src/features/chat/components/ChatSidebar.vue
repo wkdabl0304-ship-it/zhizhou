@@ -27,7 +27,7 @@ defineEmits<{
   new: []
   toggle: []
   more: []
-  refresh: []
+  retry: []
   delete: [id: string]
 }>()
 const isDev = import.meta.env.DEV
@@ -68,17 +68,18 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
       ><span class="new-chat-plus" aria-hidden="true">＋</span>
     </button>
     <nav v-if="!compact" class="conversation-nav" aria-label="会话记录">
-      <div class="sidebar-section-label">
-        你的对话<button
+      <div class="sidebar-section-label">你的对话</div>
+      <p v-if="error" class="directory-error" role="alert">
+        {{ error
+        }}<button
           type="button"
           class="directory-action"
           :disabled="loading"
-          @click="$emit('refresh')"
+          @click="$emit('retry')"
         >
-          刷新
+          重试
         </button>
-      </div>
-      <p v-if="error" class="directory-error" role="alert">{{ error }}</p>
+      </p>
       <p v-if="actionError" class="directory-error" role="alert">{{ actionError }}</p>
       <p v-if="loading" class="directory-hint" role="status">正在加载会话…</p>
       <p v-else-if="!conversations.length && !error" class="directory-hint">

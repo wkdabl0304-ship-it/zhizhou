@@ -23,12 +23,13 @@ import {
   closePicker,
   chooseModel,
   refreshModels,
+  openReasoning,
+  closeReasoning,
 } from '../support/playwright/model-selection'
 
 /** 选择并重新展开参数区，供受限推理场景继续核对和编辑。 */
 async function choose(page: Page, name: string): Promise<void> {
   await chooseModel(page, name)
-  await openPicker(page)
 }
 /** 从原会话目录打开历史，验证页面重载后由服务端恢复选择。 */
 async function reopen(page: Page, title: string): Promise<void> {
@@ -51,7 +52,8 @@ test('无默认手动选择固定方案，刷新恢复，连接和模型启停�
   await page.getByRole('textbox', { name: '消息内容' }).fill('手动选择固定方案')
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
   await choose(page, '固定问答')
-  await expect(page.getByText(/固定推理设置 ·/)).toBeVisible()
+  await expect(page.getByRole('switch', { name: '深度思考', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '设置推理强度', exact: true })).toBeDisabled()
   await expect(page.locator('[name="chat_reasoning_mode"]')).toHaveCount(0)
   // 单个入口位于输入框工具栏且在发送按钮左边；浮层不挤占聊天正文。
   const trigger = page.getByRole('button', { name: '选择聊天模型', exact: true })
@@ -62,9 +64,37 @@ test('无默认手动选择固定方案，刷新恢复，连接和模型启停�
   expect(
     Math.abs(triggerBox!.y + triggerBox!.height / 2 - sendBox!.y - sendBox!.height / 2),
   ).toBeLessThan(2)
+  await openPicker(page)
+  const menu = page.getByRole('dialog', { name: '选择聊天模型', exact: true })
+  // 顶部管理入口仍可用键盘访问，默认焦点和方向键则优先服务模型选择。
+  await expect
+    .poll(() =>
+      menu
+        .getByRole('listbox')
+        .evaluate(
+          (element) =>
+            element === document.activeElement || element.contains(document.activeElement),
+        ),
+    )
+    .toBe(true)
+  await expect(menu.getByRole('option').first()).toBeEnabled()
+  await page.keyboard.press('Home')
+  await expect(menu.getByRole('option').first()).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(menu.getByRole('link', { name: '前往模型管理', exact: true })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(menu.getByRole('option').first()).toBeFocused()
+  const menuTitleBox = await menu.getByText('选择模型', { exact: true }).boundingBox()
+  const manageBox = await menu
+    .getByRole('link', { name: '前往模型管理', exact: true })
+    .boundingBox()
+  expect(manageBox!.x).toBeGreaterThan(menuTitleBox!.x + menuTitleBox!.width)
+  expect(Math.abs(manageBox!.y - menuTitleBox!.y)).toBeLessThan(5)
+  await expect(menu.getByText('请选择模型方案', { exact: true })).toHaveCount(0)
   const menuBox = await page
     .getByRole('dialog', { name: '选择聊天模型', exact: true })
     .boundingBox()
+  expect(menuBox!.width).toBeLessThanOrEqual(302)
   expect(menuBox!.x).toBeGreaterThanOrEqual(0)
   expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
   await page.screenshot({ path: testInfo.outputPath('composer-model-menu.png'), fullPage: true })
@@ -112,7 +142,7 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   page,
   account,
   request,
-}) => {
+}, testInfo) => {
   await login(page, account)
   await page.goto('/models')
   await provider(page)
@@ -130,18 +160,36 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   await closeProvider(page)
   await returnToChat(page)
   await choose(page, '受限问答')
-  await expect(page.locator('[name="chat_effort"] option')).toHaveText(['low', 'high'])
-  await page.locator('[name="chat_effort"]').selectOption('low')
-  await closePicker(page)
+  await page.getByRole('textbox', { name: '消息内容', exact: true }).fill('切换思考保留的草稿')
+  await openReasoning(page)
+  const slider = page.getByRole('slider', { name: '推理强度', exact: true })
+  await expect(slider).toHaveAttribute('max', '2')
+  await slider.focus()
+  await page.keyboard.press('Home')
+  await expect(slider).toHaveAttribute('aria-valuetext', '关闭')
+  await expect(page.getByRole('button', { name: '设置推理强度', exact: true })).toContainText(
+    '关闭',
+  )
+  await expect(page.getByRole('dialog', { name: '设置推理强度', exact: true })).toBeVisible()
+  await slider.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(slider).toHaveAttribute('aria-valuetext', '低')
+  await expect(page.getByRole('textbox', { name: '消息内容', exact: true })).toHaveValue(
+    '切换思考保留的草稿',
+  )
+  await expect(page.getByRole('article')).toHaveCount(0)
+  await page.screenshot({ path: testInfo.outputPath('reasoning-strength.png'), fullPage: true })
+  await closeReasoning(page)
   await send(page, '受限档位会话')
   await finished(page)
   const auth = await headers(request, account),
     base = control().url
   const previous = await (await request.get(`${base}/api/conversations`, { headers: auth })).json()
-  await openPicker(page)
-  await page.locator('[name="chat_effort"]').selectOption('high')
+  await openReasoning(page)
+  await page.getByRole('slider', { name: '推理强度', exact: true }).focus()
+  await page.keyboard.press('End')
   await expect(page.getByText('正在保存会话选择…', { exact: true })).not.toBeVisible()
-  await closePicker(page)
+  await closeReasoning(page)
   const listed = await (await request.get(`${base}/api/conversations`, { headers: auth })).json()
   const conversation = listed.data.items[0] as {
     conversation_id: string
@@ -167,8 +215,8 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('请确认')
   await expect(page.getByRole('textbox', { name: '消息内容' })).toHaveValue('冲突后保留消息')
   await expect(page.getByRole('article')).toHaveCount(2)
-  await expect(page.getByRole('button', { name: '选择聊天模型', exact: true })).toContainText(
-    '关闭思考',
+  await expect(page.getByRole('button', { name: '设置推理强度', exact: true })).toContainText(
+    '关闭',
   )
   // 收紧后台范围后，保存的关闭思考选择必须失效，不能静默替换成高档。
   const configs = await (
@@ -205,6 +253,10 @@ test('管理预算闭区间，聊天确认有效整数后保存，刷新恢复�
 }, testInfo) => {
   await login(page, account)
   await page.goto('/models')
+  const navigation = await sidebar(page)
+  await navigation.getByRole('button', { name: /外观.*浅色/ }).click()
+  await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
+  await closeSidebar(page)
   await provider(page, '预算连接', 'anthropic')
   await model(page, '预算问答', 'Claude Haiku 4.5')
   await page
@@ -220,25 +272,26 @@ test('管理预算闭区间，聊天确认有效整数后保存，刷新恢复�
   await closeProvider(page)
   await returnToChat(page)
   await choose(page, '预算问答')
+  await openReasoning(page)
   await page.locator('[name="chat_budget"]').fill('1023')
   await page
-    .getByRole('form', { name: '聊天模型选择', exact: true })
-    .getByRole('button', { name: '应用选择', exact: true })
+    .getByRole('form', { name: '思考强度设置', exact: true })
+    .getByRole('button', { name: '应用预算', exact: true })
     .click()
-  await expect(page.getByRole('form', { name: '聊天模型选择', exact: true })).toContainText('整数')
+  await expect(page.getByRole('form', { name: '思考强度设置', exact: true })).toContainText('整数')
   await page.locator('[name="chat_budget"]').fill('1024')
-  await page.getByRole('button', { name: '应用选择', exact: true }).click()
-  await closePicker(page)
+  await page.getByRole('button', { name: '应用预算', exact: true }).click()
+  await closeReasoning(page)
   await send(page, '预算选择会话')
   await finished(page)
-  await openPicker(page)
+  await openReasoning(page)
   await page.locator('[name="chat_budget"]').fill('8192')
-  await page.getByRole('button', { name: '应用选择', exact: true }).click()
+  await page.getByRole('button', { name: '应用预算', exact: true }).click()
   await expect(page.getByText('正在保存会话选择…', { exact: true })).not.toBeVisible()
-  await closePicker(page)
+  await closeReasoning(page)
   await page.reload()
   await reopen(page, '预算选择会话')
-  await openPicker(page)
+  await openReasoning(page)
   await expect(page.locator('[name="chat_budget"]')).toHaveValue('8192')
   await page.screenshot({ path: testInfo.outputPath('budget-picker.png'), fullPage: true })
 })

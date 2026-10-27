@@ -9,6 +9,7 @@ import { RouterView, createMemoryHistory } from 'vue-router'
 import { createAppRouter } from '@/router'
 import { useModelConfigStore } from '@/features/model-config/store'
 import { modelConfigData } from '@tests/support/data/model-config'
+import { useChatStore } from '@/features/chat/store'
 import { authenticate } from '@tests/support/vitest/auth'
 import { A, B, info, turn } from '@tests/support/data/chat'
 import { response } from '@tests/support/vitest/http'
@@ -104,7 +105,7 @@ describe('会话导航与历史界面', () => {
   })
 
   // 服务不可用时保留用户可见重试入口，不把请求失败描述为没有会话。
-  it('目录失败显示原因，刷新后恢复目录', async () => {
+  it('目录无刷新按钮，失败时通过重试恢复目录', async () => {
     fetchMock
       .mockRejectedValueOnce(new TypeError('offline'))
       .mockResolvedValueOnce(response({ items: [info()], next_cursor: null }))
@@ -115,4 +116,97 @@ describe('会话导航与历史界面', () => {
     expect(page.find('[role="alert"]').exists()).toBe(false)
     expect(page.get('.conversation-item').text()).toContain('历史话题')
   })
+})
+
+// 自动同步仅轮询当前远端生成会话；完成后停止，不能要求用户点击刷新。
+it('远端生成完成后自动同步历史，完成和卸载后释放轮询定时器', async () => {
+  let complete = false
+  fetchMock.mockImplementation(async (url) =>
+    String(url).includes('/' + A + '?')
+      ? response({
+          conversation: info(),
+          items: [turn(1, complete ? 'completed' : 'running')],
+          next_cursor: null,
+        })
+      : response({ items: [info()], next_cursor: null }),
+  )
+  const page = await open()
+  vi.useFakeTimers()
+  try {
+    await page.get('.conversation-item').trigger('click')
+    await flushPromises()
+    expect(useChatStore().activeConversation?.remoteRunning).toBe(true)
+    expect(page.text()).toContain('完成后将自动同步')
+    expect(page.findAll('button').some((button) => button.text().includes('刷新'))).toBe(false)
+    complete = true
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    expect(useChatStore().activeConversation?.remoteRunning).toBe(false)
+    expect(page.get('.markdown-content strong').text()).toBe('回答1')
+    const reads = fetchMock.mock.calls.length
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(fetchMock.mock.calls).toHaveLength(reads)
+    wrapper?.unmount()
+    wrapper = undefined
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(fetchMock.mock.calls).toHaveLength(reads)
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+// 让远端轮次始终保持 running，验证清理确实由页面生命周期触发，而不是被完成状态提前停止。
+it('隐藏窗口暂停轮询请求，离开聊天及卸载工作区时停止仍活跃的轮询', async () => {
+  const data = modelConfigData()
+  fetchMock.mockImplementation(async (input) => {
+    const url = String(input)
+    if (url.includes('/' + A + '?'))
+      return response({ conversation: info(), items: [turn(1, 'running')], next_cursor: null })
+    if (url.endsWith('/catalog/providers')) return response([data.brand])
+    if (url.endsWith('/provider-configurations')) return response([data.provider])
+    if (url.endsWith('/models')) return response([data.model])
+    if (url.endsWith('/default')) return response(data.selected)
+    return response({ items: [info()], next_cursor: null })
+  })
+  const page = await open()
+  // 只统计真实历史接口，忽略路由挂载时正常的模型选项及管理快照请求。
+  const reads = () =>
+    fetchMock.mock.calls.filter(([url]) => String(url).includes('/' + A + '?')).length
+  const hidden = vi.spyOn(document, 'hidden', 'get')
+  vi.useFakeTimers()
+  try {
+    await page.get('.conversation-item').trigger('click')
+    await flushPromises()
+    expect(useChatStore().activeConversation?.remoteRunning).toBe(true)
+    hidden.mockReturnValue(true)
+    const beforeHidden = reads()
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(reads()).toBe(beforeHidden)
+    hidden.mockReturnValue(false)
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    expect(reads()).toBe(beforeHidden + 1)
+
+    await page.vm.$router.push('/models')
+    await flushPromises()
+    const beforeLeave = reads()
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(reads()).toBe(beforeLeave)
+    await page.vm.$router.push('/')
+    await flushPromises()
+    const beforeReturn = reads()
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    expect(reads()).toBe(beforeReturn + 1)
+    expect(useChatStore().activeConversation?.remoteRunning).toBe(true)
+
+    wrapper?.unmount()
+    wrapper = undefined
+    const beforeUnmount = reads()
+    await vi.advanceTimersByTimeAsync(4000)
+    expect(reads()).toBe(beforeUnmount)
+  } finally {
+    hidden.mockRestore()
+    vi.useRealTimers()
+  }
 })

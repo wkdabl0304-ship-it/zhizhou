@@ -19,7 +19,7 @@ import WelcomeHeading from './WelcomeHeading.vue'
 <style scoped>
 .river-hero {
   position: relative;
-  min-height: 365px;
+  min-height: 260px;
   padding: 30px 24px 0;
 }
 .river-hero-copy {
@@ -66,12 +66,12 @@ import WelcomeHeading from './WelcomeHeading.vue'
 }
 @media (min-width: 1440px) {
   .river-hero {
-    min-height: 410px;
+    min-height: 290px;
   }
 }
 @media (max-width: 760px) {
   .river-hero {
-    min-height: 330px;
+    min-height: 220px;
     padding: 24px 20px 0;
   }
   .river-eyebrow {

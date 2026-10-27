@@ -72,13 +72,14 @@ async function renderWorkspace() {
 
 describe('聊天工作空间', () => {
   // 首页输入实例会在发送时被替换，必须将焦点送到新对话页的输入框。
-  it('建议只填入草稿，发送后创建对话并保持输入焦点', async () => {
+  it('首页移除示例，输入草稿后发送创建对话并保持输入焦点', async () => {
     const wrapper = await renderWorkspace()
     // 首页使用独立的现代宋体组件，正文与输入区继续使用公共无衬线字体。
     expect(wrapper.findComponent(WelcomeHeading).exists()).toBe(true)
     // 装饰跟随首页生命周期，进入正文后应释放背景，保持阅读区稳定。
     expect(wrapper.find('.river-backdrop').exists()).toBe(true)
-    await wrapper.get('.suggestion').trigger('click')
+    expect(wrapper.find('.suggestion').exists()).toBe(false)
+    await wrapper.get('textarea').setValue('帮我整理入职清单')
     expect(wrapper.findAll('article')).toHaveLength(0)
     expect((wrapper.get('textarea').element as HTMLTextAreaElement).value).toContain('入职清单')
     await wrapper.get('form.chat-composer').trigger('submit')

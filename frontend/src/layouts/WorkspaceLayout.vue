@@ -1,6 +1,6 @@
 <!-- 登录工作区共用布局：聊天与模型管理保留同一侧栏、折叠状态和移动抽屉，子页面只维护内容。 -->
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PanelLeft, SquarePen } from '@lucide/vue'
 import { useChatStore } from '@/features/chat/store'
@@ -48,9 +48,33 @@ async function restoreFocus(event: Event): Promise<void> {
     target?.focus()
   }
 }
+/** 工作区重新可见时同步目录和已保存历史，保留草稿且不覆盖本地生成中的消息。 */
+function synchronize(): void {
+  if (document.hidden) return
+  void chat.loadConversations()
+  if (route.name === 'chat' && chat.activeConversation?.persisted && !chat.isSending)
+    void chat.refreshHistory()
+}
+// 远端生成没有本页流连接，仅为当前可见会话轮询，离页或结束时释放定时器。
+watch(
+  () => [route.name, chat.activeId, chat.activeConversation?.remoteRunning],
+  (_, __, cleanup) => {
+    if (route.name !== 'chat' || !chat.activeConversation?.remoteRunning) return
+    const timer = setInterval(() => {
+      if (!document.hidden && !chat.isSending) void chat.refreshHistory()
+    }, 2000)
+    cleanup(() => clearInterval(timer))
+  },
+)
 // 导航只随工作区初始化，跨子页面保留目录、折叠状态及侧栏的滚动位置。
 onMounted(() => {
   if (!chat.listInitialized) void chat.loadConversations()
+  window.addEventListener('focus', synchronize)
+  document.addEventListener('visibilitychange', synchronize)
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('focus', synchronize)
+  document.removeEventListener('visibilitychange', synchronize)
 })
 watch(narrow, (value) => {
   if (!value) drawerOpen.value = false
@@ -79,7 +103,7 @@ watch(
         :error="chat.listError"
         :action-error="chat.actionError"
         :has-more="Boolean(chat.nextCursor)"
-        @refresh="chat.loadConversations()"
+        @retry="chat.loadConversations()"
         @more="chat.loadConversations(true)"
         @delete="chat.remove"
         @new="navigate()"
@@ -130,7 +154,7 @@ watch(
             :error="chat.listError"
             :action-error="chat.actionError"
             :has-more="Boolean(chat.nextCursor)"
-            @refresh="chat.loadConversations()"
+            @retry="chat.loadConversations()"
             @more="chat.loadConversations(true)"
             @delete="chat.remove"
             @new="navigate()"

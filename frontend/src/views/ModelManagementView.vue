@@ -37,7 +37,7 @@ onBeforeUnmount(() => store.cancelManagement())
           <span class="config-hint">所有登录用户共享配置</span>
         </div>
         <p v-if="store.loadError" class="config-error" role="alert">
-          {{ store.loadError }}，请刷新页面后重试。
+          {{ store.loadError }}，请稍后重新进入页面。
         </p>
         <p v-if="store.loading && !store.selected" role="status">正在读取模型配置…</p>
         <div class="provider-brand-grid">

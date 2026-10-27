@@ -1,8 +1,6 @@
-<!-- 首页组合：青蓝水墨标题区、真实输入区和建议问题；通过事件交出用户输入，不直接依赖聊天 store。 -->
+<!-- 首页组合：青蓝水墨标题区、适中尺寸的真实输入区；通过事件交出用户输入，不直接依赖聊天 store。 -->
 <script setup lang="ts">
-import { nextTick, ref } from 'vue'
-import { ArrowUpRight } from '@lucide/vue'
-import { suggestions } from '../suggestions'
+import { ref } from 'vue'
 import BrandLogo from '@/shared/components/BrandLogo.vue'
 import ChatComposer from './ChatComposer.vue'
 import RiverWelcomeHero from './RiverWelcomeHero.vue'
@@ -10,12 +8,6 @@ const model = defineModel<string>({ default: '' })
 defineProps<{ sending?: boolean; sendBlocked?: boolean }>()
 defineEmits<{ send: [text: string] }>()
 const composer = ref<InstanceType<typeof ChatComposer>>()
-/** 将建议问题填入聊天草稿，等待 DOM 更新后聚焦输入框；不会直接发送 prompt。 */
-async function fillSuggestion(prompt: string): Promise<void> {
-  model.value = prompt
-  await nextTick()
-  composer.value?.focus()
-}
 /** 聚焦首页聊天输入区，供父页面在界面切换后恢复连续输入。 */
 function focus(): void {
   composer.value?.focus()
@@ -35,34 +27,23 @@ defineExpose({ focus })
         :sending="sending"
         :send-blocked="sendBlocked"
         @send="$emit('send', $event)"
+        ><template #reasoning-controls><slot name="reasoning-controls" /></template
         ><template #model-selector><slot name="model-selector" /></template
       ></ChatComposer>
-      <div class="suggestions">
-        <button
-          v-for="suggestion in suggestions"
-          :key="suggestion.title"
-          type="button"
-          class="suggestion"
-          @click="fillSuggestion(suggestion.prompt)"
-        >
-          <span>{{ suggestion.title }}</span
-          ><ArrowUpRight :size="15" />
-        </button>
-      </div>
       <div class="welcome-foot"><span>让工作，始于一句话。</span><span>AI 回复仅供参考</span></div>
     </div>
   </section>
 </template>
 <style scoped>
 .welcome {
-  width: min(100%, 1100px);
-  margin: auto;
+  width: min(100%, 1200px);
+  margin: clamp(24px, 5dvh, 56px) auto auto;
   padding: 0 24px 24px;
 }
 .welcome-controls {
   position: relative;
   z-index: 1;
-  max-width: var(--content-width);
+  max-width: 860px;
   margin: 0 auto;
 }
 .welcome-composer-label {
@@ -79,35 +60,6 @@ defineExpose({ focus })
   color: var(--text);
   font-size: 11px;
 }
-.suggestions {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
-  margin-top: 18px;
-}
-.suggestion {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  min-width: 0;
-  padding: 11px 12px;
-  border: 1px solid var(--border-strong);
-  border-radius: 30px;
-  background: color-mix(in srgb, var(--bg) 90%, transparent);
-  color: var(--text);
-  font-size: 12px;
-  transition:
-    border-color 160ms,
-    background 160ms;
-}
-.suggestion:hover {
-  border-color: var(--brand);
-  background: var(--brand-soft);
-}
-.suggestion svg {
-  color: var(--brand);
-}
 .welcome-foot {
   display: flex;
   justify-content: space-between;
@@ -119,15 +71,6 @@ defineExpose({ focus })
 @media (max-width: 760px) {
   .welcome {
     padding: 0 20px 22px;
-  }
-  .suggestions {
-    grid-template-columns: 1fr;
-    gap: 7px;
-    margin-top: 16px;
-  }
-  .suggestion {
-    padding: 9px 12px;
-    font-size: 11px;
   }
   .welcome-foot {
     font-size: 9px;

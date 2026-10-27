@@ -4,6 +4,7 @@ import { nextTick, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '@/features/chat/store'
 import ChatModelSelector from '@/features/model-selection/components/ChatModelSelector.vue'
+import ChatReasoningControl from '@/features/model-selection/components/ChatReasoningControl.vue'
 import ChatWelcome from '@/features/chat/components/ChatWelcome.vue'
 import ChatComposer from '@/features/chat/components/ChatComposer.vue'
 import MessageList from '@/features/chat/components/MessageList.vue'
@@ -26,6 +27,7 @@ async function send(text: string): Promise<void> {
       :sending="chat.isSending"
       :send-blocked="!chat.selectionReady"
       @send="send"
+      ><template #reasoning-controls><ChatReasoningControl /></template
       ><template #model-selector><ChatModelSelector /></template
     ></ChatWelcome>
   </div>
@@ -40,21 +42,20 @@ async function send(text: string): Promise<void> {
         >
           加载更早消息
         </button>
-        <button
-          v-if="chat.activeConversation.persisted"
-          type="button"
-          :disabled="chat.activeConversation.loading || chat.isSending"
-          @click="chat.refreshHistory"
-        >
-          刷新会话
-        </button>
         <span v-if="chat.activeConversation.loading" role="status">正在加载历史…</span>
       </div>
       <p v-if="chat.activeConversation.historyError" class="history-error" role="alert">
-        {{ chat.activeConversation.historyError }}
+        {{ chat.activeConversation.historyError
+        }}<button
+          type="button"
+          :disabled="chat.activeConversation.loading"
+          @click="chat.refreshHistory"
+        >
+          重试
+        </button>
       </p>
       <p v-if="chat.activeConversation.remoteRunning" class="history-notice" role="status">
-        此会话正在其他页面生成，刷新会话后查看最新结果。
+        此会话正在其他页面生成，完成后将自动同步。
       </p>
       <MessageList
         :messages="chat.activeConversation.messages"
@@ -70,6 +71,7 @@ async function send(text: string): Promise<void> {
           :disabled="chat.inputBlocked"
           :send-blocked="!chat.selectionReady"
           @send="send"
+          ><template #reasoning-controls><ChatReasoningControl /></template
           ><template #model-selector><ChatModelSelector /></template
         ></ChatComposer>
         <p class="composer-disclaimer">AI 回复仅供参考，请核实重要信息。</p>
@@ -126,7 +128,7 @@ async function send(text: string): Promise<void> {
   border-top: 1px solid var(--border);
 }
 .composer-container {
-  max-width: var(--content-width);
+  max-width: 860px;
   margin: 0 auto;
 }
 .composer-disclaimer {

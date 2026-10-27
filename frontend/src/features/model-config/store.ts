@@ -178,16 +178,27 @@ export const useModelConfigStore = defineStore('model-config', () => {
     selected.value = result
     defaultError.value = ''
   }
-  /** 删除已确认的资源，服务端版本与引用限制始终作为最终裁决。 */
+  /** 删除资源；默认模型先清除默认，任一步失败都停止后续写入并保留实际已完成状态。 */
   async function remove(
     kind: 'provider' | 'model',
     item: ProviderConfiguration | ModelConfiguration,
   ): Promise<void> {
-    await run((signal) =>
-      kind === 'provider'
-        ? api.deleteProvider(item.id, item.version, signal)
-        : api.deleteModel(item.id, item.version, signal),
-    )
+    let cleared = false
+    if (kind === 'model' && selected.value?.model_configuration_id === item.id) {
+      await setDefault(null)
+      cleared = true
+    }
+    try {
+      await run((signal) =>
+        kind === 'provider'
+          ? api.deleteProvider(item.id, item.version, signal)
+          : api.deleteModel(item.id, item.version, signal),
+      )
+    } catch (failure) {
+      if (cleared)
+        throw new ApiError('全局默认已清除，但模型删除失败：' + explainConfigError(failure))
+      throw failure
+    }
     if (kind === 'provider') {
       configurations.value = configurations.value.filter((row) => row.id !== item.id)
       if (selectedProvider.value === item.id)

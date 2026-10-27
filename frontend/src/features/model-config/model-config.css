@@ -160,6 +160,10 @@
   gap: 12px;
 }
 .provider-connection-empty {
+  width: 100%;
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
   display: grid;
   justify-items: center;
   gap: 12px;
@@ -174,7 +178,7 @@
   font-size: 14px;
   font-weight: 500;
 }
-.provider-connection-empty p {
+.provider-connection-empty > span {
   margin: 0;
   font-size: 12px;
   line-height: 1.8;
@@ -596,4 +600,18 @@
   .config-form-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* 空连接卡片与标题中的添加按钮共用入口，键盘焦点和悬停明确可点击。 */
+.provider-connection-empty:hover:not(:disabled) {
+  border-color: var(--brand);
+  background: var(--brand-soft);
+}
+.provider-connection-empty:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 3px;
+}
+.provider-connection-empty:disabled {
+  cursor: default;
+  opacity: 0.6;
 }

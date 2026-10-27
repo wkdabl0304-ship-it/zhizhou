@@ -1,7 +1,7 @@
 /** 模型配置跨业务集成：验证受保护路由、配置默认到聊天发送及草稿和身份边界，HTTP 以契约替身隔离。 */
 import { beforeEach, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createMemoryHistory } from 'vue-router'
+import { createMemoryHistory, type NavigationFailure, type Router } from 'vue-router'
 import App from '@/App.vue'
 import { createAppRouter } from '@/router'
 import { createTestPinia } from '@tests/support/vitest/mount'
@@ -22,6 +22,27 @@ beforeEach(() => {
   vi.stubGlobal('fetch', fetchMock)
   installMediaQuery()
 })
+
+/** 等待真实用户操作触发的导航完成，包含守卫和懒加载，并在结束后移除临时监听。 */
+async function followNavigation(router: Router, activate: () => unknown): Promise<void> {
+  let stopNavigation!: () => void
+  let stopError!: () => void
+  const completed = new Promise<NavigationFailure | void>((resolve, reject) => {
+    // 导航完成时保留取消或中断结果，不能将未进入目标页的情况当作成功。
+    stopNavigation = router.afterEach((_to, _from, failure) => resolve(failure))
+    // 懒加载或守卫异常直接使测试失败，避免等待一个永远不会成功的路由状态。
+    stopError = router.onError(reject)
+  })
+  try {
+    // 先安装导航监听再执行点击或退出；用例仍受测试运行器的整体超时约束。
+    const [failure] = await Promise.all([completed, Promise.resolve().then(activate)])
+    expect(failure).toBeUndefined()
+    await flushPromises()
+  } finally {
+    stopNavigation()
+    stopError()
+  }
+}
 
 // 切换模型管理只更新主内容；保留侧栏 DOM、目录缓存、折叠状态，并能从原目录回到聊天。
 it('模型管理与聊天共用导航实例，保留折叠状态和目录，选择会话后返回聊天', async () => {
@@ -47,9 +68,8 @@ it('模型管理与聊天共用导航实例，保留折叠状态和目录，选�
   const sidebar = page.get('aside').element
   await page.get('textarea').setValue('不应误发到其他会话的草稿')
   await page.get('button[aria-label="收起侧栏"]').trigger('click')
-  await page.get('a[aria-label="模型管理"]').trigger('click')
-  await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('models'))
-  await flushPromises()
+  await followNavigation(router, () => page.get('a[aria-label="模型管理"]').trigger('click'))
+  expect(router.currentRoute.value.name).toBe('models')
   expect(page.get('aside').element).toBe(sidebar)
   expect(page.get('.chat-shell').classes()).toContain('sidebar-collapsed')
   expect(page.get('a[aria-label="模型管理"]').attributes('aria-current')).toBe('page')
@@ -64,9 +84,8 @@ it('模型管理与聊天共用导航实例，保留折叠状态和目录，选�
   expect(
     fetchMock.mock.calls.filter(([url]) => String(url).startsWith('/api/conversations?')),
   ).toHaveLength(1)
-  await page.get('.conversation-item').trigger('click')
-  await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('chat'))
-  await flushPromises()
+  await followNavigation(router, () => page.get('.conversation-item').trigger('click'))
+  expect(router.currentRoute.value.name).toBe('chat')
   expect(page.get('aside').element).toBe(sidebar)
   expect(page.get('a[aria-label="模型管理"]').classes()).not.toContain('is-active')
   expect(useChatStore().activeId).toBe(A)
@@ -156,9 +175,8 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
   await page.get('form.chat-composer').trigger('submit')
   expect(fetchMock.mock.calls.filter(([url]) => url === '/api/chat')).toHaveLength(0)
   expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
-  await page.get('a[href="/models"]').trigger('click')
-  await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('models'))
-  await flushPromises()
+  await followNavigation(router, () => page.get('a[href="/models"]').trigger('click'))
+  expect(router.currentRoute.value.name).toBe('models')
   await page.get('[aria-label="配置 Anthropic"]').trigger('click')
   await flushPromises()
   const select = [...document.querySelectorAll('button')].find(
@@ -175,10 +193,9 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
   await flushPromises()
   expect(page.text()).toContain('配置后的回复')
   expect(page.get('.chat-model-trigger').text()).toContain('长文分析')
-  useAuthStore().logout()
-  await flushPromises()
+  await followNavigation(router, () => useAuthStore().logout())
   expect(useModelConfigStore().selected).toBeNull()
-  await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('login'))
+  expect(router.currentRoute.value.name).toBe('login')
 })
 
 it('选项读取失败保留草稿并可重试，窗口激活后同步不可用状态', async () => {
@@ -198,11 +215,7 @@ it('选项读取失败保留草稿并可重试，窗口激活后同步不可用�
   fetchMock.mockResolvedValueOnce(response(modelOptionsData()))
   await page.get('.chat-model-trigger').trigger('click')
   await flushPromises()
-  const refresh = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
-    (button) => button.textContent?.trim() === '刷新模型选项',
-  )!
-  refresh.click()
-  await flushPromises()
+  expect(document.body.textContent).not.toContain('刷新模型选项')
   expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeUndefined()
   fetchMock.mockResolvedValueOnce(response({ default_selection: null, providers: [] }))
   window.dispatchEvent(new Event('focus'))

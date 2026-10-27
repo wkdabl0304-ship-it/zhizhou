@@ -131,22 +131,6 @@ function providerSaved(): void {
     selectedId.value = store.selectedProvider
   endEdit()
 }
-/** 按最新读取版本重建编辑器，只有显式刷新才舍弃冲突草稿。 */
-function reloadEditor(): void {
-  if (!edit.value) return
-  const previous = edit.value
-  endEdit()
-  if (
-    previous.id &&
-    !(previous.kind === 'provider' ? connections.value : models.value).some(
-      (item) => item.id === previous.id,
-    )
-  ) {
-    error.value = '配置已不存在，请从最新列表中重新选择'
-    return
-  }
-  edit.value = { ...previous, key: ++editKey }
-}
 /** 执行一次显式写入，错误保持可见；页面不预先改变开关或自动重试创建。 */
 async function execute(work: () => Promise<void>, message = '配置已更新'): Promise<void> {
   if (locked.value) return
@@ -157,8 +141,10 @@ async function execute(work: () => Promise<void>, message = '配置已更新'): 
     await work()
     notice.value = message
   } catch (failure) {
-    if (!(failure instanceof DOMException && failure.name === 'AbortError'))
+    if (!(failure instanceof DOMException && failure.name === 'AbortError')) {
       error.value = explainConfigError(failure)
+      await store.load()
+    }
   } finally {
     busy.value = false
   }
@@ -189,15 +175,9 @@ function select(model: ModelConfiguration): void {
     `已将“${model.name}”设为全局默认，用于尚未选择模型的会话。`,
   )
 }
-/** 在模型行内确认清除默认，保留全部会话的独立选择。 */
+/** 立即清除全局默认，保留已有会话的独立模型选择。 */
 function clearDefault(): void {
-  confirmation.value = {
-    title: '清除全局默认模型？',
-    description:
-      '清除后，新会话需要手动选择可用模型。所有用户的已有会话选择、正在生成的回复和历史不受影响。',
-    label: '清除默认',
-    perform: () => execute(() => store.setDefault(null), '全局默认已清除'),
-  }
+  void execute(() => store.setDefault(null), '全局默认已清除')
 }
 /** 删除前保留引用限制及不可撤销提示，目录项在删除后重新显示为关闭。 */
 function remove(
@@ -212,13 +192,14 @@ function remove(
     error.value = '供应商配置仍被引用，请先删除该连接下的全部模型方案。'
     return
   }
-  if (kind === 'model' && store.selected?.model_configuration_id === item.id) {
-    error.value = '当前默认方案不能直接删除，请先切换或清除全局默认。'
-    return
-  }
   confirmation.value = {
     title: `删除${kind === 'provider' ? '供应商配置' : '模型方案'}？`,
-    description: `将删除“${item.name}”。已有聊天历史会保留；此操作不能撤销。`,
+    description:
+      (kind === 'model' && store.selected?.model_configuration_id === item.id
+        ? '将自动清除全局默认并删除“'
+        : '将删除“') +
+      item.name +
+      '”。已有聊天历史会保留；此操作不能撤销。',
     label: '确认删除',
     perform: () =>
       execute(async () => {
@@ -231,7 +212,7 @@ function remove(
 }
 /** 直接测试模型连接，由统一执行锁防止重复请求，结果显示在原模型卡片。 */
 function test(model: ModelConfiguration): void {
-  void execute(() => store.test(model.id), '测试已结束，请查看模型测试结果。')
+  void execute(() => store.test(model.id), '')
 }
 /** 确认后先释放确认层，再执行原先受保护的动作。 */
 function confirm(): void {
@@ -289,11 +270,18 @@ onBeforeUnmount(() => store.cancelManagement())
             @delete="remove('provider', connection)"
           />
         </div>
-        <div v-if="!connections.length" class="provider-connection-empty">
+        <button
+          v-if="!connections.length"
+          type="button"
+          class="provider-connection-empty"
+          aria-label="添加首个供应商连接"
+          :disabled="locked || !!edit"
+          @click="openEditor('provider')"
+        >
           <Plus :size="24" aria-hidden="true" />
           <strong>还没有连接</strong>
-          <p>点击上方“添加连接”，配置接口与密钥后即可开启模型。</p>
-        </div>
+          <span>点击添加连接，配置接口与密钥后即可开启模型。</span>
+        </button>
       </section>
       <section class="provider-models" aria-label="关联模型方案">
         <div class="config-section-heading">
@@ -315,16 +303,10 @@ onBeforeUnmount(() => store.cancelManagement())
           }}
         </p>
         <p v-if="store.loadError && !error" class="config-error" role="alert">
-          配置快照未能刷新：{{ store.loadError }}。请读取最新配置确认状态。
-          <UiButton size="sm" :disabled="locked || !!edit" @click="store.load"
-            >读取最新配置</UiButton
-          >
+          配置暂未同步：{{ store.loadError }}。
         </p>
         <p v-if="error" class="config-error" role="alert">
           {{ error }}
-          <UiButton size="sm" :disabled="locked || !!edit" @click="store.load"
-            >读取最新配置</UiButton
-          >
         </p>
         <p v-if="loading" role="status" class="config-hint">正在读取模型目录…</p>
         <p v-if="catalogError" role="alert" class="config-error">
@@ -364,7 +346,6 @@ onBeforeUnmount(() => store.cancelManagement())
       :return-focus="editTrigger"
       @state="editState = $event"
       @close="providerSaved"
-      @reload="reloadEditor"
     />
     <ModelEditor
       v-if="edit?.kind === 'model' && current && editingModel"
@@ -375,7 +356,6 @@ onBeforeUnmount(() => store.cancelManagement())
       :return-focus="editTrigger"
       @state="editState = $event"
       @close="endEdit"
-      @reload="reloadEditor"
     />
     <UiModal
       v-if="confirmation"

@@ -18,7 +18,6 @@ const props = defineProps<{
 const emit = defineEmits<{
   submit: []
   close: []
-  reload: []
   state: [value: { dirty: boolean; busy: boolean }]
 }>()
 // 父级供应商面板据此保护保存过程，未保存草稿仍只由当前编辑弹窗持有。
@@ -78,9 +77,7 @@ onBeforeUnmount(() => {
     >
       <fieldset :disabled="busy || loading"><slot /></fieldset>
       <p v-if="error" class="config-error" role="alert">{{ error }}</p>
-      <UiButton v-if="conflict" size="sm" :disabled="busy" @click="emit('reload')"
-        >读取最新版本，重新编辑</UiButton
-      >
+      <p v-if="conflict" class="config-hint">当前输入仍保留。关闭后重新编辑，可使用最新配置。</p>
     </form>
     <footer class="config-editor-footer">
       <small>修改从下一轮聊天生效</small>

@@ -189,3 +189,50 @@ it('退出后迟到的配置读取和失败测试都不能恢复旧账号数据'
   expect(store.tests).toEqual({})
   expect(store.selected).toBeNull()
 })
+
+// 删除默认方案必须先成功清除默认，不能绕过服务端的默认版本或模型引用限制。
+it('删除默认模型先清除默认再删除，保留两次请求各自的版本', async () => {
+  const data = management(),
+    store = useModelConfigStore()
+  await store.load()
+  fetchMock.mockResolvedValueOnce(
+    response({ ...data.selected, model: null, model_configuration_id: null, version: 2 }),
+  )
+  fetchMock.mockResolvedValueOnce(response(null))
+  await store.remove('model', data.model)
+  const writes = fetchMock.mock.calls.filter(
+    ([, options]) => options?.method === 'PUT' || options?.method === 'DELETE',
+  )
+  expect(writes.map(([, options]) => options?.method)).toEqual(['PUT', 'DELETE'])
+  expect(JSON.parse(String(writes[0]![1]?.body))).toEqual({
+    model_configuration_id: null,
+    version: 1,
+  })
+  expect(String(writes[1]![0])).toContain('version=1')
+  expect(store.selected?.model_configuration_id).toBeNull()
+  expect(store.models).toEqual([])
+})
+
+it('清除默认失败时不删除模型，默认引用和模型配置保持原样', async () => {
+  const data = management(),
+    store = useModelConfigStore()
+  await store.load()
+  fetchMock.mockResolvedValueOnce(response(null, 409, 40902, '默认状态已变化'))
+  await expect(store.remove('model', data.model)).rejects.toThrow('默认状态已变化')
+  expect(fetchMock.mock.calls.some(([, options]) => options?.method === 'DELETE')).toBe(false)
+  expect(store.selected?.model_configuration_id).toBe(data.model.id)
+  expect(store.models).toHaveLength(1)
+})
+
+it('默认清除成功但删除失败时保留模型并明确说明部分成功，不自动回滚默认', async () => {
+  const data = management(),
+    store = useModelConfigStore()
+  await store.load()
+  fetchMock.mockResolvedValueOnce(
+    response({ ...data.selected, model: null, model_configuration_id: null, version: 2 }),
+  )
+  fetchMock.mockResolvedValueOnce(response(null, 409, 40902, '模型版本已变化'))
+  await expect(store.remove('model', data.model)).rejects.toThrow('全局默认已清除，但模型删除失败')
+  expect(store.selected?.model_configuration_id).toBeNull()
+  expect(store.models).toHaveLength(1)
+})

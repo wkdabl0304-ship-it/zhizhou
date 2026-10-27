@@ -60,14 +60,32 @@ async function submit() {
 
 it('编辑供应商留空密钥不发送密钥，冲突后草稿及旧版本保持不变', async () => {
   const data = modelConfigData()
-  fetchMock.mockResolvedValue(response(null, 409, 40902, '模型配置已被修改，请刷新后重试'))
+  // 冲突后自动同步公开快照，但再次提交仍必须使用表单最初读取的版本。
+  fetchMock.mockImplementation(async (input, options) => {
+    if (options?.method === 'PATCH')
+      return response(null, 409, 40902, '模型配置已被修改，请刷新后重试')
+    const url = String(input)
+    return response(
+      url.endsWith('/catalog/providers')
+        ? [data.brand]
+        : url.endsWith('/provider-configurations')
+          ? [{ ...data.provider, name: '远端名称', version: 2 }]
+          : url.endsWith('/models')
+            ? [data.model]
+            : data.selected,
+    )
+  })
   const { wrapper } = await editor(ProviderEditor, { previous: data.provider })
   expect(document.querySelector<HTMLInputElement>('[name="api_key"]')!.value).toBe('')
   await fill('name', '我的修改')
   await submit()
   expect(document.querySelector('[role="alert"]')!.textContent).toContain('已被修改')
   expect(document.querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('我的修改')
-  expect(JSON.parse(String(fetchMock.mock.lastCall?.[1]?.body))).toEqual({
+  expect(
+    JSON.parse(
+      String(fetchMock.mock.calls.find(([, options]) => options?.method === 'PATCH')?.[1]?.body),
+    ),
+  ).toEqual({
     version: 1,
     name: '我的修改',
     enabled: true,
@@ -75,7 +93,13 @@ it('编辑供应商留空密钥不发送密钥，冲突后草稿及旧版本保�
     endpoint_config: { endpoint_id: 'official' },
   })
   await submit()
-  expect(JSON.parse(String(fetchMock.mock.lastCall?.[1]?.body)).version).toBe(1)
+  expect(
+    JSON.parse(
+      String(
+        fetchMock.mock.calls.filter(([, options]) => options?.method === 'PATCH').at(-1)?.[1]?.body,
+      ),
+    ).version,
+  ).toBe(1)
   wrapper.unmount()
 })
 

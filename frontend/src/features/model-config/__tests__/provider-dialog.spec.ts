@@ -202,7 +202,6 @@ it('启停失败保留原状态，版本冲突显示服务端错误，可读取�
     'true',
   )
   expect(document.querySelector('[role="alert"]')?.textContent).toContain('已被修改')
-  await click('读取最新配置')
   await click(`启用模型 ${data.model.name}`)
   expect(document.querySelector('[aria-label^="启用模型"]')?.getAttribute('aria-checked')).toBe(
     'false',
@@ -465,6 +464,43 @@ it('点击测试立即请求，重复点击只测一次，失败后可直接重�
   )
   await click('测试')
   expect(document.querySelector('.catalog-test-feedback')?.textContent).toContain('文本流通过')
+  expect(document.body.textContent).not.toContain('测试已结束，请查看模型测试结果。')
   expect(fetchMock.mock.calls.filter(([url]) => String(url).endsWith('/test'))).toHaveLength(2)
   expect(fetchMock.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
+})
+
+it('清除默认点击即保存，不打开确认层且等待期间禁止重复操作', async () => {
+  models = [data.model]
+  useModelConfigStore().models = models
+  await page()
+  const pending = deferredResponse()
+  fetchMock.mockReturnValueOnce(pending.promise)
+  await click('清除默认')
+  await click('清除默认')
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+  expect(fetchMock.mock.calls.filter(([, options]) => options?.method === 'PUT')).toHaveLength(1)
+  pending.resolve(
+    response({ ...data.selected, model_configuration_id: null, model: null, version: 2 }),
+  )
+  await flushPromises()
+  expect(document.querySelector('.catalog-model-row')?.textContent).not.toContain('当前默认')
+})
+
+it('点击空连接卡片打开同一添加表单，取消后焦点回到卡片且可以再次添加', async () => {
+  connections = []
+  useModelConfigStore().configurations = []
+  await page()
+  const card = document.querySelector<HTMLButtonElement>('.provider-connection-empty')!
+  expect(card.tagName).toBe('BUTTON')
+  await click('添加首个供应商连接')
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2)
+  expect(document.querySelector<HTMLInputElement>('[name="name"]')?.value).toBe(
+    data.brand.display_name,
+  )
+  expect(card.disabled).toBe(true)
+  await click('取消')
+  await vi.waitFor(() => expect(document.activeElement).toBe(card))
+  expect(card.disabled).toBe(false)
+  await click('添加首个供应商连接')
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2)
 })

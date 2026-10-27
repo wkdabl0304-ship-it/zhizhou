@@ -24,7 +24,7 @@ export function turnMessages(turn: HistoryTurn): ChatMessage[] {
     // 部分正文保留在时间线，不作为最终回答，也不把旧 running 记录显示成当前连接的流。
     assistant.error =
       turn.status === 'running'
-        ? '此轮仍在生成，请刷新会话查看最新结果。'
+        ? '此轮仍在生成，完成后将自动同步。'
         : turn.status === 'interrupted'
           ? '此轮已中断，已保存的内容仍然保留。'
           : '此轮未完成，已保存的内容仍然保留。'

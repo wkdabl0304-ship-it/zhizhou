@@ -13,7 +13,6 @@ const props = defineProps<{
 }>()
 const emit = defineEmits<{
   close: []
-  reload: []
   state: [value: { dirty: boolean; busy: boolean }]
 }>()
 const store = useModelConfigStore()
@@ -76,15 +75,11 @@ async function save(): Promise<void> {
     if (!(failure instanceof DOMException && failure.name === 'AbortError')) {
       error.value = explainConfigError(failure)
       conflict.value = failure instanceof ApiError && failure.code === 40902
+      if (conflict.value) await store.load()
     }
   } finally {
     busy.value = false
   }
-}
-/** 读取最新管理快照并请求重建表单，只有用户主动点击才放弃冲突草稿。 */
-async function reload(): Promise<void> {
-  await store.load()
-  if (!store.loadError) emit('reload')
 }
 onBeforeUnmount(() => {
   draft.api_key = ''
@@ -101,7 +96,6 @@ onBeforeUnmount(() => {
     :return-focus="returnFocus"
     @submit="save"
     @close="emit('close')"
-    @reload="reload"
     @state="emit('state', $event)"
   >
     <section class="config-form-section" aria-label="连接信息">

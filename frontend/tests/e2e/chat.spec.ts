@@ -80,3 +80,45 @@ test('切换会话保持生成归属，退出取消模型，另一账号不读�
   await closeSidebar(page)
   await expect(page.getByRole('article')).toHaveCount(0)
 })
+
+// 第二页面没有本地 SSE，必须通过受限轮询自动恢复最终历史，无需任何刷新按钮。
+test('远端会话生成结束自动同步，新首页无示例且输入区尺寸适中', async ({
+  page,
+  account,
+  modelGate,
+}, testInfo) => {
+  await login(page, account)
+  await expect(page.locator('.suggestion')).toHaveCount(0)
+  await expect(page.getByText('一起探索，慢慢理清', { exact: true })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '设置推理强度', exact: true })).toBeVisible()
+  const composer = page.getByRole('form', { name: '发送消息', exact: true })
+  const composerBox = await composer.boundingBox()
+  expect(composerBox!.height).toBeGreaterThan(120)
+  expect(composerBox!.height).toBeLessThan(170)
+  expect(composerBox!.width).toBeLessThanOrEqual(860)
+  await page.screenshot({ path: testInfo.outputPath('expanded-composer.png'), fullPage: true })
+  const gate = await modelGate()
+  await send(page, gate.prompt)
+  await expect(page.getByRole('article', { name: '知舟的回复', exact: true })).toContainText(
+    '已收到部分回答',
+  )
+  const other = await page.context().newPage()
+  try {
+    await login(other, account)
+    await (
+      await sidebar(other)
+    )
+      .getByRole('button', { name: gate.prompt.slice(0, 24), exact: true })
+      .click()
+    await closeSidebar(other)
+    await expect(
+      other.getByRole('status').filter({ hasText: '此会话正在其他页面生成' }),
+    ).toBeVisible()
+    await expect(other.getByRole('button', { name: /刷新/ })).toHaveCount(0)
+    await gate.release()
+    await expect(await finished(other)).toContainText('已收到部分回答，现在完成。')
+    await expect(other.getByRole('textbox', { name: '消息内容', exact: true })).toBeEnabled()
+  } finally {
+    await other.close()
+  }
+})

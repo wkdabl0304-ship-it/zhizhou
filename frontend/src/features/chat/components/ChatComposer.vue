@@ -1,7 +1,7 @@
 <!-- 聊天输入区：负责发送规则、输入法组合保护与原生表单语义，不负责生成回复。 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowUp, Sparkles } from '@lucide/vue'
+import { ArrowUp } from '@lucide/vue'
 import UiAutoTextarea from '@/shared/components/ui/UiAutoTextarea.vue'
 import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
@@ -51,7 +51,7 @@ function onKeydown(event: KeyboardEvent): void {
   submit()
 }
 
-/** 将焦点移回内部文本框，供父页面或首页建议按钮恢复连续输入。 */
+/** 将焦点移回内部文本框，供父页面恢复连续输入。 */
 function focus(): void {
   input.value?.focus()
 }
@@ -78,7 +78,7 @@ defineExpose({ focus })
       @compositionend="composing = false"
     />
     <div class="composer-toolbar">
-      <span class="composer-mode"><Sparkles :size="15" /><span>一起探索，慢慢理清</span></span>
+      <div class="composer-reasoning"><slot name="reasoning-controls" /></div>
       <div class="composer-send">
         <slot name="model-selector" />
         <UiTooltip text="发送消息"
@@ -92,7 +92,7 @@ defineExpose({ focus })
 
 <style scoped>
 .chat-composer {
-  padding: 19px 18px 12px;
+  padding: 16px 16px 10px;
   border: 1px solid var(--border-strong);
   border-radius: 20px;
   background: var(--surface);
@@ -109,18 +109,15 @@ defineExpose({ focus })
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  margin-top: 17px;
+  gap: 8px;
+  margin-top: 12px;
 }
-.composer-mode {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--text-muted);
-  font-size: 11px;
+.chat-composer :deep(.ui-textarea) {
+  min-height: 68px;
+  max-height: 260px;
 }
-.composer-mode svg {
-  color: var(--brand);
+.composer-reasoning {
+  min-width: 0;
 }
 .composer-send {
   display: flex;
@@ -147,14 +144,11 @@ defineExpose({ focus })
 }
 @media (max-width: 760px) {
   .chat-composer {
-    padding: 16px 15px 10px;
+    padding: 14px 14px 10px;
     border-radius: 20px;
   }
-  .composer-mode {
-    display: none;
-  }
   .composer-toolbar {
-    justify-content: flex-end;
+    flex-wrap: wrap;
   }
 }
 @media (pointer: coarse) {

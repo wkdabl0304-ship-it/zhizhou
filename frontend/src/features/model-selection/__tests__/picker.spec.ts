@@ -1,5 +1,6 @@
 /** 聊天选择控件回归：无默认手动选择、固定值只读、预算确认与已有会话立即保存。 */
 import { beforeEach, expect, it, vi } from 'vitest'
+import { defineComponent, h } from 'vue'
 import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { createTestPinia } from '@tests/support/vitest/mount'
 import { authenticate } from '@tests/support/vitest/auth'
@@ -8,6 +9,7 @@ import { modelOptionsData } from '@tests/support/data/model-selection'
 import { A, B, info } from '@tests/support/data/chat'
 import { useChatStore } from '@/features/chat/store'
 import ChatModelSelector from '../components/ChatModelSelector.vue'
+import ChatReasoningControl from '../components/ChatReasoningControl.vue'
 const fetchMock = vi.fn<typeof fetch>()
 beforeEach(async () => {
   fetchMock.mockReset()
@@ -15,13 +17,18 @@ beforeEach(async () => {
   await authenticate(createTestPinia(), fetchMock)
 })
 /** 挂载真实选择器，路由链接仅替换为不导航的锚点，所有输入及 HTTP 仍为真实实现。 */
-async function picker() {
-  const page = mount(ChatModelSelector, {
+async function picker(kind: 'models' | 'reasoning' = 'models') {
+  const Host = defineComponent({
+    setup: () => () => h('div', [h(ChatModelSelector), h(ChatReasoningControl)]),
+  })
+  const page = mount(Host, {
     attachTo: document.body,
     global: { stubs: { RouterLink: { template: '<a><slot /></a>' } } },
   })
   await flushPromises()
-  await page.get('.chat-model-trigger').trigger('click')
+  await page
+    .get(kind === 'models' ? '.chat-model-trigger' : '.reasoning-strength-trigger')
+    .trigger('click')
   await flushPromises()
   return new DOMWrapper(document.body)
 }
@@ -29,10 +36,12 @@ it('没有全局默认也能手动选择固定方案，选择草稿不污染允�
   const data = modelOptionsData()
   data.default_selection = null
   data.providers[0]!.models[0]!.reasoning_control = { mode: 'fixed', default: { mode: 'off' } }
-  fetchMock.mockResolvedValue(response(data))
+  fetchMock.mockImplementation(async () => response(data))
   const page = await picker()
   await flushPromises()
   expect(useChatStore().selectionReady).toBe(false)
+  expect(page.text()).not.toContain('请选择模型方案')
+  expect(page.get('.chat-model-menu-heading a').text()).toBe('前往模型管理')
   await page
     .get('[data-model-id="' + data.providers[0]!.models[0]!.model_configuration_id + '"]')
     .trigger('click')
@@ -40,11 +49,15 @@ it('没有全局默认也能手动选择固定方案，选择草稿不污染允�
   expect(document.querySelector('.chat-model-popover')).toBeNull()
   await page.get('.chat-model-trigger').trigger('click')
   await flushPromises()
-  expect(page.text()).toContain('固定推理设置')
+  expect(page.find('[role="switch"]').exists()).toBe(false)
+  expect(page.get('.reasoning-strength-trigger').attributes('disabled')).toBeDefined()
+  expect(page.get('.reasoning-strength-trigger').text()).toContain('关闭')
   expect(page.find('[name="chat_reasoning_mode"]').exists()).toBe(false)
   expect(useChatStore().selectionReady).toBe(true)
   expect(useChatStore().effectiveSelection?.reasoning).toEqual({ mode: 'off' })
-  expect(fetchMock.mock.calls).toHaveLength(1)
+  expect(
+    fetchMock.mock.calls.every(([, options]) => !options?.method || options.method === 'GET'),
+  ).toBe(true)
 })
 it('预算未完成不发送请求，确认有效整数才保存，并使用确认版本更新状态', async () => {
   const data = modelOptionsData(),
@@ -82,7 +95,7 @@ it('预算未完成不发送请求，确认有效整数才保存，并使用确�
       },
     })
   })
-  const page = await picker()
+  const page = await picker('reasoning')
   await flushPromises()
   await page.get('[name="chat_budget"]').setValue('1.5')
   await page.get('form').trigger('submit')
@@ -127,13 +140,13 @@ it('原会话保存迟到时，不重置另一会话尚未确认的预算草稿'
       },
     })
   })
-  const page = await picker()
+  const page = await picker('reasoning')
   await flushPromises()
   await page.get('[name="chat_budget"]').setValue('8192')
   await page.get('form').trigger('submit')
   await chat.select(B)
   await flushPromises()
-  await page.get('.chat-model-trigger').trigger('click')
+  await page.get('.reasoning-strength-trigger').trigger('click')
   await flushPromises()
   await page.get('[name="chat_budget"]').setValue('1024')
   saving.resolve(
@@ -157,15 +170,15 @@ it('原会话保存迟到时，不重置另一会话尚未确认的预算草稿'
 
 it('关闭下拉取消未确认预算，恢复可发送状态且不提交聊天或配置', async () => {
   const data = modelOptionsData()
-  fetchMock.mockResolvedValue(response(data))
-  const page = await picker()
+  fetchMock.mockImplementation(async () => response(data))
+  const page = await picker('reasoning')
   const chat = useChatStore()
   chat.draft = '选择模型不能误发的消息'
   await page.get('[name="chat_budget"]').setValue('1024')
   expect(chat.selectionEditing).toBe(true)
-  await page.get('.chat-model-trigger').trigger('click')
+  await page.get('.reasoning-strength-trigger').trigger('click')
   await flushPromises()
-  expect(document.querySelector('.chat-model-popover')).toBeNull()
+  expect(document.querySelector('.reasoning-popover')).toBeNull()
   expect(chat.selectionEditing).toBe(false)
   expect(chat.effectiveSelection?.reasoning).toEqual(data.default_selection?.reasoning)
   expect(chat.draft).toBe('选择模型不能误发的消息')
@@ -182,11 +195,23 @@ it('键盘浏览只移动焦点，不隐式保存模型选择', async () => {
     model_configuration_id: 'second',
     name: '另一个模型',
   })
-  fetchMock.mockResolvedValue(response(data))
+  fetchMock.mockImplementation(async () => response(data))
   const page = await picker()
   const option = page.get('[role="option"]')
-  ;(option.element as HTMLButtonElement).focus()
-  await page.get('[role="listbox"]').trigger('keydown', { key: 'ArrowDown' })
+  const listbox = page.get<HTMLElement>('[role="listbox"]')
+  // 管理链接移到标题后，打开菜单仍进入列表；从容器向上可直接到最后一个模型。
+  await vi.waitFor(() =>
+    expect(
+      listbox.element === document.activeElement ||
+        listbox.element.contains(document.activeElement),
+    ).toBe(true),
+  )
+  listbox.element.focus()
+  await listbox.trigger('keydown', { key: 'ArrowUp' })
+  expect(document.activeElement).toBe(page.get('[data-model-id="second"]').element)
+  await listbox.trigger('keydown', { key: 'Home' })
+  expect(document.activeElement).toBe(option.element)
+  await listbox.trigger('keydown', { key: 'ArrowDown' })
   expect(document.activeElement).toBe(page.get('[data-model-id="second"]').element)
   expect(useChatStore().effectiveSelection).toBeNull()
   expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'PATCH')).toBe(true)
@@ -194,7 +219,20 @@ it('键盘浏览只移动焦点，不隐式保存模型选择', async () => {
 
 it('旧的冲突提醒不能遮住后来出现的推理范围失效原因', async () => {
   const data = modelOptionsData()
-  fetchMock.mockResolvedValue(response(data))
+  fetchMock.mockImplementation(async (url) =>
+    response(
+      String(url).endsWith('/options')
+        ? data
+        : {
+            conversation: {
+              ...info(),
+              model_selection: data.default_selection,
+              model_selection_version: 3,
+              model_selection_issue: 'reasoning_not_allowed',
+            },
+          },
+    ),
+  )
   const page = await picker()
   const chat = useChatStore()
   chat.selectionNotice = '之前的会话选择发生冲突，请确认'
@@ -219,4 +257,122 @@ it('旧的冲突提醒不能遮住后来出现的推理范围失效原因', asyn
   await page.get('.chat-model-trigger').trigger('click')
   await flushPromises()
   expect(page.get('[role="alert"]').text()).toContain('原推理设置超出当前限制')
+})
+
+it('预算滑块最左关闭思考，右移重新启用，关闭后浮层和入口仍保留', async () => {
+  const data = modelOptionsData()
+  fetchMock.mockImplementation(async () => response(data))
+  const page = await picker('reasoning')
+  const slider = page.get<HTMLInputElement>('[aria-label="思考预算滑块"]')
+  await slider.setValue('0')
+  await flushPromises()
+  expect(useChatStore().effectiveSelection?.reasoning).toEqual({ mode: 'off' })
+  expect(page.find('.reasoning-popover').exists()).toBe(true)
+  expect(page.get('.reasoning-strength-trigger').text()).toContain('关闭')
+  await slider.setValue('1')
+  await flushPromises()
+  expect(useChatStore().effectiveSelection?.reasoning).toEqual({
+    mode: 'budget',
+    budget_tokens: 1024,
+  })
+  expect(page.find('[role="switch"]').exists()).toBe(false)
+})
+
+it('推理档位滑块只提供后端允许值，拖动不保存，释放后确认', async () => {
+  const data = modelOptionsData()
+  data.default_selection!.reasoning = { mode: 'effort', effort: 'low' }
+  data.providers[0]!.models[0]!.reasoning_control = {
+    mode: 'selectable',
+    default: { mode: 'effort', effort: 'low' },
+    allowed_modes: ['off', 'effort'],
+    effort_options: ['low', 'high'],
+    budget: null,
+  }
+  fetchMock.mockImplementation(async () => response(data))
+  const page = await picker('reasoning')
+  const slider = page.get<HTMLInputElement>('[aria-label="推理强度"]')
+  expect(slider.attributes('max')).toBe('2')
+  slider.element.value = '2'
+  await slider.trigger('input')
+  expect(useChatStore().effectiveSelection?.reasoning).toEqual({ mode: 'effort', effort: 'low' })
+  expect(useChatStore().selectionReady).toBe(false)
+  await slider.trigger('change')
+  await flushPromises()
+  expect(useChatStore().effectiveSelection?.reasoning).toEqual({ mode: 'effort', effort: 'high' })
+  expect(page.find('.reasoning-popover').exists()).toBe(true)
+  expect(useChatStore().selectionReady).toBe(true)
+})
+
+// 首段 start 将本地临时 ID 换成服务端 ID，仍是同一会话，不能因此关闭用户刚打开的模型菜单。
+it('临时会话绑定服务端 ID 时保留模型菜单，切到另一会话才关闭', async () => {
+  const data = modelOptionsData(),
+    chat = useChatStore()
+  fetchMock.mockImplementation(async () => response(data))
+  chat.conversations = [
+    {
+      id: 'draft-local',
+      title: '当前会话',
+      group: '今天',
+      messages: [],
+      persisted: false,
+      loaded: true,
+    },
+  ]
+  chat.activeId = 'draft-local'
+  const page = await picker()
+  chat.conversations[0]!.id = A
+  chat.activeId = A
+  await flushPromises()
+  expect(page.find('.chat-model-popover').exists()).toBe(true)
+  chat.startNew()
+  await flushPromises()
+  expect(page.find('.chat-model-popover').exists()).toBe(false)
+})
+
+it('关闭档保存失败保留原确认值，取消滑块草稿后解除编辑锁', async () => {
+  const data = modelOptionsData(),
+    chat = useChatStore()
+  chat.conversations = [
+    {
+      id: A,
+      title: '当前会话',
+      group: '今天',
+      messages: [],
+      persisted: true,
+      loaded: true,
+      modelSelection: data.default_selection,
+      modelSelectionVersion: 1,
+    },
+  ]
+  chat.activeId = A
+  fetchMock.mockImplementation(async (url, options) =>
+    options?.method === 'PATCH'
+      ? response(null, 500, 50000, '保存失败')
+      : String(url).endsWith('/options')
+        ? response(data)
+        : response({ conversation: info() }),
+  )
+  const page = await picker('reasoning')
+  await page.get('[aria-label="思考预算滑块"]').setValue('0')
+  await flushPromises()
+  expect(chat.effectiveSelection?.reasoning).toEqual(data.default_selection?.reasoning)
+  expect(chat.selectionEditing).toBe(true)
+  await page.get('.reasoning-strength-trigger').trigger('click')
+  await flushPromises()
+  expect(chat.selectionEditing).toBe(false)
+})
+
+it('未开放关闭时最左仍是合法最低预算，不绕过供应商范围', async () => {
+  const data = modelOptionsData()
+  const control = data.providers[0]!.models[0]!.reasoning_control
+  if (control.mode === 'selectable') control.allowed_modes = ['budget']
+  fetchMock.mockImplementation(async () => response(data))
+  const page = await picker('reasoning')
+  await page.get('[aria-label="思考预算滑块"]').setValue('0')
+  await flushPromises()
+  expect(useChatStore().effectiveSelection?.reasoning).toEqual({
+    mode: 'budget',
+    budget_tokens: 1024,
+  })
+  expect(page.get('.reasoning-ticks').text()).not.toContain('关闭')
 })
