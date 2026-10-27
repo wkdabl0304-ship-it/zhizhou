@@ -35,7 +35,8 @@ defineExpose({ focus })
         :sending="sending"
         :send-blocked="sendBlocked"
         @send="$emit('send', $event)"
-      />
+        ><template #model-selector><slot name="model-selector" /></template
+      ></ChatComposer>
       <div class="suggestions">
         <button
           v-for="suggestion in suggestions"

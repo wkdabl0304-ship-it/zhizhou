@@ -42,7 +42,10 @@ async function restoreFocus(event: Event): Promise<void> {
   if (!narrow.value) {
     event.preventDefault()
     await nextTick()
-    headerTitle.value?.focus()
+    const target = headerTitle.value?.isConnected
+      ? headerTitle.value
+      : document.querySelector<HTMLElement>('main h1[tabindex]')
+    target?.focus()
   }
 }
 // 导航只随工作区初始化，跨子页面保留目录、折叠状态及侧栏的滚动位置。
@@ -86,33 +89,8 @@ watch(
     </aside>
     <main class="chat-main" :class="{ 'is-home': home, 'is-management': management }">
       <RiverBackdrop v-if="home" :motion="enabled" />
-      <header class="chat-header">
+      <header v-if="!management" class="chat-header">
         <div class="header-start">
-          <UiDrawer
-            v-if="narrow"
-            v-model:open="drawerOpen"
-            title="会话导航"
-            description="新建对话、浏览会话记录、管理模型或切换外观。"
-            @close-auto-focus="restoreFocus"
-          >
-            <template #trigger
-              ><UiIconButton label="打开侧栏"><PanelLeft :size="20" /></UiIconButton
-            ></template>
-            <ChatSidebar
-              :conversations="chat.conversations"
-              :active-id="management ? null : chat.activeId"
-              drawer
-              :loading="chat.listing"
-              :error="chat.listError"
-              :action-error="chat.actionError"
-              :has-more="Boolean(chat.nextCursor)"
-              @refresh="chat.loadConversations()"
-              @more="chat.loadConversations(true)"
-              @delete="chat.remove"
-              @new="navigate()"
-              @select="navigate"
-            />
-          </UiDrawer>
           <component
             :is="management ? 'p' : 'h1'"
             ref="headerTitle"
@@ -133,10 +111,48 @@ watch(
       <RouterView v-slot="{ Component, route: childRoute }"
         ><component :is="Component" :key="childRoute.name ?? childRoute.path"
       /></RouterView>
+      <!-- 手机导航独立于子页面挂载，管理页中与标题同行，切换页面不会丢失入口。 -->
+      <div v-if="narrow" class="workspace-mobile-navigation">
+        <UiDrawer
+          v-model:open="drawerOpen"
+          title="会话导航"
+          description="新建对话、浏览会话记录、管理模型或切换外观。"
+          @close-auto-focus="restoreFocus"
+        >
+          <template #trigger
+            ><UiIconButton label="打开侧栏"><PanelLeft :size="20" /></UiIconButton
+          ></template>
+          <ChatSidebar
+            :conversations="chat.conversations"
+            :active-id="management ? null : chat.activeId"
+            drawer
+            :loading="chat.listing"
+            :error="chat.listError"
+            :action-error="chat.actionError"
+            :has-more="Boolean(chat.nextCursor)"
+            @refresh="chat.loadConversations()"
+            @more="chat.loadConversations(true)"
+            @delete="chat.remove"
+            @new="navigate()"
+            @select="navigate"
+          />
+        </UiDrawer>
+      </div>
     </main>
   </div>
 </template>
 <style scoped>
+.workspace-mobile-navigation {
+  position: absolute;
+  top: 10px;
+  left: 16px;
+  z-index: var(--z-header);
+}
+.is-management > .workspace-mobile-navigation {
+  left: auto;
+  right: 16px;
+  top: 16px;
+}
 /* 保持原聊天侧栏尺寸；导航与页内滚动隔离，内容不会挤压或重新定位侧栏。 */
 .chat-shell {
   display: grid;
@@ -247,6 +263,7 @@ watch(
   }
   .header-start {
     gap: 8px;
+    padding-left: 44px;
   }
   .prototype-badge {
     white-space: nowrap;

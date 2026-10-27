@@ -15,8 +15,18 @@ import type {
   ProviderConfiguration,
   Reasoning,
 } from '../types'
-const props = defineProps<{ provider: ProviderConfiguration; previous?: ModelConfiguration }>()
-const emit = defineEmits<{ close: []; reload: [] }>()
+const props = defineProps<{
+  provider: ProviderConfiguration
+  previous?: ModelConfiguration
+  /** 管理页只修改既有方案参数，模型归属和启停由卡片管理。 */
+  managed?: boolean
+  returnFocus?: HTMLElement | null
+}>()
+const emit = defineEmits<{
+  close: []
+  reload: []
+  state: [value: { dirty: boolean; busy: boolean }]
+}>()
 const store = useModelConfigStore()
 const previous = props.previous ? structuredClone(toRaw(props.previous)) : undefined
 const draft = reactive<ModelInput>({
@@ -40,7 +50,7 @@ const spec = computed(() =>
   entries.value.find((item) => item.catalog_model_id === draft.catalog_model_id),
 )
 const dirty = computed(() => JSON.stringify(draft) !== initial)
-/** 读取匹配协议的目录，失败只影响当前抽屉，并提供显式重试。 */
+/** 读取匹配协议的目录，失败只影响当前编辑器，并提供显式重试。 */
 async function load(): Promise<void> {
   loading.value = true
   catalogError.value = ''
@@ -119,100 +129,126 @@ void load()
     :loading="loading"
     :error="error"
     :conflict="conflict"
+    description="调整模型参数与聊天可选范围，保存后从下一轮聊天生效。"
+    :return-focus="returnFocus"
     @submit="save"
     @close="emit('close')"
     @reload="reload"
+    @state="emit('state', $event)"
   >
-    <p class="config-hint">关联供应商：{{ provider.name }}；归属创建后固定。</p>
+    <div class="config-editor-context">
+      <span>供应商连接</span><strong>{{ provider.name }}</strong>
+      <code v-if="managed">{{ previous?.catalog?.model_id ?? draft.catalog_model_id }}</code>
+    </div>
     <p v-if="loading" role="status">正在读取模型目录…</p>
     <p v-if="catalogError" class="config-error" role="alert">
       {{ catalogError }} <UiButton size="sm" @click="load">重试读取目录</UiButton>
     </p>
-    <label
-      >方案名称<input
-        v-model="draft.name"
-        name="name"
-        maxlength="100"
-        autocomplete="off"
-        placeholder="例如：日常问答、深入思考"
-    /></label>
-    <label
-      >目录模型<select
-        :value="spec ? draft.catalog_model_id : ''"
-        name="catalog_model_id"
-        @change="changeModel"
-      >
-        <option v-if="!spec" value="" disabled>
-          请选择可用模型{{ previous ? '（原模型可能已不可用）' : '' }}
-        </option>
-        <option
-          v-for="item in entries"
-          :key="item.catalog_model_id"
-          :value="item.catalog_model_id"
-          :disabled="!item.available"
+    <section class="config-form-section" aria-label="基本信息">
+      <h3>基本信息</h3>
+      <label
+        >方案名称<input
+          v-model="draft.name"
+          name="name"
+          maxlength="100"
+          autocomplete="off"
+          placeholder="例如：日常问答、深入思考"
+      /></label>
+      <p v-if="managed" class="config-model-id">
+        {{ previous?.catalog?.display_name ?? draft.catalog_model_id }}
+      </p>
+      <label v-if="!managed"
+        >目录模型<select
+          :value="spec ? draft.catalog_model_id : ''"
+          name="catalog_model_id"
+          @change="changeModel"
         >
-          {{ item.display_name }}{{ item.available ? '' : ' · 不可用' }}
-        </option></select
-      ><small>仅展示与当前供应商及接口格式匹配的模型。</small></label
-    >
-    <label class="config-switch"
-      ><input v-model="draft.enabled" name="enabled" type="checkbox" />启用此模型方案</label
-    >
-    <template v-if="spec">
-      <label
-        >推理方式<select :value="draft.reasoning.mode" name="reasoning_mode" @change="changeMode">
+          <option v-if="!spec" value="" disabled>
+            请选择可用模型{{ previous ? '（原模型可能已不可用）' : '' }}
+          </option>
           <option
-            v-if="
-              draft.reasoning.mode === 'default' &&
-              !spec.reasoning.allowed_modes.includes('default')
-            "
-            value="default"
+            v-for="item in entries"
+            :key="item.catalog_model_id"
+            :value="item.catalog_model_id"
+            :disabled="!item.available"
           >
-            模型默认 · {{ describeReasoning(spec.reasoning.default) }}
-          </option>
-          <option v-for="mode in spec.reasoning.allowed_modes" :key="mode" :value="mode">
-            {{ modeLabels[mode] }}
+            {{ item.display_name }}{{ item.available ? '' : ' · 不可用' }}
           </option></select
-        ><small v-if="draft.reasoning.mode === 'default'"
-          >目录默认：{{ describeReasoning(spec.reasoning.default) }}</small
-        ></label
+        ><small>仅展示与当前供应商及接口格式匹配的模型。</small></label
       >
-      <label v-if="draft.reasoning.mode === 'effort'"
-        >推理档位<select v-model="draft.reasoning.effort" name="effort">
-          <option v-for="effort in spec.reasoning.effort_options" :key="effort" :value="effort">
-            {{ effortLabels[effort] ?? effort }} · {{ effort }}
-          </option>
-        </select></label
+      <label v-if="!managed" class="config-switch"
+        ><input v-model="draft.enabled" name="enabled" type="checkbox" />启用此模型方案</label
       >
-      <label v-if="draft.reasoning.mode === 'budget' && spec.reasoning.budget"
-        >思考预算（tokens）<input
-          v-model.number="draft.reasoning.budget_tokens"
-          name="budget_tokens"
-          type="number"
-          :min="spec.reasoning.budget.min"
-          :max="spec.reasoning.budget.max"
-          step="1"
-        /><small
-          >范围 {{ spec.reasoning.budget.min }}–{{ spec.reasoning.budget.max
-          }}{{ spec.reasoning.budget_must_fit_output ? '，且须小于最大输出 tokens' : '' }}。</small
-        ></label
-      >
-      <label
-        >最大输出 tokens<input
-          v-model.number="draft.max_output_tokens"
-          name="max_output_tokens"
-          type="number"
-          min="1"
-          :max="spec.max_output_tokens"
-          step="1"
-        /><small>最大允许 {{ spec.max_output_tokens.toLocaleString() }}。</small></label
-      >
-      <ReasoningPolicyEditor
-        v-model="draft.reasoning_policy!"
-        :model="spec"
-        :reasoning="draft.reasoning"
-        :max-output="draft.max_output_tokens"
-      />
+    </section>
+    <template v-if="spec">
+      <section class="config-form-section" aria-label="模型参数">
+        <h3>模型参数</h3>
+        <div class="config-form-grid">
+          <label
+            >推理方式<select
+              :value="draft.reasoning.mode"
+              name="reasoning_mode"
+              @change="changeMode"
+            >
+              <option
+                v-if="
+                  draft.reasoning.mode === 'default' &&
+                  !spec.reasoning.allowed_modes.includes('default')
+                "
+                value="default"
+              >
+                模型默认 · {{ describeReasoning(spec.reasoning.default) }}
+              </option>
+              <option v-for="mode in spec.reasoning.allowed_modes" :key="mode" :value="mode">
+                {{ modeLabels[mode] }}
+              </option></select
+            ><small v-if="draft.reasoning.mode === 'default'"
+              >目录默认：{{ describeReasoning(spec.reasoning.default) }}</small
+            ></label
+          >
+          <label v-if="draft.reasoning.mode === 'effort'"
+            >推理档位<select v-model="draft.reasoning.effort" name="effort">
+              <option v-for="effort in spec.reasoning.effort_options" :key="effort" :value="effort">
+                {{ effortLabels[effort] ?? effort }} · {{ effort }}
+              </option>
+            </select></label
+          >
+          <label v-if="draft.reasoning.mode === 'budget' && spec.reasoning.budget"
+            >思考预算（tokens）<input
+              v-model.number="draft.reasoning.budget_tokens"
+              name="budget_tokens"
+              type="number"
+              :min="spec.reasoning.budget.min"
+              :max="spec.reasoning.budget.max"
+              step="1"
+            /><small
+              >范围 {{ spec.reasoning.budget.min }}–{{ spec.reasoning.budget.max
+              }}{{
+                spec.reasoning.budget_must_fit_output ? '，且须小于最大输出 tokens' : ''
+              }}。</small
+            ></label
+          >
+          <label
+            >最大输出 tokens<input
+              v-model.number="draft.max_output_tokens"
+              name="max_output_tokens"
+              type="number"
+              min="1"
+              :max="spec.max_output_tokens"
+              step="1"
+            /><small>最大允许 {{ spec.max_output_tokens.toLocaleString() }}。</small></label
+          >
+        </div>
+      </section>
+      <section class="config-form-section" aria-label="聊天推理范围">
+        <h3>聊天推理范围</h3>
+        <ReasoningPolicyEditor
+          v-model="draft.reasoning_policy!"
+          :model="spec"
+          :reasoning="draft.reasoning"
+          :max-output="draft.max_output_tokens"
+        />
+      </section>
     </template>
   </ConfigEditor>
 </template>

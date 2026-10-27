@@ -1,6 +1,16 @@
 /** 模型管理全链路：真实页面与随机库，配置重置及 HTTP 辅助由共用 fixture 负责。 */
-import { test, control, provider, model, headers } from '../support/playwright/model-config'
-import { expect, login, send, finished } from '../support/playwright/fixtures'
+import {
+  test,
+  control,
+  provider,
+  model,
+  headers,
+  openProvider,
+  closeProvider,
+  returnToChat,
+} from '../support/playwright/model-config'
+import { openPicker, refreshModels } from '../support/playwright/model-selection'
+import { expect, login, send, finished, closeSidebar } from '../support/playwright/fixtures'
 
 test('首次配置、主动测试、设默认后返回聊天保留草稿，刷新仍可使用', async ({
   page,
@@ -9,35 +19,93 @@ test('首次配置、主动测试、设默认后返回聊天保留草稿，刷�
   await login(page, account)
   await page.getByRole('textbox', { name: '消息内容' }).fill('配置前的草稿')
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
+  await openPicker(page)
   await page.getByRole('link', { name: '前往模型管理', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '从一份供应商配置开始' })).toBeVisible()
+  await expect(page.locator('.provider-brand-card')).toHaveCount(4)
+  const compactTitle = page.getByRole('heading', { level: 1, name: '模型管理', exact: true })
+  await expect(compactTitle).toBeVisible()
+  await expect(page.getByText('MODEL PROVIDERS', { exact: true })).toBeVisible()
+  expect((await compactTitle.boundingBox())!.height).toBeLessThan(40)
+  await expect(page.locator('.chat-header')).toHaveCount(0)
+  await expect(page.getByRole('button', { name: '刷新配置', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('link', { name: '返回聊天', exact: true })).toHaveCount(0)
+
+  await expect(page.getByRole('region', { name: '全局默认模型', includeHidden: true })).toHaveCount(
+    0,
+  )
+  await expect
+    .poll(() =>
+      page
+        .locator('.provider-brand-card img')
+        .evaluateAll((images) =>
+          images.every(
+            (image) =>
+              (image as HTMLImageElement).complete && (image as HTMLImageElement).naturalWidth > 0,
+          ),
+        ),
+    )
+    .toBe(true)
   // 大屏与手机分别留图，验证首次空状态及新增供应商后的真实比例，不维护像素基线。
   if (testInfo.project.name === 'model-config-desktop')
     await page.setViewportSize({ width: 1920, height: 945 })
   await page.screenshot({ path: testInfo.outputPath('empty-state.png'), fullPage: true })
-  await provider(page)
-  await expect(page.getByRole('region', { name: '关联模型方案' })).toContainText('我的 DeepSeek')
-  await expect(page.getByRole('heading', { name: '为这份连接添加第一个模型' })).toBeVisible()
-  await expect(page.getByRole('region', { name: '全局默认模型' })).toContainText('还没有默认模型')
-  const defaultBox = await page.getByRole('region', { name: '全局默认模型' }).boundingBox()
-  expect(defaultBox!.height).toBeLessThan(
-    testInfo.project.name === 'model-config-desktop' ? 130 : 220,
+  // 通过真实外观菜单切换主题，留存暗色卡片及后续模型弹窗供视觉检查。
+  const navigationTrigger = page.getByRole('button', { name: '打开侧栏', exact: true })
+  if (await navigationTrigger.isVisible()) await navigationTrigger.click()
+  await page.getByRole('button', { name: /外观.*浅色/ }).click()
+  await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
+  await closeSidebar(page)
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  // Logo 的单色反色只影响图形，不能把整页过滤成纯白。
+  expect(await page.locator('html').evaluate((element) => getComputedStyle(element).filter)).toBe(
+    'none',
   )
+  expect(
+    await page
+      .locator('.provider-brand-card[data-provider="openai"] img')
+      .evaluate((element) => getComputedStyle(element).filter),
+  ).toContain('invert(1)')
+  expect(
+    await page
+      .locator('.provider-brand-card[data-provider="deepseek"] img')
+      .evaluate((element) => getComputedStyle(element).filter),
+  ).toBe('none')
+  await page.screenshot({ path: testInfo.outputPath('providers-dark.png'), fullPage: true })
+  await provider(page)
+  await expect(page.getByRole('region', { name: '供应商连接' })).toContainText('我的 DeepSeek')
+  await expect(page.getByRole('switch', { name: /^启用模型/, checked: false })).toHaveCount(2)
+  await expect(page.locator('.config-default')).toHaveCount(0)
+  await expect(page.getByText('当前默认', { exact: true })).toHaveCount(0)
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     .toBe(true)
   await page.screenshot({ path: testInfo.outputPath('provider-added.png'), fullPage: true })
   await model(page)
   const card = page.getByRole('article', { name: '模型方案：日常问答', exact: true })
-  await expect(card).toContainText('尚未测试')
+  // 空格操作真实开关，关闭后重新开启仍复用同一方案，不弹出停用确认。
+  const modelSwitch = card.getByRole('switch')
+  await modelSwitch.focus()
+  await page.keyboard.press('Space')
+  await expect(modelSwitch).not.toBeChecked()
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+  await modelSwitch.focus()
+  await page.keyboard.press('Space')
+  await expect(modelSwitch).toBeChecked()
+  await expect(card.getByRole('button', { name: '测试', exact: true })).toBeVisible()
+  await expect(card.getByText('文本流通过', { exact: false })).toHaveCount(0)
+  await expect(card.getByRole('button', { name: '高级设置', exact: true })).toBeVisible()
+  await expect(card.getByRole('button', { name: '删除', exact: true })).toBeVisible()
+  await expect(page.getByText('更多操作', { exact: true })).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('model-ready.png'), fullPage: true })
   await card.getByRole('button', { name: '设为默认', exact: true }).click()
-  await expect(page.getByRole('region', { name: '全局默认模型' })).toContainText('日常问答')
+  await expect(
+    page.getByRole('article', { name: '模型方案：日常问答', exact: true }),
+  ).toContainText('当前默认')
   await card.getByRole('button', { name: '测试', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('可能产生供应商费用')
-  await page.getByRole('button', { name: '开始测试', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '测试模型连接', exact: true })).toHaveCount(0)
   await expect(card).toContainText('文本流通过')
-  await page.getByRole('link', { name: '返回聊天', exact: true }).last().click()
+  await closeProvider(page)
+  await returnToChat(page)
   await expect(page.getByRole('textbox', { name: '消息内容' })).toHaveValue('配置前的草稿')
   await page.getByRole('button', { name: '发送消息', exact: true }).click()
   await expect(await finished(page)).toContainText('配置前的草稿')
@@ -55,14 +123,12 @@ test('编辑、切换和清除默认，并按引用顺序删除模型及供应�
   const first = page.getByRole('article', { name: '模型方案：日常问答', exact: true })
   await first.getByRole('button', { name: '设为默认' }).click()
   await first.getByRole('button', { name: '删除', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('不能直接删除')
-  await page.getByRole('button', { name: '知道了', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('不能直接删除')
   await page.getByRole('button', { name: '删除供应商', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('仍被引用')
-  await page.getByRole('button', { name: '知道了', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('仍被引用')
   await model(page, '深入思考')
   const second = page.getByRole('article', { name: '模型方案：深入思考', exact: true })
-  await second.getByRole('button', { name: '编辑', exact: true }).click()
+  await second.getByRole('button', { name: '高级设置', exact: true }).click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
   await editor.locator('[name="reasoning_mode"]').selectOption('effort')
   await editor.locator('[name="effort"]').selectOption('max')
@@ -75,16 +141,22 @@ test('编辑、切换和清除默认，并按引用顺序删除模型及供应�
   await first.getByRole('button', { name: '删除', exact: true }).click()
   await page.getByRole('button', { name: '确认删除', exact: true }).click()
   await expect(first).toHaveCount(0)
-  await page.getByRole('button', { name: '清除默认', exact: true }).click()
-  await expect(page.getByRole('dialog')).toContainText('所有用户')
-  await page.getByRole('dialog').getByRole('button', { name: '清除默认', exact: true }).click()
-  await expect(page.getByRole('region', { name: '全局默认模型' })).toContainText('还没有默认模型')
+  await second.getByRole('button', { name: '清除默认', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: '清除全局默认模型？' })).toContainText('所有用户')
+  await page
+    .getByRole('dialog', { name: '清除全局默认模型？', exact: true })
+    .getByRole('button', { name: '清除默认', exact: true })
+    .click()
+  await expect(page.locator('.config-default')).toHaveCount(0)
+  await expect(page.getByText('当前默认', { exact: true })).toHaveCount(0)
+  await openProvider(page)
   await second.getByRole('button', { name: '删除', exact: true }).click()
   await page.getByRole('button', { name: '确认删除', exact: true }).click()
   await expect(second).toHaveCount(0)
   await page.getByRole('button', { name: '删除供应商', exact: true }).click()
   await page.getByRole('button', { name: '确认删除', exact: true }).click()
-  await expect(page.getByRole('heading', { name: '从一份供应商配置开始' })).toBeVisible()
+  await closeProvider(page)
+  await expect(page.locator('.provider-brand-card')).toHaveCount(4)
 })
 
 // 全局默认只初始化尚未选择的页面，清除后不能覆盖用户已经看到并确认的具体选择。
@@ -101,8 +173,11 @@ test('其他客户端清除默认不覆盖本地选择，既有会话继续使�
     .getByRole('article', { name: '模型方案：日常问答', exact: true })
     .getByRole('button', { name: '设为默认', exact: true })
     .click()
-  await expect(page.getByRole('region', { name: '全局默认模型' })).toContainText('日常问答')
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await expect(
+    page.getByRole('article', { name: '模型方案：日常问答', exact: true }),
+  ).toContainText('当前默认')
+  await closeProvider(page)
+  await returnToChat(page)
   await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('日常问答')
   const auth = await headers(request, account),
     endpoint = `${control().url}/api/model-config/default`
@@ -114,7 +189,7 @@ test('其他客户端清除默认不覆盖本地选择，既有会话继续使�
   expect((await cleared.json()).code).toBe(0)
   await send(page, '默认已从其他客户端清除')
   await finished(page)
-  await page.getByRole('button', { name: '刷新模型选项', exact: true }).click()
+  await refreshModels(page)
   await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('日常问答')
   await expect(page).toHaveURL(/\/$/)
   const history = await request.get(`${control().url}/api/conversations?limit=20`, {
@@ -142,9 +217,9 @@ test('百炼粘贴 Base URL 即可配置，修改地址保留密钥并可继续�
 }, testInfo) => {
   await login(page, account)
   await page.goto('/models')
-  await page.getByRole('button', { name: '添加', exact: true }).click()
+  await openProvider(page, 'bailian')
+  await page.getByRole('button', { name: '添加连接', exact: true }).click()
   const editor = page.getByRole('dialog', { name: '添加供应商配置', exact: true })
-  await editor.locator('[name="provider"]').selectOption('bailian')
   await expect(editor.locator('[name="endpoint"]')).toHaveCount(0)
   await expect(editor.locator('[name="workspace"]')).toHaveCount(0)
   await editor.locator('[name="name"]').fill('我的百炼')
@@ -158,12 +233,11 @@ test('百炼粘贴 Base URL 即可配置，修改地址保留密钥并可继续�
   await editor.getByLabel('Base URL', { exact: true }).fill(`  ${address}/  `)
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
-  await expect(page.getByRole('region', { name: '关联模型方案' })).toContainText(address)
+  await expect(page.getByRole('region', { name: '供应商连接' })).toContainText(address)
   await model(page, '百炼日常问答')
   const card = page.getByRole('article', { name: '模型方案：百炼日常问答', exact: true })
   await card.getByRole('button', { name: '设为默认', exact: true }).click()
   await card.getByRole('button', { name: '测试', exact: true }).click()
-  await page.getByRole('button', { name: '开始测试', exact: true }).click()
   await expect(card).toContainText('文本流通过')
   await page.getByRole('button', { name: '编辑供应商', exact: true }).click()
   const editing = page.getByRole('dialog', { name: '编辑供应商配置', exact: true })
@@ -174,15 +248,19 @@ test('百炼粘贴 Base URL 即可配置，修改地址保留密钥并可继续�
   await editing.getByLabel('Base URL', { exact: true }).fill(changed)
   await editing.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editing).not.toBeVisible()
-  await expect(page.getByRole('region', { name: '关联模型方案' })).toContainText(changed)
+  await expect(page.getByRole('region', { name: '供应商连接' })).toContainText(changed)
   await expect(card).toContainText('配置已修改，请重新测试')
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await closeProvider(page)
+  await returnToChat(page)
   await send(page, '使用百炼地址配置聊天')
   await finished(page)
   await page.reload()
   await page.goto('/models')
-  await expect(page.getByRole('region', { name: '关联模型方案' })).toContainText(changed)
-  await expect(page.getByRole('region', { name: '全局默认模型' })).toContainText('百炼日常问答')
+  await openProvider(page, 'bailian')
+  await expect(page.getByRole('region', { name: '供应商连接' })).toContainText(changed)
+  await expect(
+    page.getByRole('article', { name: '模型方案：百炼日常问答', exact: true }),
+  ).toContainText('当前默认')
   await expect
     .poll(() => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth))
     .toBe(true)
@@ -217,19 +295,19 @@ test('另一个客户端修改配置后本地草稿保留，读取最新版本�
   await editor.locator('[name="name"]').fill('基于新版本保存')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
-  await expect(page.getByRole('region', { name: '关联模型方案' })).toContainText('基于新版本保存')
+  await expect(page.getByRole('region', { name: '供应商连接' })).toContainText('基于新版本保存')
 })
 
 test('目录推理预算与输出约束即时提示，正确参数才能保存', async ({ page, account }) => {
   await login(page, account)
   await page.goto('/models')
   await provider(page, 'Claude 配置', 'anthropic')
-  await page.getByRole('button', { name: '添加模型方案', exact: true }).click()
-  const editor = page.getByRole('dialog', { name: '添加模型方案', exact: true })
-  await editor.locator('[name="name"]').fill('手动预算')
-  await editor
-    .locator('[name="catalog_model_id"]')
-    .selectOption('anthropic:claude-haiku-4-5-20251001')
+  await model(page, '手动预算', 'Claude Haiku 4.5')
+  await page
+    .getByRole('article', { name: '模型方案：手动预算', exact: true })
+    .getByRole('button', { name: '高级设置' })
+    .click()
+  const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
   await editor.locator('[name="reasoning_mode"]').selectOption('budget')
   await editor.locator('[name="budget_tokens"]').fill('1023')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
@@ -250,7 +328,6 @@ test('上游鉴权测试失败保留登录，更换密钥后可重新测试并�
   await model(page)
   const card = page.getByRole('article', { name: '模型方案：日常问答' })
   await card.getByRole('button', { name: '测试', exact: true }).click()
-  await page.getByRole('button', { name: '开始测试', exact: true }).click()
   await expect(card).toContainText('鉴权失败')
   await expect(page).toHaveURL(/\/models$/)
   await page.getByRole('button', { name: '编辑供应商', exact: true }).click()
@@ -259,35 +336,249 @@ test('上游鉴权测试失败保留登录，更换密钥后可重新测试并�
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
   await card.getByRole('button', { name: '测试', exact: true }).click()
-  await page.getByRole('button', { name: '开始测试', exact: true }).click()
   await expect(card).toContainText('文本流通过')
-  await card.getByRole('button', { name: '编辑', exact: true }).click()
+  await card.getByRole('button', { name: '高级设置', exact: true }).click()
   const modelEditor = page.getByRole('dialog', { name: '编辑模型方案' })
   await modelEditor.locator('[name="max_output_tokens"]').fill('20000')
   await modelEditor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(modelEditor).not.toBeVisible()
   await expect(card).toContainText('配置已修改，请重新测试')
   await card.getByRole('button', { name: '设为默认', exact: true }).click()
-  await expect(page.getByRole('region', { name: '全局默认模型' })).toContainText('日常问答')
+  await expect(
+    page.getByRole('article', { name: '模型方案：日常问答', exact: true }),
+  ).toContainText('当前默认')
 })
 
-test('有未保存输入时关闭和离页都可取消，窄屏抽屉保留键盘操作', async ({
+test('卡片与居中弹窗支持键盘、草稿保护、焦点恢复及窄屏', async ({ page, account }, testInfo) => {
+  await login(page, account)
+  await page.goto('/models')
+  const trigger = page.getByRole('button', { name: '配置 DeepSeek', exact: true })
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'DeepSeek', exact: true })
+  const add = dialog.getByRole('button', { name: '添加连接', exact: true })
+  await add.click()
+  const editor = page.getByRole('dialog', { name: '添加供应商配置', exact: true })
+  await editor.locator('[name="name"]').fill('未保存的连接')
+  await page.keyboard.press('Tab')
+  await expect
+    .poll(() => editor.evaluate((element) => element.contains(document.activeElement)))
+    .toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('configuration-modal.png'), fullPage: true })
+  await page.keyboard.press('Escape')
+  await expect(page.getByRole('dialog', { name: '放弃未保存的更改？', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '继续编辑', exact: true }).click()
+  await expect(editor.locator('[name="name"]')).toHaveValue('未保存的连接')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '放弃更改', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  await expect(dialog).toBeVisible()
+  await expect(add).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(dialog).not.toBeVisible()
+  await expect(trigger).toBeFocused()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+})
+
+// 以实际布局和滚动行为验收左右分区，截图用于检查 Windows 滚动条周围的圆角。
+test('供应商弹窗左右分区独立滚动，窄屏上下排列且保留完整圆角', async ({
   page,
   account,
 }, testInfo) => {
   await login(page, account)
   await page.goto('/models')
-  await page.getByRole('button', { name: '添加', exact: true }).click()
-  const editor = page.getByRole('dialog', { name: '添加供应商配置', exact: true })
-  await editor.locator('[name="name"]').fill('未保存的连接')
-  await page.screenshot({ path: testInfo.outputPath('configuration-drawer.png'), fullPage: true })
+  await provider(page, '布局验收连接', 'anthropic')
+  const dialog = page.getByRole('dialog', { name: 'Anthropic', exact: true })
+  const left = page.getByRole('region', { name: '供应商连接', exact: true })
+  const right = page.getByRole('region', { name: '关联模型方案', exact: true })
+  await expect(right.getByRole('article')).toHaveCount(6)
+  const leftBox = await left.boundingBox(),
+    rightBox = await right.boundingBox()
+  const corners = await dialog.evaluate((element) => {
+    const style = getComputedStyle(element)
+    return {
+      top: parseFloat(style.borderTopRightRadius),
+      bottom: parseFloat(style.borderBottomRightRadius),
+      fits: element.scrollHeight <= element.clientHeight + 1,
+    }
+  })
+  expect(corners.top).toBeGreaterThan(0)
+  expect(corners.bottom).toBeGreaterThan(0)
+  expect(corners.fits).toBe(true)
+  if (testInfo.project.name === 'model-config-desktop') {
+    expect(leftBox!.x + leftBox!.width).toBeLessThanOrEqual(rightBox!.x)
+    await right.hover()
+    await page.mouse.wheel(0, 1200)
+    await expect.poll(() => right.evaluate((element) => element.scrollTop)).toBeGreaterThan(0)
+    await expect(left.getByRole('heading', { name: /^供应商连接/ })).toBeVisible()
+  } else expect(leftBox!.y + leftBox!.height).toBeLessThanOrEqual(rightBox!.y)
+  await expect(dialog.getByRole('button', { name: '关闭', exact: true })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('provider-split-layout.png'), fullPage: true })
+})
+
+// 多连接通过卡片选择；草稿确认、非当前连接启停与默认引用均走真实接口。
+test('连接卡片切换、独立启停和草稿保护，模型底栏操作直接可见', async ({
+  page,
+  account,
+}, testInfo) => {
+  await login(page, account)
+  await page.goto('/models')
+  await provider(page, '主账号')
+  await model(page, '主账号模型')
+  const primary = page.getByRole('article', { name: '供应商连接：主账号', exact: true })
+  await provider(page, '备用账号')
+  const secondary = page.getByRole('article', { name: '供应商连接：备用账号', exact: true })
+  await expect(page.locator('.provider-connection-card')).toHaveCount(2)
+  await expect(
+    secondary.getByRole('button', { name: '切换连接 备用账号', exact: true }),
+  ).toHaveAttribute('aria-pressed', 'true')
+  const models = page.getByRole('region', { name: '关联模型方案', exact: true })
+  await expect(
+    models.getByRole('article', { name: '模型方案：主账号模型', exact: true }),
+  ).toHaveCount(0)
+  await model(page, '备用账号模型')
+  // 不选中主账号也可停用它，不改变右侧当前连接或备用模型的状态。
+  await primary.getByRole('switch').click()
+  await expect(primary.getByRole('switch')).not.toBeChecked()
+  await expect(secondary.getByRole('switch')).toBeChecked()
+  await expect(
+    models
+      .getByRole('article', { name: '模型方案：备用账号模型', exact: true })
+      .getByRole('switch'),
+  ).toBeChecked()
+  const choosePrimary = primary.getByRole('button', { name: '切换连接 主账号', exact: true })
+  await choosePrimary.focus()
+  await page.keyboard.press('Enter')
+  const first = models.getByRole('article', { name: '模型方案：主账号模型', exact: true })
+  await expect(first.getByRole('switch')).toBeChecked()
+  await expect(first).toContainText('连接已停用')
+  await expect(first.getByRole('button', { name: '设为默认', exact: true })).toBeDisabled()
+  await primary.getByRole('switch').click()
+  await first.getByRole('button', { name: '设为默认', exact: true }).click()
+  await expect(first).toContainText('当前默认')
+  for (const name of ['高级设置', '测试', '删除', '清除默认'])
+    await expect(first.getByRole('button', { name, exact: true })).toBeVisible()
+  await expect(page.getByText('更多操作', { exact: true })).toHaveCount(0)
+  await primary.getByRole('button', { name: '编辑供应商', exact: true }).click()
+  const editor = page.getByRole('dialog', { name: '编辑供应商配置', exact: true })
+  await editor.locator('[name="api_key"]').fill('不会写入服务端的草稿')
+  const chooseSecondary = secondary.getByRole('button', { name: '切换连接 备用账号', exact: true })
   await page.keyboard.press('Escape')
-  await expect(page.getByRole('dialog', { name: '放弃未保存的更改？', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '继续编辑', exact: true }).click()
-  await expect(editor.locator('[name="name"]')).toHaveValue('未保存的连接')
-  await editor.getByRole('button', { name: '取消', exact: true }).click()
+  await expect(editor.locator('[name="api_key"]')).toHaveValue('不会写入服务端的草稿')
+  await page.keyboard.press('Escape')
   await page.getByRole('button', { name: '放弃更改', exact: true }).click()
   await expect(editor).not.toBeVisible()
-  await expect(page.getByRole('button', { name: '添加', exact: true })).toBeFocused()
+  await expect(primary.getByRole('button', { name: '编辑供应商', exact: true })).toBeFocused()
+  await chooseSecondary.click()
+  await expect(
+    models.getByRole('article', { name: '模型方案：备用账号模型', exact: true }),
+  ).toBeVisible()
+  await choosePrimary.click()
+  await expect(first).toContainText('当前默认')
+  // 大屏参数与操作并排；手机允许底栏换行，但操作仍在卡片范围内且不横向溢出。
+  const summary = await first.locator('.config-model-options').boundingBox()
+  const tools = await first.getByRole('group').boundingBox()
+  const box = await first.boundingBox()
+  if (testInfo.project.name === 'model-config-desktop') {
+    expect(tools!.x).toBeGreaterThanOrEqual(summary!.x + summary!.width)
+    expect(Math.abs(tools!.y - summary!.y)).toBeLessThan(12)
+    const connectionBox = await primary.boundingBox()
+    expect(Math.abs(connectionBox!.y - box!.y)).toBeLessThan(3)
+  }
+  expect(tools!.x + tools!.width).toBeLessThanOrEqual(box!.x + box!.width)
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  await page.screenshot({
+    path: testInfo.outputPath('connection-cards-and-model-actions.png'),
+    fullPage: true,
+  })
+  if (testInfo.project.name === 'model-config-narrow') {
+    await first.getByRole('group').scrollIntoViewIfNeeded()
+    await page.screenshot({ path: testInfo.outputPath('model-actions-narrow.png'), fullPage: true })
+  }
+})
+
+// 真实浏览器同时检查编辑弹窗的层级、固定底栏、焦点循环和关闭后恢复。
+test('连接与模型在居中弹窗编辑，长表单独立滚动且焦点逐层恢复', async ({
+  page,
+  account,
+}, testInfo) => {
+  await login(page, account)
+  await page.goto('/models')
+  await provider(page)
+  const editConnection = page.getByRole('button', { name: '编辑供应商', exact: true })
+  await editConnection.click()
+  const connectionEditor = page.getByRole('dialog', { name: '编辑供应商配置', exact: true })
+  await expect(connectionEditor).toBeVisible()
+  await expect(
+    connectionEditor.getByRole('heading', { name: '连接信息', exact: true }),
+  ).toBeVisible()
+  await expect(
+    connectionEditor.getByRole('heading', { name: '访问凭据', exact: true }),
+  ).toBeVisible()
+  await expect(connectionEditor.locator('[name="api_key"]')).toHaveValue('')
+  const editorBox = await connectionEditor.boundingBox()
+  expect(
+    Math.abs(editorBox!.x + editorBox!.width / 2 - page.viewportSize()!.width / 2),
+  ).toBeLessThan(2)
+  // 第二层遮罩必须高于主面板，编辑内容又必须高于自己的遮罩。
+  const layers = await page
+    .locator('.config-modal')
+    .evaluateAll((elements) => elements.map((element) => Number(getComputedStyle(element).zIndex)))
+  const overlays = await page
+    .locator('.config-modal-overlay')
+    .evaluateAll((elements) => elements.map((element) => Number(getComputedStyle(element).zIndex)))
+  expect(overlays[1]).toBeGreaterThan(layers[0]!)
+  expect(layers[1]).toBeGreaterThan(overlays[1]!)
+  await page.screenshot({
+    path: testInfo.outputPath('connection-editor-light.png'),
+    fullPage: true,
+  })
+  await page.keyboard.press('Escape')
+  await expect(connectionEditor).not.toBeVisible()
+  await expect(editConnection).toBeFocused()
+  await model(page, '弹窗模型')
+  await closeProvider(page)
+  // 从真实外观菜单切换主题后复用模型，覆盖居中编辑器的暗色状态。
+  const navigationTrigger = page.getByRole('button', { name: '打开侧栏', exact: true })
+  if (await navigationTrigger.isVisible()) await navigationTrigger.click()
+  await page.getByRole('button', { name: /外观.*浅色/ }).click()
+  await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
+  await closeSidebar(page)
+  await openProvider(page)
+  const row = page.getByRole('article', { name: '模型方案：弹窗模型', exact: true })
+  const advanced = row.getByRole('button', { name: '高级设置', exact: true })
+  await advanced.click()
+  const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
+  await expect(editor.locator('[name="catalog_model_id"]')).toHaveCount(0)
+  await expect(editor.getByRole('heading', { name: '模型参数', exact: true })).toBeVisible()
+  await editor.locator('[name="reasoning_policy"]').selectOption('selectable')
+  await editor.locator('[name="allow_off"]').check()
+  await page.screenshot({ path: testInfo.outputPath('model-editor-dark.png'), fullPage: true })
+  const fields = editor.locator('.config-fields')
+  // 底栏的保存按钮始终留在编辑弹窗内，字段较长时仅中间区域滚动。
+  const formBox = await fields.boundingBox(),
+    footerBox = await editor.locator('footer').boundingBox()
+  expect(formBox!.y + formBox!.height).toBeLessThanOrEqual(footerBox!.y + 1)
+  await expect(editor.getByRole('button', { name: '保存配置', exact: true })).toBeInViewport()
+  await editor.getByRole('button', { name: '保存配置', exact: true }).focus()
+  await page.keyboard.press('Tab')
+  await expect(editor.getByRole('button', { name: '关闭', exact: true })).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  await expect(editor.getByRole('button', { name: '保存配置', exact: true })).toBeFocused()
+  await page.keyboard.press('Escape')
+  const confirmation = page.getByRole('dialog', { name: '放弃未保存的更改？', exact: true })
+  await expect(confirmation).toBeVisible()
+  const lastLayers = await page
+    .locator('.config-modal')
+    .evaluateAll((elements) => elements.map((element) => Number(getComputedStyle(element).zIndex)))
+  expect(lastLayers[2]).toBeGreaterThan(lastLayers[1]!)
+  await page.keyboard.press('Escape')
+  await expect(confirmation).not.toBeVisible()
+  await expect(editor.locator('[name="reasoning_policy"]')).toHaveValue('selectable')
+  await page.keyboard.press('Escape')
+  await page.getByRole('button', { name: '放弃更改', exact: true }).click()
+  await expect(editor).not.toBeVisible()
+  await expect(advanced).toBeFocused()
+  await expect(row).toContainText('弹窗模型')
 })

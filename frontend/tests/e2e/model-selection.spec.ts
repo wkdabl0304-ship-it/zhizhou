@@ -1,5 +1,14 @@
 /** 受限模型选择真实浏览器验收：与配置管理共用串行随机库，每例隔离默认、启停及选择版本。 */
-import { test, control, provider, model, headers } from '../support/playwright/model-config'
+import {
+  test,
+  control,
+  provider,
+  model,
+  headers,
+  openProvider,
+  closeProvider,
+  returnToChat,
+} from '../support/playwright/model-config'
 import {
   expect,
   login,
@@ -9,25 +18,17 @@ import {
   closeSidebar,
 } from '../support/playwright/fixtures'
 import type { Page } from '@playwright/test'
+import {
+  openPicker,
+  closePicker,
+  chooseModel,
+  refreshModels,
+} from '../support/playwright/model-selection'
 
-/** 展开聊天模型控件，按可见方案名称选择，既有会话会立即经 PATCH 保存。 */
+/** 选择并重新展开参数区，供受限推理场景继续核对和编辑。 */
 async function choose(page: Page, name: string): Promise<void> {
+  await chooseModel(page, name)
   await openPicker(page)
-  const option = page.getByRole('option', { name: new RegExp(`^${name} ·`) })
-  const id = await option.getAttribute('value')
-  expect(id).toBeTruthy()
-  await page.getByLabel('聊天模型方案', { exact: true }).selectOption(id!)
-  await expect(page.getByText('正在保存会话选择…', { exact: true })).not.toBeVisible()
-}
-/** 只在控件收起时展开，避免反复点击将已经显示的输入区关闭。 */
-async function openPicker(page: Page): Promise<void> {
-  if ((await page.locator('.chat-model-picker').getAttribute('open')) === null)
-    await page.locator('.chat-model-picker summary').click()
-}
-/** 收起模型面板，避免覆盖后续聊天或管理入口。 */
-async function closePicker(page: Page): Promise<void> {
-  if ((await page.locator('.chat-model-picker').getAttribute('open')) !== null)
-    await page.locator('.chat-model-picker summary').click()
 }
 /** 从原会话目录打开历史，验证页面重载后由服务端恢复选择。 */
 async function reopen(page: Page, title: string): Promise<void> {
@@ -45,13 +46,30 @@ test('无默认手动选择固定方案，刷新恢复，连接和模型启停�
   await page.goto('/models')
   await provider(page)
   await model(page, '固定问答')
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await closeProvider(page)
+  await returnToChat(page)
   await page.getByRole('textbox', { name: '消息内容' }).fill('手动选择固定方案')
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
   await choose(page, '固定问答')
   await expect(page.getByText(/固定推理设置 ·/)).toBeVisible()
   await expect(page.locator('[name="chat_reasoning_mode"]')).toHaveCount(0)
+  // 单个入口位于输入框工具栏且在发送按钮左边；浮层不挤占聊天正文。
+  const trigger = page.getByRole('button', { name: '选择聊天模型', exact: true })
+  await expect(page.locator('.composer-send .chat-model-trigger')).toHaveCount(1)
+  const triggerBox = await trigger.boundingBox(),
+    sendBox = await page.getByRole('button', { name: '发送消息', exact: true }).boundingBox()
+  expect(triggerBox!.x + triggerBox!.width).toBeLessThanOrEqual(sendBox!.x)
+  expect(
+    Math.abs(triggerBox!.y + triggerBox!.height / 2 - sendBox!.y - sendBox!.height / 2),
+  ).toBeLessThan(2)
+  const menuBox = await page
+    .getByRole('dialog', { name: '选择聊天模型', exact: true })
+    .boundingBox()
+  expect(menuBox!.x).toBeGreaterThanOrEqual(0)
+  expect(menuBox!.x + menuBox!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  await page.screenshot({ path: testInfo.outputPath('composer-model-menu.png'), fullPage: true })
   await closePicker(page)
+  await expect(trigger).toBeFocused()
   const firstRequest = page.waitForRequest(
     (sent) => sent.url().endsWith('/api/chat') && sent.method() === 'POST',
   )
@@ -65,23 +83,27 @@ test('无默认手动选择固定方案，刷新恢复，连接和模型启停�
   await reopen(page, '手动选择固定方案')
   await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('固定问答')
   await page.getByRole('textbox', { name: '消息内容' }).fill('停用后保留的草稿')
+  await openPicker(page)
   await page.getByRole('link', { name: '前往模型管理', exact: true }).click()
+  await openProvider(page)
   const card = page.getByRole('article', { name: '模型方案：固定问答', exact: true })
-  await card.getByRole('button', { name: '停用', exact: true }).click()
-  await page.getByRole('button', { name: '确认停用', exact: true }).click()
+  await card.getByRole('switch').click()
   await expect(card).toContainText('已停用')
   await expect(card.getByRole('button', { name: '测试', exact: true })).toBeEnabled()
-  await page.getByRole('button', { name: '停用连接', exact: true }).click()
-  await page.getByRole('button', { name: '确认停用', exact: true }).click()
-  await page.getByRole('button', { name: '启用连接', exact: true }).click()
+  await page.getByRole('switch', { name: '启用供应商连接 我的 DeepSeek', exact: true }).click()
+  await page.getByRole('switch', { name: '启用供应商连接 我的 DeepSeek', exact: true }).click()
   await expect(card).toContainText('已停用')
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await closeProvider(page)
+  await returnToChat(page)
   await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('原模型方案已停用')
   await expect(page.getByRole('textbox', { name: '消息内容' })).toHaveValue('停用后保留的草稿')
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
+  await openPicker(page)
   await page.getByRole('link', { name: '前往模型管理', exact: true }).click()
-  await card.getByRole('button', { name: '启用', exact: true }).click()
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await openProvider(page)
+  await card.getByRole('switch').click()
+  await closeProvider(page)
+  await returnToChat(page)
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled()
   await page.screenshot({ path: testInfo.outputPath('selection-restored.png'), fullPage: true })
 })
@@ -96,7 +118,7 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   await provider(page)
   await model(page, '受限问答')
   const card = page.getByRole('article', { name: '模型方案：受限问答', exact: true })
-  await card.getByRole('button', { name: '编辑', exact: true }).click()
+  await card.getByRole('button', { name: '高级设置', exact: true }).click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
   await editor.locator('[name="reasoning_mode"]').selectOption('effort')
   await editor.locator('[name="effort"]').selectOption('high')
@@ -105,7 +127,8 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   await editor.locator('[name="allow_effort_max"]').uncheck()
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await closeProvider(page)
+  await returnToChat(page)
   await choose(page, '受限问答')
   await expect(page.locator('[name="chat_effort"] option')).toHaveText(['low', 'high'])
   await page.locator('[name="chat_effort"]').selectOption('low')
@@ -144,7 +167,9 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('请确认')
   await expect(page.getByRole('textbox', { name: '消息内容' })).toHaveValue('冲突后保留消息')
   await expect(page.getByRole('article')).toHaveCount(2)
-  await expect(page.locator('.chat-model-picker summary')).toContainText('关闭思考')
+  await expect(page.getByRole('button', { name: '选择聊天模型', exact: true })).toContainText(
+    '关闭思考',
+  )
   // 收紧后台范围后，保存的关闭思考选择必须失效，不能静默替换成高档。
   const configs = await (
     await request.get(`${base}/api/model-config/models`, { headers: auth })
@@ -164,7 +189,7 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
     },
   })
   expect((await narrowed.json()).code).toBe(0)
-  await page.getByRole('button', { name: '刷新模型选项', exact: true }).click()
+  await refreshModels(page)
   await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText(
     '原推理设置超出当前限制',
   )
@@ -181,18 +206,19 @@ test('管理预算闭区间，聊天确认有效整数后保存，刷新恢复�
   await login(page, account)
   await page.goto('/models')
   await provider(page, '预算连接', 'anthropic')
-  await page.getByRole('button', { name: '添加模型方案', exact: true }).click()
-  const editor = page.getByRole('dialog', { name: '添加模型方案', exact: true })
-  await editor.locator('[name="name"]').fill('预算问答')
-  await editor
-    .locator('[name="catalog_model_id"]')
-    .selectOption('anthropic:claude-haiku-4-5-20251001')
+  await model(page, '预算问答', 'Claude Haiku 4.5')
+  await page
+    .getByRole('article', { name: '模型方案：预算问答', exact: true })
+    .getByRole('button', { name: '高级设置' })
+    .click()
+  const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
   await editor.locator('[name="reasoning_mode"]').selectOption('budget')
   await editor.locator('[name="reasoning_policy"]').selectOption('selectable')
   await editor.locator('[name="policy_budget_max"]').fill('8192')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await closeProvider(page)
+  await returnToChat(page)
   await choose(page, '预算问答')
   await page.locator('[name="chat_budget"]').fill('1023')
   await page
@@ -227,14 +253,19 @@ test('生成中禁止切换，后台停用不终止本轮，结束后阻止下�
   await page.goto('/models')
   await provider(page)
   await model(page, '生成方案')
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await closeProvider(page)
+  await returnToChat(page)
   await choose(page, '生成方案')
   await closePicker(page)
   const gate = await modelGate('hold')
   await send(page, gate.prompt)
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
   await openPicker(page)
-  await expect(page.getByLabel('聊天模型方案', { exact: true })).toBeDisabled()
+  await expect(page.getByRole('listbox', { name: '聊天模型方案', exact: true })).toHaveAttribute(
+    'aria-disabled',
+    'true',
+  )
+  await expect(page.getByRole('option').first()).toBeDisabled()
   await closePicker(page)
   const auth = await headers(request, account),
     base = control().url
@@ -252,7 +283,7 @@ test('生成中禁止切换，后台停用不终止本轮，结束后阻止下�
       ).json()
     ).code,
   ).toBe(0)
-  await page.getByRole('button', { name: '刷新模型选项', exact: true }).click()
+  await refreshModels(page)
   await gate.release()
   await finished(page)
   await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('原模型方案已停用')

@@ -101,8 +101,8 @@ export async function login(page: Page, account: Account): Promise<void> {
 export async function sidebar(page: Page): Promise<Locator> {
   const dialog = page.getByRole('dialog', { name: '会话导航', exact: true })
   if (await dialog.isVisible()) return dialog
-  // 刷新后身份恢复与工作区挂载是异步的，先等待公开入口，避免将暂未出现的窄屏按钮误判为桌面。
-  await expect(page.getByRole('textbox', { name: '消息内容' })).toBeVisible()
+  // 等待共用工作区挂载，兼容没有聊天输入框的模型管理页。
+  await expect(page.locator('.chat-shell')).toBeVisible()
   const trigger = page.getByRole('button', { name: '打开侧栏', exact: true })
   if (await trigger.isVisible()) {
     await trigger.click()

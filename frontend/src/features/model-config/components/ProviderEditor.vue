@@ -4,16 +4,27 @@ import { computed, onBeforeUnmount, reactive, ref, toRaw } from 'vue'
 import { ApiError } from '@/features/auth/authenticated'
 import { explainConfigError, useModelConfigStore } from '../store'
 import { formatLabels, normalizeBaseUrl, validateProvider } from '../validation'
-import type { ProviderConfiguration, ProviderInput } from '../types'
+import type { ProviderConfiguration, ProviderInput, Provider } from '../types'
 import ConfigEditor from './ConfigEditor.vue'
-const props = defineProps<{ previous?: ProviderConfiguration }>()
-const emit = defineEmits<{ close: []; reload: [] }>()
+const props = defineProps<{
+  previous?: ProviderConfiguration
+  brandProvider?: Provider
+  returnFocus?: HTMLElement | null
+}>()
+const emit = defineEmits<{
+  close: []
+  reload: []
+  state: [value: { dirty: boolean; busy: boolean }]
+}>()
 const store = useModelConfigStore()
 // 拷贝原始读取版本，页面刷新不能隐式更新编辑中的并发令牌。
 const previous = props.previous ? structuredClone(toRaw(props.previous)) : undefined
-const first = store.brands.find((item) => item.recommended) ?? store.brands[0]!
+const first =
+  store.brands.find((item) => item.provider === props.brandProvider) ??
+  store.brands.find((item) => item.recommended) ??
+  store.brands[0]!
 const draft = reactive<ProviderInput>({
-  name: previous?.name ?? '',
+  name: previous?.name ?? (props.brandProvider ? first.display_name : ''),
   provider: previous?.provider ?? first.provider,
   api_format: previous?.api_format ?? first.default_api_format,
   endpoint_config: {
@@ -86,70 +97,81 @@ onBeforeUnmount(() => {
     :busy="busy"
     :error="error"
     :conflict="conflict"
+    description="配置接口与访问密钥，模型启停在供应商面板中管理。"
+    :return-focus="returnFocus"
     @submit="save"
     @close="emit('close')"
     @reload="reload"
+    @state="emit('state', $event)"
   >
-    <label
-      >配置名称<input
-        v-model="draft.name"
-        name="name"
-        maxlength="100"
-        autocomplete="off"
-        placeholder="例如：DeepSeek 官方"
-    /></label>
-    <label
-      >供应商<select
-        v-model="draft.provider"
-        name="provider"
-        :disabled="!!previous"
-        @change="changeProvider"
+    <section class="config-form-section" aria-label="连接信息">
+      <h3>连接信息</h3>
+      <label
+        >配置名称<input
+          v-model="draft.name"
+          name="name"
+          maxlength="100"
+          autocomplete="off"
+          placeholder="例如：DeepSeek 官方"
+      /></label>
+      <label v-if="!brandProvider"
+        >供应商<select
+          v-model="draft.provider"
+          name="provider"
+          :disabled="!!previous"
+          @change="changeProvider"
+        >
+          <option v-for="item in store.brands" :key="item.provider" :value="item.provider">
+            {{ item.display_name }}
+          </option></select
+        ><small v-if="previous">供应商创建后固定，更换时请新建配置。</small></label
       >
-        <option v-for="item in store.brands" :key="item.provider" :value="item.provider">
-          {{ item.display_name }}
-        </option></select
-      ><small v-if="previous">供应商创建后固定，更换时请新建配置。</small></label
-    >
-    <label v-if="brand && brand.api_formats.length > 1"
-      >接口格式<select v-model="draft.api_format" name="api_format">
-        <option v-for="format in brand.api_formats" :key="format" :value="format">
-          {{ formatLabels[format] }}
-        </option></select
-      ><small>更改接口格式必须与所有关联方案兼容。</small></label
-    >
-    <p v-else class="config-hint">接口格式：{{ formatLabels[draft.api_format] }}</p>
-    <label v-if="draft.provider === 'bailian'"
-      >Base URL<input
-        v-model="draft.endpoint_config.base_url"
-        name="base_url"
-        aria-label="Base URL"
-        aria-describedby="bailian-base-url-hint"
-        type="url"
-        maxlength="2048"
-        autocomplete="off"
-        spellcheck="false"
-        placeholder="https://ws-xxx.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
-      /><small id="bailian-base-url-hint"
-        >直接复制百炼控制台的“OpenAI 兼容地址”，无需单独填写地域或业务空间。</small
-      ></label
-    >
-    <p v-else class="config-hint">端点：{{ endpoint?.display_name }}</p>
-    <label class="config-switch"
-      ><input v-model="draft.enabled" name="enabled" type="checkbox" />启用此连接<small
-        >停用后保留模型方案，聊天中暂不可选。</small
-      ></label
-    >
-    <label
-      >{{ previous ? '替换 API Key · 选填' : 'API Key'
-      }}<input
-        v-model="draft.api_key"
-        name="api_key"
-        type="password"
-        autocomplete="new-password"
-        spellcheck="false"
-      /><small>{{
-        previous ? '留空保留已有密钥；已保存密钥不会回显。' : '密钥仅用于本次写入，由后端加密保存。'
-      }}</small></label
-    >
+      <label v-if="brand && brand.api_formats.length > 1"
+        >接口格式<select v-model="draft.api_format" name="api_format">
+          <option v-for="format in brand.api_formats" :key="format" :value="format">
+            {{ formatLabels[format] }}
+          </option></select
+        ><small>更改接口格式必须与所有关联方案兼容。</small></label
+      >
+      <p v-else class="config-hint">接口格式：{{ formatLabels[draft.api_format] }}</p>
+      <label v-if="draft.provider === 'bailian'"
+        >Base URL<input
+          v-model="draft.endpoint_config.base_url"
+          name="base_url"
+          aria-label="Base URL"
+          aria-describedby="bailian-base-url-hint"
+          type="url"
+          maxlength="2048"
+          autocomplete="off"
+          spellcheck="false"
+          placeholder="https://ws-xxx.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
+        /><small id="bailian-base-url-hint"
+          >直接复制百炼控制台的“OpenAI 兼容地址”，无需单独填写地域或业务空间。</small
+        ></label
+      >
+      <p v-else class="config-hint">端点：{{ endpoint?.display_name }}</p>
+      <label v-if="!brandProvider" class="config-switch"
+        ><input v-model="draft.enabled" name="enabled" type="checkbox" />启用此连接<small
+          >停用后保留模型方案，聊天中暂不可选。</small
+        ></label
+      >
+    </section>
+    <section class="config-form-section" aria-label="访问凭据">
+      <h3>访问凭据</h3>
+      <label
+        >{{ previous ? '替换 API Key · 选填' : 'API Key'
+        }}<input
+          v-model="draft.api_key"
+          name="api_key"
+          type="password"
+          autocomplete="new-password"
+          spellcheck="false"
+        /><small>{{
+          previous
+            ? '留空保留已有密钥；已保存密钥不会回显。'
+            : '密钥仅用于本次写入，由后端加密保存。'
+        }}</small></label
+      >
+    </section>
   </ConfigEditor>
 </template>

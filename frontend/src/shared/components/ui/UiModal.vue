@@ -1,4 +1,4 @@
-<!-- 通用模态框：以 Reka 管理 Portal、焦点、Esc 和滚动锁，可切换为右侧表单抽屉。 -->
+<!-- 通用模态框：以 Reka 管理 Portal、焦点、Esc 和滚动锁，支持居中宽弹窗与右侧表单抽屉。 -->
 <script setup lang="ts">
 import {
   DialogRoot,
@@ -9,11 +9,26 @@ import {
   DialogDescription,
 } from 'reka-ui'
 import { X } from '@lucide/vue'
-import { nextTick, onUnmounted } from 'vue'
+import { inject, nextTick, onUnmounted, provide } from 'vue'
 import UiIconButton from './UiIconButton.vue'
-defineProps<{ open: boolean; title: string; description: string; drawer?: boolean }>()
+const props = defineProps<{
+  open: boolean
+  title: string
+  description: string
+  drawer?: boolean
+  wide?: boolean
+  editor?: boolean
+  returnFocus?: HTMLElement | null
+  closeDisabled?: boolean
+}>()
 const emit = defineEmits<{ 'update:open': [value: boolean] }>()
-const previous = document.activeElement
+// Portal 保留 Vue 的注入链；每层遮罩必须高于上一层内容，确认框才能覆盖编辑弹窗。
+const depth = inject('zhizhou:modal-depth', 0)
+provide('zhizhou:modal-depth', depth + 1)
+const overlayStyle = depth ? { zIndex: `calc(var(--z-drawer) + ${depth * 2 - 1})` } : undefined
+const contentStyle = depth ? { zIndex: `calc(var(--z-drawer) + ${depth * 2})` } : undefined
+// 编辑开始会禁用原卡片按钮；调用方可提前保存触发器，避免浏览器清空焦点后丢失返回位置。
+const previous = props.returnFocus ?? document.activeElement
 /** 模态关闭后恢复触发元素；列表重绘移除触发器时回到页面标题。 */
 function restoreFocus(event: Event): void {
   event.preventDefault()
@@ -23,32 +38,38 @@ function restoreFocus(event: Event): void {
 function restoreTarget(): void {
   if (previous instanceof HTMLElement && previous.isConnected) previous.focus()
   else {
-    // 嵌套确认框与抽屉可能在同一帧卸载，不覆盖另一层已经恢复的页面焦点。
-    const active = document.activeElement
-    if (
-      active instanceof HTMLElement &&
-      active !== document.body &&
-      !active.closest('[role="dialog"]')
-    )
+    // 编辑器与放弃确认可能同帧卸载；确认层不能把已恢复到主面板的焦点再次移到页面外。
+    const dialogs = document.querySelectorAll<HTMLElement>('.config-modal[data-state="open"]')
+    const remaining = dialogs[dialogs.length - 1]
+    if (remaining) {
+      if (!remaining.contains(document.activeElement)) remaining.focus()
       return
+    }
+    const active = document.activeElement
+    if (active instanceof HTMLElement && active !== document.body && active.isConnected) return
     document.querySelector<HTMLElement>('main h1[tabindex]')?.focus()
   }
 }
 // 页面使用 v-if 移除整个 DialogRoot 时，内部事件可能随祖先卸载而停止转发。
-// 等待 DOM 卸载完成后补充同一恢复动作；仍有上层弹窗时交给其焦点约束管理。
+// Reka 2.11 的 FocusScope 在下一宏任务释放焦点约束；其后补回入口，兼容多层同帧卸载。
 onUnmounted(() => {
   void nextTick(() => {
-    if (!document.querySelector('.config-modal[data-state="open"]')) restoreTarget()
+    setTimeout(restoreTarget, 0)
   })
 })
 </script>
 <template>
   <DialogRoot :open="open" @update:open="emit('update:open', $event)">
     <DialogPortal>
-      <DialogOverlay class="config-modal-overlay" />
+      <DialogOverlay class="config-modal-overlay" :style="overlayStyle" />
       <DialogContent
         class="config-modal"
-        :class="{ 'config-modal--drawer': drawer }"
+        :class="{
+          'config-modal--drawer': drawer,
+          'config-modal--wide': wide,
+          'config-modal--editor': editor,
+        }"
+        :style="contentStyle"
         @close-auto-focus="restoreFocus"
       >
         <header class="config-modal-heading">
@@ -56,11 +77,11 @@ onUnmounted(() => {
             <DialogTitle>{{ title }}</DialogTitle
             ><DialogDescription>{{ description }}</DialogDescription>
           </div>
-          <UiIconButton label="关闭" @click="emit('update:open', false)"
+          <UiIconButton label="关闭" :disabled="closeDisabled" @click="emit('update:open', false)"
             ><X :size="18"
           /></UiIconButton>
         </header>
-        <slot />
+        <div class="config-modal-body"><slot /></div>
       </DialogContent>
     </DialogPortal>
   </DialogRoot>
@@ -80,7 +101,9 @@ onUnmounted(() => {
   z-index: var(--z-drawer);
   width: min(440px, calc(100vw - 32px));
   max-height: calc(100dvh - 32px);
-  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-lg);
   background: var(--surface);
@@ -89,11 +112,23 @@ onUnmounted(() => {
   padding: 24px;
 }
 .config-modal-heading {
+  flex-shrink: 0;
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 16px;
   margin-bottom: 20px;
+}
+.config-modal-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+.config-modal--drawer .config-modal-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .config-modal-heading h2 {
   margin: 0 0 7px;
@@ -115,6 +150,35 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+.config-modal--wide {
+  width: min(1120px, calc(100vw - 48px));
+  height: min(780px, calc(100dvh - 48px));
+}
+.config-modal--wide .config-modal-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+/* 居中编辑弹窗固定标题和底栏，长表单仅滚动中间字段区。 */
+.config-modal--editor {
+  width: min(680px, calc(100vw - 32px));
+  padding: 0;
+}
+.config-modal--editor .config-modal-heading {
+  margin: 0;
+  padding: 22px 26px 20px;
+  border-bottom: 1px solid var(--border);
+}
+.config-modal--editor .config-modal-body {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+@media (max-width: 540px) {
+  .config-modal--editor .config-modal-heading {
+    padding: 20px;
+  }
 }
 .config-modal--drawer .config-modal-heading {
   flex-shrink: 0;

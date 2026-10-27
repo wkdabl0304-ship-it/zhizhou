@@ -63,7 +63,8 @@ test('生成期间进入模型管理再返回，原回复继续完成且刷新�
   await (await sidebar(page)).getByRole('link', { name: '模型管理', exact: true }).click()
   await expect(page.getByRole('heading', { name: '模型管理', exact: true })).toBeVisible()
   expect(await gate.closed()).toBe(false)
-  await page.getByRole('link', { name: '返回聊天', exact: true }).click()
+  await page.goBack()
+  await expect(page.getByRole('textbox', { name: '消息内容' })).toBeVisible()
   await expect(page.getByRole('article', { name: '知舟的回复', exact: true })).toContainText(
     '已收到部分回答',
   )

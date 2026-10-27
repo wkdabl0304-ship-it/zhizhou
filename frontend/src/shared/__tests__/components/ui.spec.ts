@@ -1,6 +1,8 @@
 /** 公共包装组件：验证自有按钮语义、属性透传与输入框观察器清理，不测试第三方内部实现。 */
 import { describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
+import { defineComponent, h, ref } from 'vue'
+import UiModal from '../../components/ui/UiModal.vue'
 import UiButton from '../../components/ui/UiButton.vue'
 import UiIconButton from '../../components/ui/UiIconButton.vue'
 import UiAutoTextarea from '../../components/ui/UiAutoTextarea.vue'
@@ -64,4 +66,101 @@ describe('自适应输入框', () => {
     wrapper.unmount()
     expect(disconnect).toHaveBeenCalledOnce()
   })
+})
+
+// Portal 内的编辑器必须独立响应关闭，不能带走仍打开的供应商主面板。
+it('嵌套编辑弹窗关闭只影响当前层，保留主面板和可访问标题', async () => {
+  const childOpen = ref(false)
+  const parentClose = vi.fn<(open: boolean) => void>()
+  const Host = defineComponent({
+    // 通过真实按钮打开第二层，让公共模态组件负责其生命周期。
+    setup: () => () =>
+      h(
+        UiModal,
+        {
+          open: true,
+          title: '供应商面板',
+          description: '选择连接与模型',
+          'onUpdate:open': parentClose,
+        },
+        {
+          default: () => [
+            h(
+              'button',
+              {
+                onClick: () => {
+                  childOpen.value = true
+                },
+              },
+              '编辑配置',
+            ),
+            childOpen.value
+              ? h(
+                  UiModal,
+                  {
+                    open: true,
+                    editor: true,
+                    title: '编辑配置',
+                    description: '修改连接参数',
+                    'onUpdate:open': () => {
+                      childOpen.value = false
+                    },
+                  },
+                  { default: () => h('input', { 'aria-label': '配置名称' }) },
+                )
+              : null,
+          ],
+        },
+      ),
+  })
+  mount(Host, { attachTo: document.body })
+  await flushPromises()
+  const edit = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '编辑配置',
+  )!
+  edit.click()
+  await flushPromises()
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2)
+  document.querySelector<HTMLButtonElement>('.config-modal--editor [aria-label="关闭"]')!.click()
+  await flushPromises()
+  expect(parentClose).not.toHaveBeenCalled()
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
+  expect(document.querySelector('[role="dialog"]')?.textContent).toContain('供应商面板')
+})
+
+// 放弃草稿同时卸载确认层和编辑层，不能由最后卸载的确认框抢走主面板焦点。
+it('同帧关闭编辑器和确认框后焦点回到主面板入口', async () => {
+  const Host = defineComponent({
+    components: { UiModal },
+    setup: () => ({
+      editing: ref(false),
+      discarding: ref(false),
+      trigger: ref<HTMLElement | null>(null),
+    }),
+    template:
+      '<main><h1 tabindex="-1">页面标题</h1><UiModal :open="true" title="主面板" description="管理连接"><button ref="trigger" @click="editing = true">打开编辑</button><UiModal v-if="editing" :open="true" editor :return-focus="trigger" title="编辑连接" description="修改参数"><button @click="discarding = true">关闭编辑</button><UiModal v-if="discarding" :open="true" title="放弃草稿" description="不保存修改"><button @click="editing = false">确认放弃</button></UiModal></UiModal></UiModal></main>',
+  })
+  mount(Host, { attachTo: document.body })
+  await flushPromises()
+  const trigger = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '打开编辑',
+  )!
+  trigger.focus()
+  trigger.click()
+  await flushPromises()
+  const close = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '关闭编辑',
+  )!
+  close.focus()
+  close.click()
+  await flushPromises()
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(3)
+  const discard = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent === '确认放弃',
+  )!
+  discard.focus()
+  discard.click()
+  await flushPromises()
+  await vi.waitFor(() => expect(document.activeElement).toBe(trigger))
+  expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(1)
 })

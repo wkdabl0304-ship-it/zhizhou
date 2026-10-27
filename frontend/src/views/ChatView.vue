@@ -19,7 +19,6 @@ async function send(text: string): Promise<void> {
 }
 </script>
 <template>
-  <ChatModelSelector />
   <div v-if="!chat.activeConversation" class="home-scroll">
     <ChatWelcome
       ref="composer"
@@ -27,7 +26,8 @@ async function send(text: string): Promise<void> {
       :sending="chat.isSending"
       :send-blocked="!chat.selectionReady"
       @send="send"
-    />
+      ><template #model-selector><ChatModelSelector /></template
+    ></ChatWelcome>
   </div>
   <template v-else>
     <section class="conversation-scroll" aria-label="对话内容">
@@ -70,7 +70,8 @@ async function send(text: string): Promise<void> {
           :disabled="chat.inputBlocked"
           :send-blocked="!chat.selectionReady"
           @send="send"
-        />
+          ><template #model-selector><ChatModelSelector /></template
+        ></ChatComposer>
         <p class="composer-disclaimer">AI 回复仅供参考，请核实重要信息。</p>
       </div>
     </footer>

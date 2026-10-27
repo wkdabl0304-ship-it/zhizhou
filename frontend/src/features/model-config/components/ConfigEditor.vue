@@ -1,6 +1,6 @@
 <!-- 配置编辑器外壳：统一提交、冲突提示、未保存关闭确认和离页保护，表单字段由业务插槽提供。 -->
 <script setup lang="ts">
-import { onBeforeUnmount, ref } from 'vue'
+import { onBeforeUnmount, ref, watchEffect } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '@/features/auth/store'
 import UiModal from '@/shared/components/ui/UiModal.vue'
@@ -12,8 +12,17 @@ const props = defineProps<{
   loading?: boolean
   error: string
   conflict: boolean
+  description?: string
+  returnFocus?: HTMLElement | null
 }>()
-const emit = defineEmits<{ submit: []; close: []; reload: [] }>()
+const emit = defineEmits<{
+  submit: []
+  close: []
+  reload: []
+  state: [value: { dirty: boolean; busy: boolean }]
+}>()
+// 父级供应商面板据此保护保存过程，未保存草稿仍只由当前编辑弹窗持有。
+watchEffect(() => emit('state', { dirty: props.dirty, busy: props.busy }))
 const discarding = ref(false)
 let leaving: ((allowed: boolean) => void) | undefined
 const auth = useAuthStore()
@@ -23,7 +32,7 @@ function close(): void {
   if (props.dirty) discarding.value = true
   else emit('close')
 }
-/** 确认放弃当前草稿，按调用来源关闭抽屉或继续路由导航。 */
+/** 确认放弃当前草稿，按调用来源关闭编辑器或继续路由导航。 */
 function discard(): void {
   discarding.value = false
   if (leaving) {
@@ -39,8 +48,9 @@ function keep(): void {
 }
 // 用户主动离开时询问草稿；认证失效必须允许根组件导航并清理秘密输入。
 onBeforeRouteLeave(() => {
-  if (!auth.isAuthenticated || !props.dirty) return true
+  if (!auth.isAuthenticated) return true
   if (props.busy) return false
+  if (!props.dirty) return true
   discarding.value = true
   return new Promise<boolean>((resolve) => {
     leaving = resolve
@@ -54,8 +64,10 @@ onBeforeUnmount(() => {
   <UiModal
     :open="true"
     :title="title"
-    description="保存配置后，可单独测试或设为全局默认。"
-    drawer
+    :description="description ?? '保存配置后，可单独测试或设为全局默认。'"
+    editor
+    :return-focus="returnFocus"
+    :close-disabled="busy"
     @update:open="close"
   >
     <form

@@ -1,7 +1,7 @@
 <!-- 聊天输入区：负责发送规则、输入法组合保护与原生表单语义，不负责生成回复。 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { ArrowUp, CornerDownLeft, Sparkles } from '@lucide/vue'
+import { ArrowUp, Sparkles } from '@lucide/vue'
 import UiAutoTextarea from '@/shared/components/ui/UiAutoTextarea.vue'
 import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
@@ -80,8 +80,8 @@ defineExpose({ focus })
     <div class="composer-toolbar">
       <span class="composer-mode"><Sparkles :size="15" /><span>一起探索，慢慢理清</span></span>
       <div class="composer-send">
-        <span class="composer-key-hint"><CornerDownLeft :size="12" />发送</span
-        ><UiTooltip text="发送消息"
+        <slot name="model-selector" />
+        <UiTooltip text="发送消息"
           ><UiIconButton type="submit" class="send-button" label="发送消息" :disabled="!canSend"
             ><ArrowUp :size="19" /></UiIconButton
         ></UiTooltip>
@@ -125,14 +125,9 @@ defineExpose({ focus })
 .composer-send {
   display: flex;
   align-items: center;
-  gap: 13px;
-}
-.composer-key-hint {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 10px;
-  color: var(--text-muted);
+  gap: 6px;
+  min-width: 0;
+  margin-left: auto;
 }
 .send-button {
   width: 33px;
@@ -155,8 +150,11 @@ defineExpose({ focus })
     padding: 16px 15px 10px;
     border-radius: 20px;
   }
-  .composer-key-hint {
+  .composer-mode {
     display: none;
+  }
+  .composer-toolbar {
+    justify-content: flex-end;
   }
 }
 @media (pointer: coarse) {

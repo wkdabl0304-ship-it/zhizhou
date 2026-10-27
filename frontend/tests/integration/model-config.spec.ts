@@ -32,6 +32,7 @@ it('模型管理与聊天共用导航实例，保留折叠状态和目录，选�
     const url = String(input)
     if (url.endsWith('/options')) return response(modelOptionsData())
     if (url.endsWith('/default')) return response(data.selected)
+    if (url.includes('/catalog/models?')) return response([data.catalog])
     if (url.endsWith('/catalog/providers')) return response([data.brand])
     if (url.endsWith('/provider-configurations')) return response([data.provider])
     if (url.endsWith('/models')) return response([data.model])
@@ -53,6 +54,10 @@ it('模型管理与聊天共用导航实例，保留折叠状态和目录，选�
   expect(page.get('.chat-shell').classes()).toContain('sidebar-collapsed')
   expect(page.get('a[aria-label="模型管理"]').attributes('aria-current')).toBe('page')
   expect(page.get('a[aria-label="模型管理"]').classes()).toContain('is-active')
+  expect(page.find('.chat-header').exists()).toBe(false)
+  expect(page.get('h1').text()).toBe('模型管理')
+  expect(page.get('h2').text()).toContain('模型供应商')
+  expect(page.find('a.config-link').exists()).toBe(false)
   // 收起状态按原设计隐藏目录，展开后应直接复用已加载的会话。
   await page.get('button[aria-label="展开侧栏"]').trigger('click')
   expect(page.get('.conversation-item').text()).toContain('历史话题')
@@ -78,6 +83,7 @@ it('工作区导航被离页守卫取消时保留当前管理页与聊天草稿'
     const url = String(input)
     if (url.endsWith('/options')) return response(modelOptionsData())
     if (url.endsWith('/default')) return response(data.selected)
+    if (url.includes('/catalog/models?')) return response([data.catalog])
     if (url.endsWith('/catalog/providers')) return response([data.brand])
     if (url.endsWith('/provider-configurations')) return response([data.provider])
     if (url.endsWith('/models')) return response([data.model])
@@ -136,6 +142,7 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
       if (init?.method === 'PUT') selected = { ...data.selected, version: 2 }
       return response(selected)
     }
+    if (url.includes('/catalog/models?')) return response([data.catalog])
     if (url.endsWith('/catalog/providers')) return response([data.brand])
     if (url.endsWith('/provider-configurations')) return response([data.provider])
     if (url.endsWith('/models')) return response([data.model])
@@ -152,10 +159,14 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
   await page.get('a[href="/models"]').trigger('click')
   await vi.waitFor(() => expect(router.currentRoute.value.name).toBe('models'))
   await flushPromises()
-  const select = page.findAll('button').find((button) => button.text() === '设为默认')!
-  await select.trigger('click')
+  await page.get('[aria-label="配置 Anthropic"]').trigger('click')
   await flushPromises()
-  expect(page.text()).toContain('用于尚未选择模型的会话')
+  const select = [...document.querySelectorAll('button')].find(
+    (button) => button.textContent?.trim() === '设为默认',
+  )!
+  select.click()
+  await flushPromises()
+  expect(document.body.textContent).toContain('用于尚未选择模型的会话')
   expect(fetchMock.mock.calls.some(([url]) => String(url).endsWith('/test'))).toBe(false)
   await router.push('/')
   await flushPromises()
@@ -163,7 +174,7 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
   await page.get('form.chat-composer').trigger('submit')
   await flushPromises()
   expect(page.text()).toContain('配置后的回复')
-  expect(page.text()).toContain('模型 · 长文分析')
+  expect(page.get('.chat-model-trigger').text()).toContain('长文分析')
   useAuthStore().logout()
   await flushPromises()
   expect(useModelConfigStore().selected).toBeNull()
@@ -185,16 +196,18 @@ it('选项读取失败保留草稿并可重试，窗口激活后同步不可用�
   await page.get('textarea').setValue('重试后保留的草稿')
   expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
   fetchMock.mockResolvedValueOnce(response(modelOptionsData()))
-  await page
-    .findAll('button')
-    .find((button) => button.text() === '刷新模型选项')!
-    .trigger('click')
+  await page.get('.chat-model-trigger').trigger('click')
+  await flushPromises()
+  const refresh = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+    (button) => button.textContent?.trim() === '刷新模型选项',
+  )!
+  refresh.click()
   await flushPromises()
   expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeUndefined()
   fetchMock.mockResolvedValueOnce(response({ default_selection: null, providers: [] }))
   window.dispatchEvent(new Event('focus'))
   await flushPromises()
-  expect(page.text()).toContain('暂无可用模型')
+  expect(document.body.textContent).toContain('暂无可用模型')
   expect((page.get('textarea').element as HTMLTextAreaElement).value).toBe('重试后保留的草稿')
   await page.get('form.chat-composer').trigger('submit')
   expect(fetchMock.mock.calls.some(([url]) => url === '/api/chat')).toBe(false)
@@ -217,9 +230,13 @@ it('无全局默认仍可手动选方案发送，默认清除后已有会话继�
   await flushPromises()
   await page.get('textarea').setValue('没有默认也能发送')
   expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
-  await page
-    .get('[name="chat_model"]')
-    .setValue(data.providers[0]!.models[0]!.model_configuration_id)
+  await page.get('.chat-model-trigger').trigger('click')
+  await flushPromises()
+  document
+    .querySelector<HTMLButtonElement>(
+      '[data-model-id="' + data.providers[0]!.models[0]!.model_configuration_id + '"]',
+    )!
+    .click()
   await flushPromises()
   expect(page.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeUndefined()
   await page.get('form.chat-composer').trigger('submit')
