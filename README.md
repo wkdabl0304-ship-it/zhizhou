@@ -1,151 +1,223 @@
 <p align="center">
-  <img src="frontend/public/favicon.svg" width="76" height="76" alt="知舟舟形标志" />
+  <img src="frontend/public/favicon.svg" width="92" height="92" alt="知舟舟形标志" />
 </p>
 
 <h1 align="center">知舟 · Zhizhou</h1>
 
 <p align="center"><strong>心有山海，自有知舟。</strong></p>
-<p align="center">让知识流动，让想法抵达。<br />一个面向日常工作的开源 AI 工作空间。</p>
+<p align="center">让知识流动，让想法抵达。</p>
+<p align="center"><sub>An open-source AI workspace for conversations, model governance, and scoped organization access.</sub></p>
 
 <p align="center">
   <a href="frontend/package.json"><img src="https://img.shields.io/badge/Vue-3-42b883?style=flat-square" alt="Vue 3" /></a>
   <a href="backend/pyproject.toml"><img src="https://img.shields.io/badge/Python-3.14%2B-3776ab?style=flat-square" alt="Python 3.14 及以上" /></a>
-  <a href="backend/README.md#启动与聊天接口"><img src="https://img.shields.io/badge/Streaming-SSE-167c91?style=flat-square" alt="SSE 流式对话" /></a>
+  <img src="https://img.shields.io/badge/Streaming-SSE-167c91?style=flat-square" alt="SSE 流式对话" />
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-Apache_2.0-142c3e?style=flat-square" alt="Apache 2.0 许可证" /></a>
 </p>
 
 <p align="center">
-  <a href="#为什么做知舟">项目愿景</a> ·
-  <a href="#现在可以体验什么">功能亮点</a> ·
-  <a href="#开发进度">开发进度</a> ·
-  <a href="#本地体验">本地体验</a> ·
-  <a href="#开发与参与">开发文档</a>
+  <a href="#知舟从哪里来">项目来历</a> ·
+  <a href="#它能带来什么">核心能力</a> ·
+  <a href="#一眼看见知舟">界面一览</a> ·
+  <a href="#开始体验">快速开始</a> ·
+  <a href="#参与开发">参与开发</a>
 </p>
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/images/home-dark.jpg" />
-  <source media="(prefers-color-scheme: light)" srcset="docs/images/home-light.jpg" />
-  <img src="docs/images/home-light.jpg" alt="知舟实际首页：青蓝水墨山海、舟形标志、对话输入区和工作场景建议" width="1280" />
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/workspace-dark.png" />
+  <source media="(prefers-color-scheme: light)" srcset="docs/images/workspace-light.png" />
+  <img src="docs/images/workspace-light.png" alt="知舟工作区浅色主题：水墨山海、会话侧栏和对话输入区" width="1440" />
 </picture>
 
-<p align="center"><sub>项目实际界面 · 青蓝水墨与明暗主题 · 封面随你的 GitHub 明暗主题自动切换</sub></p>
+<p align="center"><sub>真实工作区 · GitHub 会随阅读者的明暗主题自动切换封面</sub></p>
 
-> **正在构建中。** 已有注册登录、流式对话与工具过程展示，前端已对接服务端会话目录、历史读取、续聊、标题同步与改名和软删除，刷新后可从侧栏重新打开历史。用户、部门与范围权限管理已完成前后端对接，超管和部门管理员按范围管理组织与成员。组件预览仍可独立运行。文件工作区、企业知识库和分享仍在规划中。
+## 知舟从哪里来
 
-## 为什么做知舟
+知舟起于一个很朴素、却反复出现的工作场景：一个问题的答案分散在资料、文件和同事的经验里。找到片段只是开始，真正困难的是把它们组织成一段可靠的判断，再推进成下一步行动。
 
-工作中的一个问题，往往散落在文档、文件和同事的经验里。找到资料只是开始，把资料变成清晰的结论和可执行的下一步，才是我们真正想完成的事。
+因此，我们没有把它当成“再做一个聊天框”。知舟先从 DeepSeek 智能体试验和静态对话原型出发，逐步补上让它能够进入团队日常工作的基础：流式交付、可见的执行过程、持久会话、身份隔离、多供应商模型配置，以及组织范围内的权限管理。
 
-知舟希望把这些工作放进一个对话空间：**用自然语言说明目标，让智能体查找知识、处理文件，并在需要时请你确认下一步。** 面向企业内部非技术人员，员工通过浏览器使用，工作环境由服务器承载。
+它的名字也来自这个愿望：当信息像山海一样庞杂时，给每个想法一只可以靠岸、可以继续出发的舟。
 
-我们正在从一个能对话、能展示执行过程的工作空间出发，逐步走向以下场景：
+```mermaid
+flowchart LR
+    A["散落的问题与资料"] --> B["对话中的目标"]
+    B --> C["看得见的回答与过程"]
+    C --> D["可持续的团队工作空间"]
+```
 
-| 你的一句话 | 希望知舟帮你完成的事 |
-| --- | --- |
-| “帮我整理一份新员工入职清单。” | 当前可以通过模型对话起草内容；未来结合企业制度生成清单。 |
-| “把这几份材料整理成项目周报。” | 规划接入文件工作区，阅读材料、提炼进展与风险并生成文档。 |
-| “公司差旅报销有哪些要求？给我出处。” | 规划接入企业知识库，通过 RAG 检索资料并提供来源。 |
-| “这项操作先让我确认，再继续。” | 规划加入人工审批，让需要确认的动作暂停并在审批后恢复。 |
+知舟当前是一个可本地部署、可继续开发的 MVP。它已经把对话、模型与组织管理连成一条可用路径；文件工作区、企业知识库、人工审批和完整生产容器化仍在规划中。
 
-## 现在可以体验什么
+## 它能带来什么
 
-### 一边生成，一边看见结果
+| 对谁有用   | 在知舟里可以做什么                                                                                              |
+| ---------- | --------------------------------------------------------------------------------------------------------------- |
+| 使用者     | 发起流式对话，查看 Markdown、代码和表格；续聊历史会话；保留自动标题或手动改名；在允许范围内选择模型与推理档位。 |
+| 管理者     | 通过界面配置 OpenAI、Anthropic、DeepSeek、阿里云百炼连接，独立启停模型、测试连接、设置默认与会话推理策略。      |
+| 组织管理员 | 管理部门、成员与管理员任免；筛选账号、启停账号和改密；权限按全局、部门和本人范围落实到服务端。                  |
+| 开发者     | 以 Vue 3、FastAPI、PostgreSQL 和 LangGraph 为基础继续扩展；现有分层测试、迁移和接口契约可作为新能力的起点。     |
 
-对话通过 SSE 实时输出，无需等待整段回答生成后才看到内容。助手回复支持 Markdown、表格、代码高亮和复制；异常中断时保留已经收到的内容，方便继续查看。
+### 不只回答，也让过程可见
 
-### 从回答到过程，都有迹可循
+知舟通过 SSE 逐段交付回复，不必等整段答案完成。助手回答支持 Markdown、表格、代码高亮与复制；连接异常时会保留已经收到的内容。
 
-助手在工具调用时用正文说明当前行动、方法和公开依据，首次调用还会介绍本轮执行规划，随后显示工具请求、执行状态与公开结果；需要继续操作时，再显示下一步说明。无需工具时直接完成回答。最终回答完成后，之前的过程自动折叠，可展开查看全部行动说明、调用参数及返回结果。详细说明由提示词引导，模型遗漏正文时仅补充中性工具提示；模型内部推理不对外展示。
+当模型调用工具时，界面呈现公开的行动说明、工具调用、参数和结果。任务完成后，过程会收起为可展开的时间线，让阅读保持清爽，也让必要的依据随时可追溯。模型内部推理不会被展示。
 
-天气工具当前返回固定演示内容，命令展示协议已接入，但尚未提供真正的 Shell 执行器。
+### 不把模型管理留在环境变量里
 
-### 给想法一个安静的起点
+模型连接、模型启停、默认模型、推理档位和连接测试都在工作区内完成。聊天的模型选择会随会话保存；当配置在别处变化时，界面保留草稿并引导用户重新确认，而不是悄悄覆盖选择。
 
-青蓝水墨、山海与小舟构成首页，搭配明暗主题、轻量动效和响应式布局。桌面侧栏支持收起，窄屏使用抽屉导航；系统开启减少动态效果时，首页会相应减少动效。
+### 不把权限当成一个前端开关
 
-<details>
-<summary>查看深色首页</summary>
+前端会依据服务端签发的 `grants` 显示入口和操作，但安全边界在后端：每次管理请求都会再次校验权限与资源范围。普通成员不能通过构造请求进入管理操作，部门管理员不能越过自己被授权的部门；停用、改密或撤权后，旧令牌和已打开的管理页面会被同步收回。
 
-![知舟深色首页，深靛背景与青蓝水墨山景](docs/images/home-dark.jpg)
+## 一眼看见知舟
 
-</details>
+### 为思考留白，为夜晚保留沉静
 
-### 已有可以继续扩展的对话基础
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/workspace-light.png" alt="浅色工作区：青蓝水墨山海和对话输入区" />
+      <strong>青碧 · 朱砂</strong><br />
+      暖白纸面、青蓝水墨与充足留白，让对话成为进入工作的安静起点。
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/workspace-dark.png" alt="深色工作区：月夜山海和对话输入区" />
+      <strong>靛夜 · 月金</strong><br />
+      不是简单反色。深色主题拥有独立的月夜山海、层级和操作色。
+    </td>
+  </tr>
+</table>
 
-后端通过异步 SQLAlchemy ORM 保存用户、业务会话和公开问答历史，使用 JWT 校验身份；后端生成的 `conversation_id` 用于读取与继续自己的会话。目录和内容按游标读取最近及更早记录，支持软删除；LangGraph checkpoint 独立保存模型上下文。同会话的聊天、模型切换和删除竞争执行锁，不同会话可并发；后端已支持 AI 自动标题及生成中手动改名，手动标题优先。前端已接入认证、账号会话目录、历史与公开过程恢复、续聊和删除，回答完成后同步自动标题，侧栏支持弹窗改名。状态说明与交互边界见[前端文档](frontend/README.md#页面与聊天边界)，标题与接口说明见[后端文档](backend/README.md#自动标题与手动改名)。
+### 让模型治理和组织边界成为产品的一部分
 
-## 开发进度
+<table>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/model-management.png" alt="浅色模型管理界面：供应商连接和模型列表" />
+      <strong>模型配置</strong><br />
+      在同一处管理供应商连接、模型可用性和全局默认项。
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/model-editor-dark.png" alt="深色模型编辑弹窗：推理策略和允许档位" />
+      <strong>推理策略</strong><br />
+      管理者决定可选推理方式和档位，修改从下一轮对话起生效。
+    </td>
+  </tr>
+  <tr>
+    <td width="50%" valign="top">
+      <img src="docs/images/organization.png" alt="浅色组织权限界面：部门目录与成员管理" />
+      <strong>组织与权限</strong><br />
+      部门、成员、角色与账号状态都有明确的管理入口。
+    </td>
+    <td width="50%" valign="top">
+      <img src="docs/images/organization-dark.png" alt="深色组织权限界面：部门和成员管理" />
+      <strong>范围清晰</strong><br />
+      超级管理员管理全局；部门管理员只看见并管理自己的范围。
+    </td>
+  </tr>
+</table>
 
-| 能力 | 状态 | 当前范围 |
-| --- | --- | --- |
-| 模型配置 | 前后端已接通 | 模型管理页通过品牌卡片与居中弹窗配置连接，以开关启用内置目录模型并手动设置全局默认；百炼直接粘贴 Base URL，支持主动测试与版本冲突提示。 |
-| 受限模型自选 | 前后端已接通 | 连接/模型独立启停，固定或受限自选推理；聊天按会话保存具体选择，失效与版本冲突保留草稿并引导重选；见[前端文档](frontend/README.md#模型管理)。 |
-| Web 流式对话 | 已实现 | Bearer 认证聊天，首轮取得服务端 ID，之后按同一 ID 续聊。 |
-| 行动说明与执行过程 | 已实现 | 正文与工具交错展示，完成后整体折叠，可展开查看全部过程；不展示内部推理。 |
-| Markdown 与主题 | 已实现 | 富文本、代码高亮与复制，明暗主题及窄屏适配。 |
-| 对话状态保存 | 前后端已接通 | 账号目录和公开历史按游标读取、用户隔离及软删除；模型 checkpoint 独立保存。 |
-| 会话标题 | 前后端已接通 | 首问先形成临时标题，成功回答后由 AI 概括并同步侧栏与页头，失败后续重试；侧栏支持生成中弹窗改名，手动标题优先。 |
-| 停止与恢复 | 部分实现 | 连接断开可取消生成；停止按钮、持久化任务与断线续传待实现。 |
-| 人工审批 | 规划中 | 审阅待执行动作、批准或拒绝，并恢复执行。 |
-| 文件工作区 | 规划中 | 在服务器工作环境中读取、创建和修改文件。 |
-| 企业知识库 | 规划中 | 共享资料检索、RAG 问答与来源引用。 |
-| 用户与权限 | 前后端已接通 | 按操作与范围控制管理入口；部门与成员管理、账号筛选与启停改密、管理员任免及撤权回退；个人会话隔离，见[组织与权限管理](frontend/README.md#组织与权限管理)。 |
-| 完整容器化部署 | 规划中 | 当前开发 Compose 仅包含 PostgreSQL。 |
+所有截图来自当前浏览器端到端验收，使用测试账号与测试数据；它们展示的是已实现的界面，不是概念稿。
 
-## 本地体验
+## 从一次提问到一次协作
 
-**先看界面**：准备符合要求的 Node.js 与 pnpm，在仓库根目录执行：
+```mermaid
+sequenceDiagram
+    participant M as 成员
+    participant W as 知舟工作区
+    participant A as API 与权限
+    participant G as Agent 与模型
+    M->>W: 说明目标，选择会话模型
+    W->>A: 携带身份发送消息
+    A->>G: 校验后发起智能体执行
+    G-->>W: SSE 返回正文与公开过程
+    W-->>M: 流式呈现，保存可续聊的历史
+```
+
+在这条链路里，会话和历史按账号隔离；模型选择和标题随会话保存；模型配置与组织权限由服务端控制。它为之后接入企业资料、文件处理与审批流程预留了清晰的边界。
+
+## 开始体验
+
+### 先看界面
+
+准备 Node.js `^22.18.0 || >=24.12.0` 与 pnpm：
 
 ```shell
-cd frontend
+git clone https://github.com/wkdabl0304-ship-it/zhizhou.git
+cd zhizhou/frontend
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-打开终端提示的地址进入登录页；启动后端后即可注册登录、聊天、查看历史和管理自己的会话。开发模式下可独立访问 `/dev/ui` 查看明暗主题、响应式布局、富文本与过程卡片样例；组件预览不需要登录、模型密钥或数据库。
+打开终端输出的地址即可进入登录页；开发模式也提供无需登录的组件预览页 `/dev/ui`。
 
-**体验真实对话**：按以下顺序准备后端，再使用前端页面或支持 POST SSE 的 HTTP 客户端调用：
+### 启动完整工作区
 
-1. 准备 Python **3.14+**、uv、Docker Compose 与所选官方供应商的 API 密钥；前端 Node.js 要求为 `^22.18.0 || >=24.12.0`，使用 pnpm。
-2. 按[后端配置说明](backend/README.md#配置与数据库)准备配置加密主密钥及 JWT 密钥、启动 PostgreSQL 并执行 Alembic 迁移；已有 `.env` 时直接编辑，不覆盖现有配置。
-3. 按[后端启动说明](backend/README.md#启动与聊天接口)启动服务，注册账号并按[权限运维说明](backend/docs/authorization-api.md#错误并发和运维)授予首次超管身份。以超管登录[模型管理](frontend/README.md#模型管理)，配置连接、开启模型并设置默认，普通用户即可聊天；也可通过 Swagger 验收。
+完整功能需要 Python 3.14+、uv、Docker Compose 与至少一个模型供应商的 API 密钥。请按[后端启动与配置说明](backend/README.md#配置与数据库)准备 PostgreSQL、密钥和 Alembic 迁移，再启动服务。
 
-后端默认测试包含真实 PostgreSQL，使用同一实例中自动创建与销毁的独立临时库，无需真实模型密钥；运行方式见[后端测试说明](backend/README.md#测试)。
+首次注册的账号是普通成员。根据[权限运维说明](backend/docs/authorization-api.md#错误并发和运维)授予一个账号超级管理员权限后，即可在“模型管理”创建连接、启用模型并设置默认。前端开发服务器会将 `/api` 代理到 `http://127.0.0.1:8000`。
 
-详细安装、配置、测试与构建命令分别维护在[前端文档](frontend/README.md)和[后端文档](backend/README.md)。完整生产部署尚未提供，生产反向代理需要关闭 SSE 缓冲。
+生产部署时，请将 `/api` 转发到后端并关闭 SSE 响应缓冲。当前 Compose 用于本地 PostgreSQL 开发环境；完整容器化部署仍在规划中。
 
-## 技术方案
-
-| 层次 | 技术与职责 |
-| --- | --- |
-| 前端 | Vue 3 · TypeScript · Vite · Pinia · Reka UI |
-| 内容呈现 | markdown-it · highlight.js · Lucide Vue |
-| API 与传输 | Python · FastAPI · 异步 POST SSE |
-| 智能体 | LangChain / LangGraph · OpenAI、Anthropic、DeepSeek、阿里云百炼 |
-| 状态存储 | PostgreSQL · SQLAlchemy 异步 ORM · Alembic · AsyncPostgresSaver |
-| 开发工具 | pnpm · uv · Vitest · pytest · Docker Compose（数据库） |
+## 技术底座
 
 ```mermaid
 flowchart LR
-    UI["Vue 3 工作空间"] -->|发送消息| API["FastAPI"]
-    API -->|SSE 回复与过程事件| UI
+    UI["Vue 3 工作空间"] <-->|"JWT · POST SSE"| API["FastAPI"]
+    API --> Auth["认证、RBAC 与范围校验"]
     API --> Agent["LangChain / LangGraph"]
-    Agent <--> Model["四家官方模型适配"]
-    Agent <--> DB[("PostgreSQL checkpoint")]
-    Agent --> Tools["已注册工具"]
+    Agent <--> Models["官方模型供应商"]
+    API <--> DB[("PostgreSQL")]
+    Agent <--> Checkpoints[("LangGraph checkpoint")]
 ```
 
-## 开发与参与
+| 层次   | 技术与职责                                                                              |
+| ------ | --------------------------------------------------------------------------------------- |
+| 前端   | Vue 3、TypeScript、Vite、Pinia、Vue Router、Reka UI；明暗主题、响应式工作区与组件预览。 |
+| 后端   | FastAPI、异步 SQLAlchemy、Alembic、PostgreSQL；认证、范围权限、会话与模型配置 API。     |
+| 智能体 | LangChain / LangGraph；适配 OpenAI、Anthropic、DeepSeek、阿里云百炼。                   |
+| 质量   | Vitest、Playwright、pytest；浏览器 E2E 连接真实后端，并使用独立临时数据库。             |
 
-如果你也关注 AI 工作空间、企业知识管理或智能体交互，欢迎通过 [Issues](https://github.com/wkdabl0304-ship-it/zhizhou/issues) 交流使用场景、反馈问题，或提交 Pull Request。
+## 项目结构
 
-| 从哪里开始 | 阅读内容 |
-| --- | --- |
-| [前端开发说明](frontend/README.md) | 环境、界面与聊天边界、组件约定、构建和测试。 |
-| [后端开发说明](backend/README.md) | 配置、启动、SSE 协议、Agent、日志和测试。 |
-| [模型选择与管理](frontend/README.md#模型管理) | 模型管理界面、会话选择及前端恢复规则；接口详见后端模块文档。 |
-| [组织与权限管理](frontend/README.md#组织与权限管理) | 部门、成员、账号操作及前端授权恢复规则；[接口契约](backend/docs/authorization-api.md)。 |
-| [项目协作约定](AGENTS.md) | 技术版本、代码注释、变更讲解和文档维护规则。 |
+```text
+zhizhou/
+├── frontend/          # 工作区界面、共享组件与浏览器测试
+├── backend/           # API、鉴权、会话、模型配置与数据库迁移
+├── docs/images/       # README 使用的真实产品截图
+├── AGENTS.md          # 协作、测试与文档约定
+└── README.md          # 这个项目的起点
+```
+
+## 质量与验证
+
+前端和后端都有行为、集成与端到端测试。提交前可运行：
+
+```shell
+# 在 frontend/ 中执行
+pnpm verify
+
+# 在 backend/ 中执行
+uv run pytest -q
+```
+
+前端验证包含类型检查、只读 lint、Vitest 覆盖率和真实后端 E2E。后端测试会自动创建并清理独立 PostgreSQL 临时库，不需要真实模型密钥。
+
+## 参与开发
+
+如果你也在思考 AI 如何从“会回答”走向“能协作”，欢迎带着场景、问题或改进参与进来。
+
+| 你想做什么               | 从这里开始                                            |
+| ------------------------ | ----------------------------------------------------- |
+| 开发界面或理解交互       | [前端开发说明](frontend/README.md)                    |
+| 启动 API、数据库与 SSE   | [后端开发说明](backend/README.md)                     |
+| 理解用户、部门和范围授权 | [组织权限接口契约](backend/docs/authorization-api.md) |
+| 了解模型选择与管理       | [前端模型管理说明](frontend/README.md#模型管理)       |
+| 遵循协作与验证要求       | [项目约定](AGENTS.md)                                 |
+
+可以通过 [Issues](https://github.com/wkdabl0304-ship-it/zhizhou/issues) 讨论想法、反馈问题，或提交 Pull Request。
 
 ## 许可证
 
