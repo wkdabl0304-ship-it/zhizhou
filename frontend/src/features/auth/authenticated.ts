@@ -31,6 +31,10 @@ export async function authenticatedFetch(
     throw new ApiError('网络连接失败，请稍后重试')
   }
   if (response.status === 401) auth.invalidate(token)
+  if (response.status === 403 && auth.accessToken === token) {
+    auth.notice = '权限已发生变化，已同步当前可用操作。'
+    await auth.refreshIdentity(token)
+  }
   return response
 }
 

@@ -1,3 +1,4 @@
+import { selectOption } from '../support/playwright/controls'
 /** 模型管理全链路：真实页面与随机库，配置重置及 HTTP 辅助由共用 fixture 负责。 */
 import {
   test,
@@ -141,8 +142,12 @@ test('编辑、切换和清除默认，并按引用顺序删除模型及供应�
   const second = page.getByRole('article', { name: '模型方案：深入思考', exact: true })
   await second.getByRole('button', { name: '高级设置', exact: true }).click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
-  await editor.locator('[name="reasoning_mode"]').selectOption('effort')
-  await editor.locator('[name="effort"]').selectOption('max')
+  await selectOption(
+    page,
+    editor.locator('[role="combobox"][data-field="reasoning_mode"]'),
+    'effort',
+  )
+  await selectOption(page, editor.locator('[role="combobox"][data-field="effort"]'), 'max')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
   await expect(second).toContainText('推理 · 最高')
@@ -319,7 +324,11 @@ test('目录推理预算与输出约束即时提示，正确参数才能保存',
     .getByRole('button', { name: '高级设置' })
     .click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
-  await editor.locator('[name="reasoning_mode"]').selectOption('budget')
+  await selectOption(
+    page,
+    editor.locator('[role="combobox"][data-field="reasoning_mode"]'),
+    'budget',
+  )
   await editor.locator('[name="budget_tokens"]').fill('1023')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor.getByRole('alert')).toContainText('目录范围')
@@ -563,7 +572,11 @@ test('连接与模型在居中弹窗编辑，长表单独立滚动且焦点逐�
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
   await expect(editor.locator('[name="catalog_model_id"]')).toHaveCount(0)
   await expect(editor.getByRole('heading', { name: '模型参数', exact: true })).toBeVisible()
-  await editor.locator('[name="reasoning_policy"]').selectOption('selectable')
+  await selectOption(
+    page,
+    editor.locator('[role="combobox"][data-field="reasoning_policy"]'),
+    'selectable',
+  )
   await editor.locator('[name="allow_off"]').check()
   await page.screenshot({ path: testInfo.outputPath('model-editor-dark.png'), fullPage: true })
   const fields = editor.locator('.config-fields')

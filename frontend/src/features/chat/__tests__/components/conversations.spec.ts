@@ -28,7 +28,7 @@ beforeEach(async () => {
     addEventListener: vi.fn<() => void>(),
     removeEventListener: vi.fn<() => void>(),
   }))
-  await authenticate(pinia, fetchMock)
+  await authenticate(pinia, fetchMock, true)
   // 历史与目录可以独立于模型配置验证，完整默认加载另由应用集成覆盖。
   useModelConfigStore(pinia).selected = modelConfigData().selected
 })

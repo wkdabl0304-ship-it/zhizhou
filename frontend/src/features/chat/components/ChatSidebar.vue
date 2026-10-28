@@ -1,7 +1,7 @@
 <!-- 聊天侧栏：共用于桌面导航与窄屏抽屉，向上报告选择、新建和折叠事件。 -->
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ArrowUpRight, LogOut, PanelLeft, SquarePen, SlidersHorizontal } from '@lucide/vue'
+import { ArrowUpRight, LogOut, PanelLeft, SquarePen, SlidersHorizontal, Users } from '@lucide/vue'
 import type { Conversation } from '@/features/chat/types'
 import ThemeMenu from '@/shared/components/ThemeMenu.vue'
 import BrandLogo from '@/shared/components/BrandLogo.vue'
@@ -9,6 +9,7 @@ import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
 import ConversationItem from './ConversationItem.vue'
 import { useAuthStore } from '@/features/auth/store'
+import { canManageOrganization } from '@/features/auth/permissions'
 
 const auth = useAuthStore()
 
@@ -117,11 +118,20 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
     </nav>
     <div class="sidebar-bottom">
       <RouterLink
+        v-if="auth.can('model:manage')"
         class="model-management-link"
         to="/models"
         active-class="is-active"
         aria-label="模型管理"
         ><SlidersHorizontal :size="17" /><span v-if="!compact">模型管理</span></RouterLink
+      >
+      <RouterLink
+        v-if="canManageOrganization(auth.user)"
+        class="model-management-link"
+        to="/organization"
+        active-class="is-active"
+        aria-label="组织与权限"
+        ><Users :size="17" /><span v-if="!compact">组织与权限</span></RouterLink
       >
       <div v-if="!compact" class="workspace-note">
         <span class="workspace-note-dot" />为每一个好想法，找到方向。
@@ -143,7 +153,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
         <span class="profile-avatar"><BrandLogo :size="22" /></span>
         <div>
           <span>{{ auth.user?.username ?? '知舟工作空间' }}</span
-          ><small>让工作，始于一句话</small>
+          ><small>{{ auth.user?.department?.name ?? '让工作，始于一句话' }}</small>
         </div>
         <span v-if="auth.user" class="profile-status">已登录</span>
       </div>
@@ -368,12 +378,21 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   display: flex;
   flex-direction: column;
   font-size: 12px;
+  min-width: 0;
+}
+.sidebar-profile > div > span,
+.sidebar-profile small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar-profile small {
   color: var(--text-muted);
   font-size: 10px;
 }
 .profile-status {
+  flex-shrink: 0;
+  white-space: nowrap;
   margin-left: auto;
   color: var(--text-muted);
   font-size: 8px;

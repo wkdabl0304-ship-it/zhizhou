@@ -1,6 +1,7 @@
+import { chooseSelect } from '@tests/support/vitest/controls'
 /** 配置表单组件：通过真实表单、模态和目录 HTTP 验证密钥省略、预算校验、冲突草稿和关闭保护。 */
 import { beforeEach, expect, it, vi } from 'vitest'
-import { mount, flushPromises } from '@vue/test-utils'
+import { DOMWrapper, mount, flushPromises } from '@vue/test-utils'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
 import { defineComponent, h, type Component } from 'vue'
 import { TooltipProvider } from 'reka-ui'
@@ -9,6 +10,7 @@ import { authenticate } from '@tests/support/vitest/auth'
 import { deferredResponse, response } from '@tests/support/vitest/http'
 import { bailianConfigData, modelConfigData } from '@tests/support/data/model-config'
 import { useModelConfigStore } from '../store'
+import { useAuthStore } from '@/features/auth/store'
 import ProviderEditor from '../components/ProviderEditor.vue'
 import ModelEditor from '../components/ModelEditor.vue'
 
@@ -17,12 +19,25 @@ const fetchMock = vi.fn<typeof fetch>()
 beforeEach(async () => {
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
-  await authenticate(createTestPinia(), fetchMock)
+  await authenticate(createTestPinia(), fetchMock, true)
   const store = useModelConfigStore(),
     data = modelConfigData()
   store.brands = [data.brand]
   store.configurations = [data.provider]
   store.models = [data.model]
+})
+
+it('撤销模型管理权限后允许离开含未保存密钥的编辑器并清空缓存', async () => {
+  const data = modelConfigData()
+  const { router } = await editor(ProviderEditor, { brand: data.brand, previous: data.provider })
+  await fill('api_key', 'secret-for-revocation-test')
+  useAuthStore().user = { ...useAuthStore().user!, grants: [] }
+  await router.push('/other')
+  await flushPromises()
+  expect(router.currentRoute.value.path).toBe('/other')
+  expect(document.querySelector('[name="api_key"]')).toBeNull()
+  expect(document.body.textContent).not.toContain('放弃未保存的更改')
+  expect(useModelConfigStore().configurations).toEqual([])
 })
 
 /** 将编辑器置于真实路由中，使未保存离页保护也参与组件生命周期。 */
@@ -157,13 +172,11 @@ it('新建百炼提示粘贴地址，切换品牌会清除其他供应商的地�
   expect(document.querySelector('[role="alert"]')!.textContent).toContain('OpenAI 兼容地址')
   expect(fetchMock).not.toHaveBeenCalled()
   await fill('base_url', 'https://dashscope.aliyuncs.com/compatible-mode/v1')
-  const select = document.querySelector<HTMLSelectElement>('[name="provider"]')!
-  select.value = 'anthropic'
-  select.dispatchEvent(new Event('change', { bubbles: true }))
+  const select = new DOMWrapper(document.body).get('[role="combobox"][data-field="provider"]')
+  await chooseSelect(select, 'anthropic')
   await flushPromises()
   expect(document.querySelector('[name="base_url"]')).toBeNull()
-  select.value = 'bailian'
-  select.dispatchEvent(new Event('change', { bubbles: true }))
+  await chooseSelect(select, 'bailian')
   await flushPromises()
   expect(document.querySelector<HTMLInputElement>('[name="base_url"]')!.value).toBe('')
   wrapper.unmount()
@@ -223,12 +236,13 @@ it('失效目录方案显示明确占位，选用可用模型后可修复原方�
     provider: data.provider,
     previous: { ...data.model, catalog_model_id: 'retired:model', catalog: null, available: false },
   })
-  const selector = document.querySelector<HTMLSelectElement>('[name="catalog_model_id"]')!
-  expect(selector.value).toBe('')
+  const selector = new DOMWrapper(document.body).get(
+    '[role="combobox"][data-field="catalog_model_id"]',
+  )
+  expect(selector.text()).toContain('请选择可用模型')
   await submit()
   expect(document.querySelector('[role="alert"]')!.textContent).toContain('可用的目录模型')
-  selector.value = data.catalog.catalog_model_id
-  selector.dispatchEvent(new Event('change', { bubbles: true }))
+  await chooseSelect(selector, data.catalog.catalog_model_id)
   await flushPromises()
   fetchMock.mockResolvedValueOnce(response({ ...data.model, version: 2 }))
   await submit()

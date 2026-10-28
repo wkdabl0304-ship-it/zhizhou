@@ -27,7 +27,27 @@ function isUser(value: unknown): value is AuthUser {
     !!value.id.trim() &&
     typeof value.username === 'string' &&
     !!value.username.trim() &&
-    (value.role === 'user' || value.role === 'super_admin')
+    (value.role === 'user' || value.role === 'super_admin') &&
+    (value.department === null ||
+      (isRecord(value.department) &&
+        typeof value.department.id === 'string' &&
+        !!value.department.id.trim() &&
+        typeof value.department.name === 'string' &&
+        !!value.department.name.trim())) &&
+    Array.isArray(value.roles) &&
+    value.roles.every((role) => typeof role === 'string' && !!role.trim()) &&
+    Array.isArray(value.grants) &&
+    value.grants.every(
+      (grant) =>
+        isRecord(grant) &&
+        typeof grant.permission === 'string' &&
+        !!grant.permission.trim() &&
+        ((grant.scope_type === 'global' && grant.scope_id === null) ||
+          (grant.scope_type === 'self' && grant.scope_id === value.id) ||
+          (grant.scope_type === 'department' &&
+            isRecord(value.department) &&
+            grant.scope_id === value.department.id)),
+    )
   )
 }
 

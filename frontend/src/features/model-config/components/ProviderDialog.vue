@@ -217,7 +217,7 @@ function close(): void {
   guard(() => emit('close'))
 }
 // 编辑弹窗负责草稿离页确认，供应商弹窗额外阻止启停写入期间的主动导航。
-onBeforeRouteLeave(() => !auth.isAuthenticated || !busy.value)
+onBeforeRouteLeave(() => !auth.isAuthenticated || !auth.can('model:manage') || !busy.value)
 onBeforeUnmount(() => store.cancelManagement())
 </script>
 <template>

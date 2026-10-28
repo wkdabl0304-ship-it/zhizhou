@@ -7,6 +7,9 @@ export function createAuthData() {
     id: '56e41c75-6e07-4d4c-85dd-e98d53ac68ac',
     username: 'lin_zhou',
     role: 'user',
+    department: null,
+    roles: ['user'],
+    grants: [{ permission: 'model:use', scope_type: 'global', scope_id: null }],
   }
   const CREDENTIALS = { username: USER.username, password: ' test password ' }
   const LOGIN: LoginResult = {

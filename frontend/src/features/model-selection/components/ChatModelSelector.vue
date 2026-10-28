@@ -4,9 +4,11 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent } from 'reka-ui'
 import { ChevronDown, Check, AlertCircle } from '@lucide/vue'
 import { useChatStore } from '@/features/chat/store'
+import { useAuthStore } from '@/features/auth/store'
 import { useModelSelectionStore } from '../store'
 const chat = useChatStore(),
   choices = useModelSelectionStore()
+const auth = useAuthStore()
 const open = ref(false)
 const listbox = ref<HTMLElement | null>(null)
 const confirmed = computed(() =>
@@ -128,7 +130,8 @@ onBeforeUnmount(() => {
         >
           <div aria-label="聊天模型选择">
             <div class="chat-model-menu-heading">
-              <strong>选择模型</strong><RouterLink to="/models">前往模型管理</RouterLink>
+              <strong>选择模型</strong
+              ><RouterLink v-if="auth.can('model:manage')" to="/models">前往模型管理</RouterLink>
             </div>
             <div
               ref="listbox"
@@ -355,10 +358,6 @@ onBeforeUnmount(() => {
 @media (max-width: 760px) {
   .chat-model-selector {
     max-width: min(220px, calc(100vw - 116px));
-  }
-  .chat-reasoning-settings input,
-  .chat-reasoning-settings select {
-    font-size: 16px;
   }
 }
 </style>

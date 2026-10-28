@@ -98,7 +98,7 @@ describe('认证页面与工作区边界', () => {
     expect(page.get('h1').text()).toContain('心有山海')
     await submitForm(page, true)
     expect(router.currentRoute.value.name).toBe('login')
-    expect(page.text()).toContain('账号创建成功')
+    expect(page.text()).not.toContain('账号创建成功')
     expect((page.get('[name="username"]').element as HTMLInputElement).value).toBe(USER.username)
     expect((page.get('[name="password"]').element as HTMLInputElement).value).toBe('')
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()

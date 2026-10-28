@@ -1,5 +1,8 @@
 <!-- 管理端推理范围：固定策略不开放聊天编辑；自选策略仅从当前目录选择方式、档位和预算。 -->
 <script setup lang="ts">
+import UiInput from '@/shared/components/ui/UiInput.vue'
+import UiSelect from '@/shared/components/ui/UiSelect.vue'
+import UiCheckbox from '@/shared/components/ui/UiCheckbox.vue'
 import { computed } from 'vue'
 import type { CatalogModel, Reasoning } from '../types'
 import type {
@@ -16,8 +19,8 @@ const modes = computed(() =>
   ),
 )
 /** 从固定切换到自选时，以当前默认分支建立合法初始范围。 */
-function changePolicy(event: Event): void {
-  if ((event.target as HTMLSelectElement).value === 'fixed') {
+function changePolicy(selected: string): void {
+  if (selected === 'fixed') {
     policy.value = { mode: 'fixed' }
     return
   }
@@ -81,10 +84,15 @@ function budget(key: 'min' | 'max', event: Event): void {
 </script>
 <template>
   <label
-    >聊天推理策略<select name="reasoning_policy" :value="policy.mode" @change="changePolicy">
-      <option value="fixed">固定推理设置</option>
-      <option value="selectable">允许用户在范围内自选</option></select
-    ><small>固定时聊天使用上方默认值；自选时默认值必须在允许范围内。</small></label
+    >聊天推理策略<UiSelect
+      name="reasoning_policy"
+      :model-value="policy.mode"
+      :options="[
+        { value: 'fixed', label: '固定推理设置' },
+        { value: 'selectable', label: '允许用户在范围内自选' },
+      ]"
+      @update:model-value="changePolicy"
+    /><small>固定时聊天使用上方默认值；自选时默认值必须在允许范围内。</small></label
   >
   <div
     v-if="policy.mode === 'selectable'"
@@ -93,34 +101,34 @@ function budget(key: 'min' | 'max', event: Event): void {
     aria-label="允许的推理范围"
   >
     <p class="config-hint">允许的推理方式</p>
-    <label v-for="mode in modes" :key="mode" class="config-switch"
-      ><input
-        type="checkbox"
-        :name="`allow_${mode}`"
-        :checked="policy.allowed_modes.includes(mode)"
-        @change="toggleMode(mode, $event)"
-      />{{ modeLabels[mode] }}</label
+    <UiCheckbox
+      v-for="mode in modes"
+      :key="mode"
+      :name="`allow_${mode}`"
+      :model-value="policy.allowed_modes.includes(mode)"
+      @change="toggleMode(mode, $event)"
+      >{{ modeLabels[mode] }}</UiCheckbox
     >
     <template v-if="policy.allowed_modes.includes('effort')"
       ><p class="config-hint">允许的档位</p>
-      <label v-for="effort in model.reasoning.effort_options" :key="effort" class="config-switch"
-        ><input
-          type="checkbox"
-          :name="`allow_effort_${effort}`"
-          :checked="policy.effort_options.includes(effort)"
-          @change="toggleEffort(effort, $event)"
-        />{{ effortLabels[effort] ?? effort }} · {{ effort }}</label
+      <UiCheckbox
+        v-for="effort in model.reasoning.effort_options"
+        :key="effort"
+        :name="`allow_effort_${effort}`"
+        :model-value="policy.effort_options.includes(effort)"
+        @change="toggleEffort(effort, $event)"
+        >{{ effortLabels[effort] ?? effort }} · {{ effort }}</UiCheckbox
       ></template
     >
     <template v-if="policy.budget"
       ><label
-        >允许预算下限<input
+        >允许预算下限<UiInput
           name="policy_budget_min"
           type="number"
           :value="policy.budget.min"
           @input="budget('min', $event)" /></label
       ><label
-        >允许预算上限<input
+        >允许预算上限<UiInput
           name="policy_budget_max"
           type="number"
           :value="policy.budget.max"

@@ -372,7 +372,7 @@
   border: 0;
   min-width: 0;
 }
-.config-fields label {
+.config-fields label:not(.ui-checkbox) {
   display: flex;
   flex-direction: column;
   gap: 7px;
@@ -383,34 +383,6 @@
 .config-fields small {
   font-size: 11px;
   color: var(--text-secondary);
-}
-.config-fields .config-switch {
-  display: flex;
-  flex-direction: row;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-}
-.config-fields .config-switch input {
-  width: auto;
-}
-.config-fields .config-switch small {
-  width: 100%;
-}
-.config-fields input,
-.config-fields select {
-  padding: 10px;
-  width: 100%;
-  min-width: 0;
-  border: 1px solid var(--border-strong);
-  border-radius: 8px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-}
-.config-fields input:disabled,
-.config-fields select:disabled {
-  opacity: 0.65;
 }
 
 /* 工作区按内容宽度调整页边距，Portal 弹窗按视口调整。 */
@@ -424,13 +396,6 @@
     padding: 16px 16px 28px;
   }
 }
-@media (max-width: 760px) {
-  .config-fields input,
-  .config-fields select {
-    font-size: 16px;
-  }
-}
-
 /* 圆角外框不承载滚动条，左右业务面板在内部独立滚动。 */
 .provider-dialog-layout {
   flex: 1;
@@ -561,4 +526,8 @@
 .provider-connection-empty:disabled {
   cursor: default;
   opacity: 0.6;
+}
+
+.config-fields .ui-checkbox {
+  margin-bottom: 12px;
 }

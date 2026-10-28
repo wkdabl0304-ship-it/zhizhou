@@ -12,7 +12,7 @@ const fetchMock = vi.fn<typeof fetch>()
 beforeEach(async () => {
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
-  await authenticate(createTestPinia(), fetchMock)
+  await authenticate(createTestPinia(), fetchMock, true)
 })
 /** 安装能够读取完整管理快照的契约替身。 */
 function management() {

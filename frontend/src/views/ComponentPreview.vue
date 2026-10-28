@@ -1,7 +1,7 @@
 <!-- 开发组件预览：验证主题、浮层、长文本与消息状态；路由仅在 Vite 开发环境注册。 -->
 <script setup lang="ts">
 import { ref } from 'vue'
-import { ArrowLeft, PanelLeft, Plus } from '@lucide/vue'
+import { ArrowLeft, PanelLeft, Plus, Search, Mail } from '@lucide/vue'
 import { DropdownMenuItem } from 'reka-ui'
 import ThemeMenu from '@/shared/components/ThemeMenu.vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
@@ -13,6 +13,11 @@ import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
 import UiDrawer from '@/shared/components/ui/UiDrawer.vue'
 import UiDropdownMenu from '@/shared/components/ui/UiDropdownMenu.vue'
+import UiInput from '@/shared/components/ui/UiInput.vue'
+import UiSelect from '@/shared/components/ui/UiSelect.vue'
+import UiCheckbox from '@/shared/components/ui/UiCheckbox.vue'
+import UiSwitch from '@/shared/components/ui/UiSwitch.vue'
+import UiAutoTextarea from '@/shared/components/ui/UiAutoTextarea.vue'
 import ChatComposer from '@/features/chat/components/ChatComposer.vue'
 import MessageItem from '@/features/chat/components/MessageItem.vue'
 import type { ChatMessage } from '@/features/chat/types'
@@ -23,6 +28,24 @@ const draft = ref('')
 const drawer = ref(false)
 const submitted = ref('')
 const menuSelection = ref('尚未选择')
+const fieldExample = ref(''),
+  selectedState = ref(''),
+  onlyUnassigned = ref(false),
+  notifications = ref(true),
+  notes = ref(''),
+  formResult = ref('')
+const stateOptions = [
+  { value: '', label: '全部状态' },
+  { value: 'active', label: '已启用' },
+  { value: 'inactive', label: '已停用' },
+  { value: 'archived', label: '已归档 · 暂不可选', disabled: true },
+]
+
+/** 显示共享控件当前结果，便于验证输入、选择与复选是否在同一表单中协作。 */
+function submitControls(): void {
+  const label = stateOptions.find((option) => option.value === selectedState.value)?.label
+  formResult.value = `${fieldExample.value || '未填写用户名'} · ${label} · ${onlyUnassigned.value ? '仅无部门' : '不限部门'}`
+}
 const longMessage: ChatMessage = {
   id: 'long',
   role: 'assistant',
@@ -225,6 +248,84 @@ function record(text: string): void {
         ></UiTooltip>
       </div>
     </section>
+    <section aria-label="基础表单控件">
+      <div class="preview-section-heading">
+        <div>
+          <h2>基础表单控件</h2>
+          <p class="preview-status">
+            输入、选择与勾选共用纸面、细边框和柔和焦点，保留原生表单语义。
+          </p>
+        </div>
+        <span class="preview-component-tag">FORM CONTROLS</span>
+      </div>
+      <form class="preview-controls" aria-label="控件联动示例" @submit.prevent="submitControls">
+        <label class="preview-field" for="preview-username"
+          >用户名<UiInput
+            id="preview-username"
+            v-model="fieldExample"
+            name="preview_username"
+            aria-label="示例用户名"
+            placeholder="输入一个用户名"
+            ><template #prefix><Search :size="16" /></template></UiInput
+          ><small>输入框支持图标、数字、密码及原生输入属性。</small></label
+        >
+        <label class="preview-field" for="preview-state"
+          >账号状态<UiSelect
+            id="preview-state"
+            v-model="selectedState"
+            name="preview_state"
+            :options="stateOptions"
+            aria-label="示例账号状态"
+          /><small>方向键浏览，Enter 确认，Esc 取消。</small></label
+        >
+        <div class="preview-checks">
+          <UiCheckbox v-model="onlyUnassigned">仅无部门</UiCheckbox
+          ><UiCheckbox :model-value="true" disabled>已选中 · 不可修改</UiCheckbox
+          ><UiSwitch v-model="notifications" label="接收通知" />
+        </div>
+        <div class="preview-row">
+          <UiButton type="submit" variant="primary">查看表单结果</UiButton
+          ><span class="preview-status" role="status">{{
+            formResult || '改变上方选项后查看结果。'
+          }}</span>
+        </div>
+      </form>
+      <div class="preview-state-grid">
+        <label class="preview-field"
+          >错误状态<UiInput
+            model-value="invalid@example"
+            type="email"
+            aria-invalid="true"
+            aria-describedby="preview-input-error"
+            ><template #prefix><Mail :size="16" /></template></UiInput
+          ><small id="preview-input-error" class="preview-error"
+            >请输入完整的邮箱地址。</small
+          ></label
+        >
+        <label class="preview-field">禁用输入<UiInput model-value="当前不可编辑" disabled /></label>
+        <label class="preview-field">只读输入<UiInput model-value="已确认的信息" readonly /></label>
+        <label class="preview-field"
+          >禁用选择<UiSelect model-value="active" :options="stateOptions" disabled
+        /></label>
+        <label class="preview-field">紧凑尺寸<UiInput placeholder="搜索或筛选" size="sm" /></label>
+        <label class="preview-field"
+          >错误选择<UiSelect
+            :options="stateOptions.slice(1)"
+            placeholder="请选择一项"
+            aria-invalid="true"
+            size="sm"
+        /></label>
+      </div>
+      <label class="preview-field preview-notes"
+        >自适应文本域
+        <div class="preview-textarea">
+          <UiAutoTextarea
+            v-model="notes"
+            label="示例备注"
+            placeholder="写下几句备注，内容增加时自动展开…"
+          /></div
+      ></label>
+    </section>
     <section>
       <h2>公共弹窗与确认</h2>
       <div class="preview-row">
@@ -288,7 +389,7 @@ function record(text: string): void {
       <p class="preview-status" role="status">
         {{
           submitted
-            ? `已发送演示内容：${submitted}`
+            ? `演示内容：${submitted}`
             : 'Enter 发送 · Shift+Enter 换行 · 中文输入法确认不发送'
         }}
       </p>
@@ -380,9 +481,78 @@ h2 {
 .preview-drawer-content {
   padding: 72px 24px 24px;
 }
+.preview-section-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.preview-section-heading h2 {
+  margin-bottom: 8px;
+}
+.preview-component-tag {
+  color: var(--accent);
+  font-size: 10px;
+  letter-spacing: 2px;
+  white-space: nowrap;
+}
+.preview-controls,
+.preview-state-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 22px;
+  margin-top: 24px;
+}
+.preview-field {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+.preview-field small {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.preview-field .preview-error {
+  color: var(--danger);
+}
+.preview-checks,
+.preview-controls > .preview-row {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 24px;
+}
+.preview-state-grid {
+  padding-top: 24px;
+  border-top: 1px dashed var(--border);
+}
+.preview-notes {
+  margin-top: 24px;
+}
+.preview-textarea {
+  padding: 12px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.preview-textarea:focus-within {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--brand) 12%, transparent);
+}
 @media (max-width: 760px) {
   .preview-page {
     padding-inline: 20px;
+  }
+  .preview-controls,
+  .preview-state-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .preview-component-tag {
+    display: none;
   }
 }
 </style>

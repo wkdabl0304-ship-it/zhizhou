@@ -48,7 +48,7 @@ async function followNavigation(router: Router, activate: () => unknown): Promis
 it('模型管理与聊天共用导航实例，保留折叠状态和目录，选择会话后返回聊天', async () => {
   const pinia = createTestPinia(),
     data = modelConfigData()
-  await authenticate(pinia, fetchMock)
+  await authenticate(pinia, fetchMock, true)
   fetchMock.mockImplementation(async (input) => {
     const url = String(input)
     if (url.endsWith('/options')) return response(modelOptionsData())
@@ -97,7 +97,7 @@ it('模型管理与聊天共用导航实例，保留折叠状态和目录，选�
 it('工作区导航被离页守卫取消时保留当前管理页与聊天草稿', async () => {
   const pinia = createTestPinia(),
     data = modelConfigData()
-  await authenticate(pinia, fetchMock)
+  await authenticate(pinia, fetchMock, true)
   fetchMock.mockImplementation(async (input) => {
     const url = String(input)
     if (url.endsWith('/options')) return response(modelOptionsData())
@@ -143,7 +143,7 @@ it('未登录打开模型管理保留返回地址，未知管理子路径不进�
 it('无默认可写草稿但禁止发送，在管理页直接设默认后返回保留草稿并正常聊天', async () => {
   const pinia = createTestPinia(),
     data = modelConfigData()
-  await authenticate(pinia, fetchMock)
+  await authenticate(pinia, fetchMock, true)
   let selected = {
     ...data.selected,
     model_configuration_id: null as string | null,
@@ -215,7 +215,7 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
 
 it('选项读取失败保留草稿并可重试，窗口激活后同步不可用状态', async () => {
   const pinia = createTestPinia()
-  await authenticate(pinia, fetchMock)
+  await authenticate(pinia, fetchMock, true)
   fetchMock.mockImplementation(async (input) =>
     String(input).endsWith('/options')
       ? response(null, 500, 50000, '服务暂时不可用')
@@ -246,7 +246,7 @@ it('无全局默认仍可手动选方案发送，默认清除后已有会话继�
   const pinia = createTestPinia(),
     data = modelOptionsData()
   data.default_selection = null
-  await authenticate(pinia, fetchMock)
+  await authenticate(pinia, fetchMock, true)
   fetchMock.mockImplementation(async (input) => {
     if (String(input).endsWith('/options')) return response(data)
     if (input === '/api/chat') return success(A, '手动选择后的回复')

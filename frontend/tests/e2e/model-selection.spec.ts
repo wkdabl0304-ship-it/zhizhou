@@ -1,3 +1,4 @@
+import { selectOption } from '../support/playwright/controls'
 /** 受限模型选择真实浏览器验收：与配置管理共用串行随机库，每例隔离默认、启停及选择版本。 */
 import {
   test,
@@ -150,9 +151,17 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   const card = page.getByRole('article', { name: '模型方案：受限问答', exact: true })
   await card.getByRole('button', { name: '高级设置', exact: true }).click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
-  await editor.locator('[name="reasoning_mode"]').selectOption('effort')
-  await editor.locator('[name="effort"]').selectOption('high')
-  await editor.locator('[name="reasoning_policy"]').selectOption('selectable')
+  await selectOption(
+    page,
+    editor.locator('[role="combobox"][data-field="reasoning_mode"]'),
+    'effort',
+  )
+  await selectOption(page, editor.locator('[role="combobox"][data-field="effort"]'), 'high')
+  await selectOption(
+    page,
+    editor.locator('[role="combobox"][data-field="reasoning_policy"]'),
+    'selectable',
+  )
   await editor.locator('[name="allow_off"]').check()
   await editor.locator('[name="allow_effort_max"]').uncheck()
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
@@ -264,8 +273,16 @@ test('管理预算闭区间，聊天确认有效整数后保存，刷新恢复�
     .getByRole('button', { name: '高级设置' })
     .click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
-  await editor.locator('[name="reasoning_mode"]').selectOption('budget')
-  await editor.locator('[name="reasoning_policy"]').selectOption('selectable')
+  await selectOption(
+    page,
+    editor.locator('[role="combobox"][data-field="reasoning_mode"]'),
+    'budget',
+  )
+  await selectOption(
+    page,
+    editor.locator('[role="combobox"][data-field="reasoning_policy"]'),
+    'selectable',
+  )
   await editor.locator('[name="policy_budget_max"]').fill('8192')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()

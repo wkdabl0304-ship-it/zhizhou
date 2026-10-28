@@ -1,5 +1,6 @@
 /* 全局基础与 UI 原语样式：弹层使用命名类而非祖先选择器，确保 Teleport 后外观一致。 */
 @import './tokens.css';
+@import './controls.css';
 
 *,
 *::before,

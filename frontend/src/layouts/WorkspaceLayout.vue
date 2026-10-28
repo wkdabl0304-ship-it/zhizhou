@@ -14,17 +14,33 @@ import { useMotionPreference } from '@/shared/composables/useMotionPreference'
 import UiDrawer from '@/shared/components/ui/UiDrawer.vue'
 import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
+import UiButton from '@/shared/components/ui/UiButton.vue'
+import { useAuthStore } from '@/features/auth/store'
 
 const route = useRoute(),
   router = useRouter(),
   chat = useChatStore()
+const auth = useAuthStore()
+const checkingIdentity = ref(false)
+
+/** 在临时断网后重新确认当前授权，失败继续保持管理入口关闭，成功恢复可用导航。 */
+async function retryIdentity(): Promise<void> {
+  if (checkingIdentity.value) return
+  checkingIdentity.value = true
+  try {
+    await auth.refreshIdentity()
+    if (!auth.restoreError) auth.notice = ''
+  } finally {
+    checkingIdentity.value = false
+  }
+}
 const narrow = useMediaQuery('(max-width: 760px)')
 const { enabled, visible } = useMotionPreference()
 const collapsed = ref(false),
   drawerOpen = ref(false),
   headerTitle = ref<InstanceType<typeof UiPageHeader>>()
 const actionRequest = ref<ConversationDialogRequest | null>(null)
-const management = computed(() => route.name === 'models')
+const management = computed(() => route.name === 'models' || route.name === 'organization')
 const home = computed(() => !management.value && !chat.activeConversation)
 const title = computed(() =>
   management.value ? '工作空间 / 模型管理' : (chat.activeConversation?.title ?? '此刻，思考启程'),
@@ -132,6 +148,15 @@ watch(
       />
     </aside>
     <main class="chat-main" :class="{ 'is-home': home, 'is-management': management }">
+      <div v-if="auth.restoreError" class="workspace-notice" role="alert">
+        {{ auth.restoreError }}；管理操作已暂停。<UiButton
+          size="sm"
+          :loading="checkingIdentity"
+          @click="retryIdentity"
+          >重试权限校验</UiButton
+        >
+      </div>
+      <p v-else-if="auth.notice" class="workspace-notice" role="status">{{ auth.notice }}</p>
       <RiverBackdrop v-if="home" :motion="enabled" />
       <UiPageHeader
         v-if="!management"
@@ -196,6 +221,13 @@ watch(
   </div>
 </template>
 <style scoped>
+.workspace-notice {
+  margin: 0;
+  padding: 10px 24px;
+  color: var(--brand);
+  background: var(--brand-soft);
+  font-size: 13px;
+}
 .workspace-mobile-navigation {
   position: absolute;
   top: 10px;

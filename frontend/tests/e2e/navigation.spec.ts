@@ -1,6 +1,6 @@
 /** 浏览器导航：真实删除、主题持久化与响应式模态焦点，不依赖截图像素比较。 */
+import { test } from '../support/playwright/authorization'
 import {
-  test,
   expect,
   login,
   sidebar,

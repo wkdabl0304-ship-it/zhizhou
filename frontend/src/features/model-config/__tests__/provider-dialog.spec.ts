@@ -22,7 +22,7 @@ let brands: ProviderInfo[]
 beforeEach(async () => {
   fetchMock.mockReset()
   vi.stubGlobal('fetch', fetchMock)
-  await authenticate(createTestPinia(), fetchMock)
+  await authenticate(createTestPinia(), fetchMock, true)
   data = modelConfigData()
   connections = [data.provider]
   models = []

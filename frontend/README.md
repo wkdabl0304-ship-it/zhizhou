@@ -24,12 +24,13 @@ pnpm dev
 
 ## 页面与聊天边界
 
-后端已启用 RBAC 与资源范围。公开注册只创建普通用户，配置模型需先按[后端权限文档](../backend/docs/authorization-api.md)授予超管。当前前端尚未使用 `grants` 隐藏模型管理入口，也未提供用户、部门管理页面；无权限调用会收到 `40301`，普通聊天模型选择保持可用。
+后端已启用 RBAC 与资源范围。公开注册只创建普通用户，配置模型需先按[后端权限文档](../backend/docs/authorization-api.md)授予超管。前端使用 `grants` 控制模型管理和组织工作台的入口及操作，部门管理员仅管理授权部门；后端独立复查，无权限调用返回 `40301`，普通聊天模型选择保持可用。
 
 - `/login`、`/register`：在全幅山海背景上，以居中限宽的双栏组合品牌标题和表单，两者共用柔和底光；表单没有大块白色面板，输入采用半透明青灰底。背景独立覆盖页头、内容和页脚，不受正文宽度限制。支持明暗主题、山景缓移、流雾、水面光带、标题浮动水线及轻量入场，输入聚焦和按钮悬停有反馈。复用 `useMotionPreference`，系统减少动态效果时静态呈现，页面隐藏时暂停动画并在卸载时释放监听。手机改为上方品牌、下方表单，短屏自然滚动。注册成功返回登录并预填用户名，不自动登录；登录成功回到站内工作区，已登录访问认证页直接返回工作区。
 - `/`：需登录的聊天工作空间，包含服务端会话目录、按需历史读取、流式聊天、消息复制与自适应输入区。点击侧栏品牌 Logo 或文字返回首页并清空未发送草稿，不删除已有会话；侧栏收起时 Logo 仍可点击。桌面侧栏可以收起，760px 及以下使用模态抽屉，返回首页时同步关闭抽屉。底部展示真实用户名并提供退出登录。
 - `/dev/ui`：仅在 `pnpm dev` 中注册的组件预览页，展示按钮、提示、菜单、抽屉、长文本、等待、失败与禁用状态。生产构建不包含预览页面模块，访问此路径显示未找到页面。
-- `/models`：需登录的模型管理页，登录后可返回该页面；从聊天侧栏或配置引导进入，使用方式见[模型管理](#模型管理)。
+- `/models`：需 `model:manage@global` 的模型管理页；从聊天侧栏或模型菜单进入，使用方式见[模型管理](#模型管理)。
+- `/organization`：按授权范围开放的组织与权限工作台，超管管理全站账号与部门，部门管理员只管理本部门，见[组织与权限管理](#组织与权限管理)。
 - 其他路径：显示未找到页面，提供返回首页入口。Web History 部署时需要将未知文件路径回退到 `index.html`，由前端路由识别页面。
 
 账号规则与后端一致：用户名去除首尾空白并转小写，限定 3–32 位 ASCII 字母、数字或下划线；密码按 Unicode 字符计 8–128 位，保留首尾空格。确认密码仅前端校验，注册固定 `role=user`。请求等待时禁用重复提交，错误以文字提示，离开认证页会取消当前提交，迟到的登录结果不能恢复已放弃的身份。
@@ -86,6 +87,22 @@ Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会�
 
 选项读取失败、选择失效或未确认预算时，保留草稿编辑与历史浏览，禁止发送并给出重选/重试入口。`40904`、`42201/42202` 等首轮提交前错误会撤回界面临时消息，保留消息与选择草稿，不自动重发；只有 `40901` 标记正在生成，只有 `40401` 标记会话不可用。草稿从聊天页前往模型管理再返回时保留，不跨刷新持久化；后端仍是实际执行配置的最终裁决。完整契约见[后端模型选择契约](../backend/README.md#模型配置接口与两层适配)。
 
+## 组织与权限管理
+
+侧栏“组织与权限”进入 `/organization`。页面采用水墨横幅、部门索引与成员工作区，窄屏将部门选择放到成员列表上方，明暗主题使用统一语义色。超管可创建、改名和删除部门，按完整用户名加入成员、移出成员、任免部门管理员；“全站账号”支持用户名、启停、具体部门及无部门筛选，提供启停、重置密码及超管任免。跨部门调整先从原部门移出，再加入新部门，原部门管理角色不会带入。部门管理员只请求可见部门与成员，不读取全站账号。
+
+身份使用登录和 `/auth/me` 返回的 `department / roles / grants`；`role` 兼容字段和角色列表只展示，`auth.can()` 精确匹配操作及范围。路由、侧栏、聊天模型菜单和管理按钮共用此规则。401 清理当前令牌，403 重新读取身份并保留失败说明；身份同步失败时收回过期授权，提供“重试权限校验”入口，403 不自动重放写入。本人撤权或移出部门后，失权页面自动回到聊天；超管降为部门管理员时切回本部门视图并关闭无权提交的表单。模型配置缓存同步清空，未保存的模型密钥不会阻止失权导航。已开始的聊天生成沿用后端生命周期。
+
+所有列表使用 20 条游标分页，翻页保留筛选并去重，筛选、授权、账号变化时清空旧游标及数据并取消请求；无效游标从第一页恢复。写入成功重读本人身份与当前目录，404/409 同步目标目录且保留失败表单，最后可用超管等业务保护由服务端裁决。危险操作说明后果并要求确认；新密码只存在当前弹窗与一次请求，保留首尾空格，提交结束、关闭或卸载时清空，不进入 store 或浏览器存储。完整范围与错误码见[后端权限契约](../backend/docs/authorization-api.md)。
+
+源码按职责位于 `src/features/authorization/`：`api.ts` 校验和适配公开契约，`useDirectory.ts` 管理游标与取消生命周期，`components/` 维护部门、账号和操作表单；页面只编排视图、确认和同步。模块测试就近存放，跨层授权回归在 `tests/integration/authorization.spec.ts`，真实后端流程在 `tests/e2e/authorization.spec.ts`，授权测试数据和浏览器准备分别位于 `tests/support/data/authorization.ts`、`tests/support/playwright/authorization.ts`。导航 E2E 使用明确的管理员 fixture，不再依赖普通账号访问模型管理。
+
+```powershell
+pnpm test:modules
+pnpm test:integration
+pnpm test:e2e -- tests/e2e/authorization.spec.ts tests/e2e/navigation.spec.ts tests/e2e/auth.spec.ts
+```
+
 ## 公共样式与组件约定
 
 正式界面采用青蓝水墨与“现代宋体”标题，保留文案“心有山海，自有知舟”，通过宋体笔锋、疏朗字距和青蓝强调线呈现品牌。`WelcomeHeading.vue` 承载首页标题，桌面字号上限 74px，窄屏使用 49px；宋体使用本机字体，跨设备字形可能不同，正文仍使用公共无衬线字体。浅色采用暖白纸面、清晰墨色与青碧主色，朱砂作为印记和次要强调；深色独立采用靛青画布、蓝灰界面层级、青玉操作色与月金辅助色，并保留侧栏收起、消息复制、主题记忆和窄屏抽屉。`BrandLogo.vue` 与 `RiverBackdrop.vue` 分别导入舟形和水墨素材。`ChatWelcome.vue` 组合首页视觉与真实输入区，不直接依赖会话 store。
@@ -93,8 +110,8 @@ Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会�
 首页水墨由 `RiverBackdrop.vue` 铺满整个主区域（含页头），与限宽标题和输入区独立；按容器比例裁切素材，窄屏也不会露出局部插图边框。山景以 14 秒单程周期漂移，双层流雾和水面光带以 7–9 秒单程周期错向移动；标题两行轻微错拍浮动，字形内的青蓝流光与强调水线独立播放，输入区保持稳定。进入对话正文后卸载首页背景和标题。`useMotionPreference` 管理首页动效：系统减少动态效果优先，页面隐藏时暂停动画（含伪元素上的雾带与水线）。页面和弹层统一使用根主题。明暗背景分别使用独立 PNG：浅色使用透明青蓝水墨，深色使用重新生成的月夜山海，不使用反相或色相滤镜。背景组件位于 `shared/components/RiverBackdrop.vue`，认证和聊天共用；夜景采用独立雾色、光带透明度与文字遮罩，图片尚未加载时只显示对应主题画布，减少切换闪烁。外观菜单用两张配色预览显示“青碧 · 朱砂”和“靛夜 · 月金”，保留浅色/深色语义、偏好记忆和收起入口，支持方向键浏览、Enter 确认和 Esc 取消。关键正文、辅助文字、主辅色及按钮文字组合由实际色板对比度测试检查，至少达到 4.5:1。水墨 PNG 由内置 imagegen 生成，Logo 为原创 SVG；素材与最终提示词见[生成记录](src/assets/brand/generation-notes.md)。基础组件预览页不进入生产包。
 
 - `src/styles/tokens.css` 是设计变量的维护位置，统一颜色、字体、间距、圆角、阴影和层级。默认浅色；深色由根元素的 `data-theme="dark"` 启用。`zhizhou-theme` 是唯一写入 localStorage 的偏好，不保存聊天正文。
-- `src/styles/base.css` 定义基础样式及共享 UI 外观。消息、侧栏、输入区等业务组件使用各自局部样式；业务组件引用语义变量，避免散落明暗配色。
-- `src/shared/components/ui/` 提供按钮、图标按钮、自适应文本框，以及基于 Reka 的 Tooltip、DropdownMenu 和 Dialog 抽屉。使用方通过 props、事件和插槽组合；触发器使用 `asChild` 复用原生按钮，避免嵌套交互元素。
+- `src/styles/base.css` 定义基础样式及共享 UI 外观，并导入 `controls.css` 统一单行输入、选择、复选的尺寸、边框、焦点、错误和禁用状态。消息、侧栏、输入区等业务组件使用各自局部样式；业务组件引用语义变量，避免散落明暗配色。业务样式不再直接给 `input / select` 叠加外观。
+- `src/shared/components/ui/` 提供按钮、图标按钮、输入框、下拉、复选框、自适应文本框，以及基于 Reka 的 Tooltip、DropdownMenu 和 Dialog 抽屉。使用方通过 props、事件和插槽组合；触发器使用 `asChild` 复用原生按钮，避免嵌套交互元素。
 - 菜单、提示和抽屉内容通过 Portal 挂载，主题变量因此定义在文档根元素；共享弹层类不依赖页面祖先选择器。Reka 管理键盘、焦点及模态行为，包装组件负责外观和必要事件转发。
 - 图标从 `@lucide/vue` 按需导入。图标按钮必须有可访问名称；抽屉必须提供标题和描述。动画遵循 `prefers-reduced-motion`。
 
@@ -114,6 +131,7 @@ Enter 发送，Shift+Enter 换行；中文输入法组合输入及确认不会�
 | `pnpm test:integration` | App、路由与跨业务集成测试                                  |
 | `pnpm test:coverage`    | 全部 Vitest 测试，生成文本、HTML 和 JSON 覆盖率报告        |
 | `pnpm test:e2e`         | 构建前端、启动隔离后端与预览服务，运行全部 Playwright 测试 |
+| `pnpm test:e2e:preview` | 独立开发服务器验证 `/dev/ui` 控件联动、键盘、明暗与窄屏，无需后端 |
 | `pnpm test:all`         | Vitest 覆盖率测试和全部 E2E                                |
 | `pnpm verify`           | 类型检查、只读代码检查、覆盖率测试和全部 E2E               |
 | `pnpm lint`             | 自动修复 Oxlint 和 ESLint 问题                             |
@@ -130,6 +148,7 @@ src/features/model-config/__tests__/ # 配置协议、目录规则、状态与�
 src/shared/__tests__/             # 公共组件、composables/、stores/、utils/
 tests/integration/                # 真实 App、路由、身份与聊天状态协作
 tests/e2e/                        # 真实浏览器和隔离后端的用户流程
+tests/preview-e2e/                # 开发组件预览的独立浏览器验收，不开放生产预览路由
 tests/support/
   data/                          # 不依赖运行器的独立业务数据工厂
   vitest/                        # 组件与 Pinia 收尾、HTTP、SSE、浏览器替身
@@ -163,7 +182,7 @@ pnpm test:e2e -- tests/e2e/chat.spec.ts --project chromium-desktop
 
 E2E 还需要后端 uv/Python 依赖，以及可连接且有 CREATE DATABASE 权限的 PostgreSQL，配置方式见[后端测试](../backend/README.md#测试)。不需要启动开发服务或配置真实模型密钥。缺少数据库、依赖或浏览器直接失败，不跳过必要测试。
 
-启动器 `backend/tests/support/e2e.py` 先构建生产产物，每次运行创建随机临时数据库并执行正式迁移。正式后端路由、异常处理、lifespan、业务服务、Agent 图和 PostgreSQL checkpoint 均参与验证，启动前通过正式服务在临时库写入假密钥和默认模型，仅替换部署测试配置与模型调用边界。每例使用独立账号、浏览器上下文和模型门控；正常流程使用真实认证、会话和聊天接口，仅在标题保存或删除的错误重试场景拦截指定请求注入 503，解除拦截后再验证真实写入。不访问真实付费模型，不修改开发库业务数据。模型等待和失败由仅存在于测试后端的授权控制通道推进，不依靠固定延时。
+启动器 `backend/tests/support/e2e.py` 先构建生产产物，每次运行创建随机临时数据库并执行正式迁移。正式后端路由、异常处理、lifespan、业务服务、Agent 图和 PostgreSQL checkpoint 均参与验证，启动前通过正式服务在临时库写入假密钥和默认模型，仅替换部署测试配置与模型调用边界。每例使用独立账号、浏览器上下文和模型门控；正常流程使用真实认证、会话和聊天接口，仅在标题保存、删除或身份同步的错误恢复场景拦截指定请求注入 503，解除拦截后再验证真实恢复和操作结果。不访问真实付费模型，不修改开发库业务数据。模型等待和失败由仅存在于测试后端的授权控制通道推进，不依靠固定延时。
 
 默认运行 `chromium-desktop`（1440×900）与 `chromium-narrow`（390×844），验证注册登录、受保护入口、刷新和退出、首轮与续聊、持久化历史、自动标题同步、生成中改名及刷新后保留、工具过程、流中失败、生成期间切换与取消、账号隔离、改名和删除弹窗的取消及失败重试、抽屉焦点与 Esc、切回桌面释放模态状态、主题记忆及生产包不开放开发入口。定位使用角色和可访问名称，断言自动等待；失败时保留 `test-results/` 下的截图与 trace，HTML 报告位于 `playwright-report/`，不维护像素截图基线。
 
@@ -186,6 +205,7 @@ pnpm test:e2e -- tests/e2e/model-selection.spec.ts --project=model-config-deskto
 - `src/router/`、`src/views/`：认证守卫、登录注册操作编排、聊天页面、开发预览与未知路径页面。
 - `src/layouts/WorkspaceLayout.vue`：受保护的聊天与管理路由共用外壳，持有侧栏折叠、响应式抽屉、目录加载和导航状态；`ChatView`、`ModelManagementView` 仅维护各自主内容。页面间保留同一个布局实例，相关聊天组件测试通过真实路由挂载，跨页面状态回归放在集成测试与导航 E2E。
 - `src/features/auth/`：认证专属外壳、表单、校验规则、HTTP 适配与 store；`authenticated.ts` 为业务请求添加 Bearer，并通知认证 store 处理当前令牌失效；认证模块不依赖聊天模块。
+- `src/features/authorization/`：部门与账号目录、游标生命周期、管理操作表单及接口契约；`views/OrganizationView.vue` 编排工作台，授权规则统一复用 `features/auth/permissions.ts`，不将组织业务放入共享 UI 或聊天 store。
 - `src/features/model-config/`：配置公开类型、API 解码、目录校验、启停、推理开放策略、全局默认和管理状态；`components/` 维护品牌卡片、供应商弹窗、目录模型行、独立居中供应商/模型编辑器及推理策略编辑器。`views/ModelManagementView.vue` 只编排页面导航和确认操作，密钥不进入共享状态；模块测试就近维护，跨聊天与认证的流程位于集中集成及 E2E。
 - `src/features/model-selection/`：聊天安全选项、具体推理值及策略契约；纯解码/校验与可取消、按账号隔离的选项 store 不依赖聊天模块。模型菜单与独立思考强度浮层分别由 ChatModelSelector、ChatReasoningControl 承担，通过聊天 store 保存具体选择，聊天模块 API 复用契约解码版本与失效原因。管理模块复用纯策略类型和校验，不共享管理敏感数据到聊天选项。
 - `src/features/chat/`：聊天与会话的完整业务模块。`components/` 维护侧栏、会话条目、消息、首页与输入区；`store.ts` 协调目录、分页历史、删除和流式续聊；`types.ts` 与 `chat-events.ts` 定义展示数据及公开事件契约。
@@ -206,16 +226,23 @@ pnpm test:e2e -- tests/e2e/model-selection.spec.ts --project=model-config-deskto
 
 ### 公共页面与弹窗组件
 
-公共组件位于 `src/shared/components/ui/`，不依赖业务 store 或接口。`/dev/ui` 提供内容弹窗、确认框和不同按钮样式的交互示例，支持明暗主题检查。
+公共组件位于 `src/shared/components/ui/`，不依赖业务 store 或接口。`/dev/ui` 提供基础表单、内容弹窗、确认框和不同按钮样式的交互示例，支持明暗主题检查。表单区包含正常、紧凑、错误、禁用、只读和前后缀示例，可实际填写、选择并查看组合结果。
 
 | 组件 | 配置与用途 |
 | --- | --- |
+| `UiInput` | `v-model` 保留原始文本，`v-model.number` 由调用方选择数字转换；支持受控 `value / input`、原生输入属性与校验说明，`size=sm/md`、`prefix / suffix` 插槽及 `focus() / select()`。输入法候选阶段不提前更新模型，组成结束后提交完整值。 |
+| `UiSelect` | 通过 `options: {value,label,disabled?}[]` 与字符串 `v-model` 控制，支持 `size / placeholder / disabled / name`；方向键、Home/End 浏览，Enter 确认，Esc 取消并恢复焦点。空字符串可表达“全部”，内部代理值与业务值隔离，表单提交原值；Portal 菜单适应视口并继承弹窗层级。 |
+| `UiCheckbox` | 布尔 `v-model`，原生 checkbox 保留 `name / value / disabled / aria-*` 与键盘、表单语义；默认插槽显示标签，`description` 插槽显示说明。方框与文字整行可点击，悬停显示手形，禁用显示不可操作光标。 |
 | `UiPageHeader` | `title / eyebrow / description` 组织标题层级；`size=sm/md/lg`、`level=1/2/3`、`align`、`serif` 和 `truncate` 控制构图与字体，`before / actions` 插槽承接导航和操作，暴露 `focus()`，通过 `titleDblclick` 报告交互。聊天、模型管理、未找到页面与组件预览已复用。 |
 | `UiModal` | 受控 `open`，`size=sm/md/lg/xl`，可选 `height`；`layout=panel` 固定头尾、让业务内容管理内部滚动。默认插槽放内容，`footer` 放固定底栏，`header-actions` 补充次要操作。`busy` 阻止关闭；`closeOnEscape / closeOnOutside` 独立设置关闭策略；`initialFocus` 为内容内 CSS 选择器，`returnFocus` 指定恢复目标，`openAutoFocus` 支持精确聚焦。原 `wide / editor / drawer` 参数保留兼容。 |
 | `UiDialogActions` | 统一取消、确认、等待和危险操作外观；`confirmLabel / cancelLabel / busy / disabled / danger` 配置状态，`form / confirmType=submit` 可提交内容区的独立表单，默认插槽显示简短辅助说明。 |
 | `UiConfirmDialog` | 组合 `UiModal` 与 `UiDialogActions`；配置标题、说明、操作文案、危险样式、等待及错误，默认聚焦取消。`confirm` 只报告用户确认，由业务层执行操作，成功后更新 `open`，失败保留弹窗；会话删除、配置删除及放弃草稿均复用。 |
 
 弹层通过 `useDialogLayer` 继承逻辑层级，Portal 不会破坏嵌套关系。通常无需手动设置层级；像会话弹窗宿主这样位于抽屉之外、需要覆盖抽屉的场景可显式传 `layer`。弹窗恢复焦点优先使用触发元素，触发器已被删除时回到剩余弹层或页面标题。业务取消和离页保护由调用方负责；公共组件不自动提交、丢弃草稿或关闭失败操作。
+
+业务标签保留在各自表单，校验规则与业务枚举仍由 feature 管理。登录注册、组织管理、供应商和模型表单、会话改名以及聊天预算输入共用上述控件；滑块与聊天输入区保留专门组件。组织页签使用圆角内描边区分键盘焦点，选中下划线与焦点独立，鼠标点击不额外叠加方形色块。操作成功通过内容更新、弹窗关闭或导航体现，不额外显示成功消息；失败保留一次明确说明与必要的重试入口。
+
+`pnpm test:e2e:preview` 使用 `tests/support/playwright/preview.config.ts` 启动独立 `127.0.0.1:4187` 开发服务器，结束后自动关闭；不复用正在运行的开发服务，不连接业务后端。`pnpm test:all`、`pnpm verify` 均包含此验收。生产 E2E 继续使用正式构建，并验证 `/dev/ui` 不可访问。控件模块测试在 `src/shared/__tests__/components/controls.spec.ts`，跨控件预览集成在 `tests/integration/component-preview.spec.ts`，键盘选择支撑位于 `tests/support/vitest/controls.ts`、`tests/support/playwright/controls.ts`，测试不直接修改隐藏表单代理。
 
 例如，表单放在默认插槽，公共底栏通过 `form` 提交：
 

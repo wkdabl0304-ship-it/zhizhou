@@ -48,9 +48,9 @@ function keep(): void {
   leaving?.(false)
   leaving = undefined
 }
-// 用户主动离开时询问草稿；认证失效必须允许根组件导航并清理秘密输入。
+// 用户主动离开时询问草稿；认证失效或失去管理权限必须允许根组件导航并清理秘密输入。
 onBeforeRouteLeave(() => {
-  if (!auth.isAuthenticated) return true
+  if (!auth.isAuthenticated || !auth.can('model:manage')) return true
   if (props.busy) return false
   if (!props.dirty) return true
   discarding.value = true

@@ -16,6 +16,30 @@ beforeEach(async () => {
 })
 
 describe('带身份的业务请求', () => {
+  it('403 只刷新当前身份并保留失败响应，不重放原操作', async () => {
+    const { USER } = createAuthData()
+    fetchMock
+      .mockResolvedValueOnce(response(null, 403, 40301, '权限变化'))
+      .mockResolvedValueOnce(response(USER))
+    const result = await authenticatedFetch('/api/example', { method: 'DELETE' })
+    expect(result.status).toBe(403)
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual(['/api/example', '/api/auth/me'])
+    expect(useAuthStore().isAuthenticated).toBe(true)
+  })
+
+  it('403 后身份同步断网时收回旧授权但保留登录供重试', async () => {
+    useAuthStore().user!.grants.push({
+      permission: 'model:manage',
+      scope_type: 'global',
+      scope_id: null,
+    })
+    fetchMock
+      .mockResolvedValueOnce(response(null, 403, 40301))
+      .mockRejectedValueOnce(new TypeError('offline'))
+    await authenticatedFetch('/api/example')
+    expect(useAuthStore().can('model:manage')).toBe(false)
+    expect(useAuthStore().isAuthenticated).toBe(true)
+  })
   it('保留自定义请求头与取消信号，并覆盖调用方提供的旧 Bearer', async () => {
     const signal = new AbortController().signal
     fetchMock.mockResolvedValue(response(null))

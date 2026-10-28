@@ -249,9 +249,9 @@ export const useModelConfigStore = defineStore('model-config', () => {
   }
   // 即使管理页已卸载，旧身份也不能继续写入配置缓存。
   const stopAuthWatch = watch(
-    () => auth.accessToken,
-    (token, previous) => {
-      if (previous && token !== previous) clear()
+    () => [auth.accessToken, auth.can('model:manage')] as const,
+    ([token, allowed], previous) => {
+      if (previous && ((previous[0] && token !== previous[0]) || (previous[1] && !allowed))) clear()
     },
     { flush: 'sync' },
   )

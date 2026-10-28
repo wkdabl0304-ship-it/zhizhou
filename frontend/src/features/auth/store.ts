@@ -3,6 +3,7 @@ import { computed, onScopeDispose, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { AuthApiError, currentUser, login as requestLogin } from './api'
 import type { AuthUser, Credentials } from './types'
+import { hasGrant } from './permissions'
 
 export const AUTH_STORAGE_KEY = 'zhizhou-auth'
 
@@ -25,6 +26,21 @@ export const useAuthStore = defineStore('auth', () => {
   let timer: ReturnType<typeof setTimeout> | undefined
   let restoring: Promise<void> | undefined
   let revision = 0
+
+  /** 使用最新有效授权判断按钮、路由和目标资源的可操作范围。 */
+  function can(permission: string, scopeId?: string): boolean {
+    return hasGrant(user.value, permission, scopeId)
+  }
+
+  /** 同步权限变动；失败时清空授权以避免继续显示过期管理入口，旧令牌不能影响新身份。 */
+  async function refreshIdentity(token = accessToken.value): Promise<void> {
+    if (!token || token !== accessToken.value) return
+    await initialize(true)
+    if (token === accessToken.value && restoreError.value && user.value) {
+      user.value = { ...user.value, grants: [] }
+      notice.value = '身份暂时无法校验，管理操作已暂停。'
+    }
+  }
 
   /** 移除当前标签页凭据；存储被禁用时仍能结束内存中的登录状态。 */
   function clearSession(message = ''): void {
@@ -162,7 +178,7 @@ export const useAuthStore = defineStore('auth', () => {
   /** 将新注册账号带回登录表单，仅保存用户名；注册响应不会建立认证状态。 */
   function prepareLogin(username: string): void {
     registeredUsername.value = username
-    notice.value = '账号创建成功，请登录。'
+    notice.value = ''
   }
 
   // store 销毁后释放定时器，并拒绝尚未完成的异步身份恢复和登录结果。
@@ -173,6 +189,8 @@ export const useAuthStore = defineStore('auth', () => {
 
   return {
     user,
+    can,
+    refreshIdentity,
     isAuthenticated,
     accessToken,
     requireToken,

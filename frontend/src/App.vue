@@ -5,10 +5,25 @@ import { watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useThemeStore } from '@/shared/stores/theme'
 import { useAuthStore } from '@/features/auth/store'
+import { canManageOrganization } from '@/features/auth/permissions'
 
 useThemeStore().initialize()
 const auth = useAuthStore()
 const router = useRouter()
+
+// 本人被撤权或移出部门后退出管理页；正在进行的聊天仍按既有生命周期完成。
+watch(
+  () => auth.user,
+  () => {
+    const route = router.currentRoute.value
+    if (
+      auth.isAuthenticated &&
+      ((route.meta.permission && !auth.can(String(route.meta.permission))) ||
+        (route.name === 'organization' && !canManageOrganization(auth.user)))
+    )
+      void router.replace('/')
+  },
+)
 
 // 定时到期或主动退出也会触发路由回退，不必等用户再次点击导航。
 watch(

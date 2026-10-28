@@ -1,5 +1,6 @@
 <!-- 认证表单：管理输入、密码显隐和字段校验，向页面提交短生命周期凭据，不自行请求后端。 -->
 <script setup lang="ts">
+import UiInput from '@/shared/components/ui/UiInput.vue'
 import { computed, ref } from 'vue'
 import { ArrowRight, Eye, EyeOff, LoaderCircle } from '@lucide/vue'
 import type { AuthMode, Credentials } from './types'
@@ -45,7 +46,7 @@ function submit(): void {
     <p v-if="error" class="form-error" role="alert">{{ error }}</p>
     <div class="auth-field">
       <label :for="`${idPrefix}-username`">用户名</label>
-      <input
+      <UiInput
         :id="`${idPrefix}-username`"
         v-model="username"
         name="username"
@@ -77,7 +78,7 @@ function submit(): void {
       <label :for="`${idPrefix}-password`">密码</label>
       <div class="password-field">
         <!-- HTML 长度以 UTF-16 计；容纳 128 个双码元字符后再按后端字符规则校验。 -->
-        <input
+        <UiInput
           :id="`${idPrefix}-password`"
           v-model="password"
           name="password"
@@ -96,17 +97,17 @@ function submit(): void {
               .join(' ') || undefined
           "
           required
-        />
-        <button
-          type="button"
-          class="password-toggle"
-          :aria-label="visible ? '隐藏密码' : '显示密码'"
-          :aria-pressed="visible"
-          :disabled="busy"
-          @click="visible = !visible"
-        >
-          <EyeOff v-if="visible" :size="18" /><Eye v-else :size="18" />
-        </button>
+          ><template #suffix
+            ><button
+              type="button"
+              class="password-toggle"
+              :aria-label="visible ? '隐藏密码' : '显示密码'"
+              :aria-pressed="visible"
+              :disabled="busy"
+              @click="visible = !visible"
+            >
+              <EyeOff v-if="visible" :size="18" /><Eye v-else :size="18" /></button></template
+        ></UiInput>
       </div>
       <p v-if="registering" :id="`${idPrefix}-password-hint`" class="field-hint">8–128 个字符</p>
       <p v-if="errors.password" :id="`${idPrefix}-password-error`" class="field-error" role="alert">
@@ -115,7 +116,7 @@ function submit(): void {
     </div>
     <div v-if="registering" class="auth-field">
       <label :for="`${idPrefix}-confirmation`">确认密码</label>
-      <input
+      <UiInput
         :id="`${idPrefix}-confirmation`"
         v-model="confirmation"
         name="confirmation"
@@ -155,57 +156,8 @@ label {
   margin-bottom: 8px;
   font-size: 13px;
 }
-input {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  padding: 13px 14px;
-  border: 1px solid var(--border-strong);
-  border-radius: 12px;
-  /* 半透明青灰底与山水融合，聚焦时提高纸面不透明度以突出当前输入。 */
-  background: color-mix(in srgb, var(--surface-soft) 72%, transparent);
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-  transition:
-    border-color 180ms ease,
-    box-shadow 180ms ease,
-    background-color 180ms ease;
-}
-input:focus-visible {
-  background: color-mix(in srgb, var(--surface) 92%, transparent);
-  border-color: var(--brand);
-  outline: none;
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--brand) 13%, transparent);
-}
-input::placeholder {
-  color: var(--text-muted);
-}
-input[aria-invalid='true'] {
-  border-color: var(--danger);
-}
-input:disabled {
-  opacity: 0.65;
-}
-.password-field {
-  position: relative;
-}
-.password-field input {
-  padding-right: 50px;
-}
 .password-toggle {
-  position: absolute;
-  top: 0;
-  right: 3px;
-  display: grid;
-  place-items: center;
-  width: 44px;
-  height: 100%;
-  padding: 0;
-  border: 0;
-  border-radius: 9px;
-  background: transparent;
-  color: var(--text-muted);
+  position: static;
 }
 .password-toggle:hover {
   color: var(--brand);
@@ -294,11 +246,6 @@ input:disabled {
   .auth-submit,
   .auth-submit::before {
     transition: none;
-  }
-}
-@media (pointer: coarse) {
-  input {
-    font-size: 16px;
   }
 }
 </style>

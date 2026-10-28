@@ -13,7 +13,7 @@ const fetchMock = vi.fn<typeof fetch>()
 beforeEach(async () => {
   vi.stubGlobal('fetch', fetchMock)
   fetchMock.mockReset()
-  await authenticate(createTestPinia(), fetchMock)
+  await authenticate(createTestPinia(), fetchMock, true)
 })
 
 describe('模型配置协议', () => {

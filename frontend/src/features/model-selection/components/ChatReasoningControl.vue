@@ -1,5 +1,6 @@
 <!-- 输入区思考强度：以单一滑块包含关闭档，遵循后端允许范围及会话确认版本。 -->
 <script setup lang="ts">
+import UiInput from '@/shared/components/ui/UiInput.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent } from 'reka-ui'
 import { ChevronDown, Sparkles } from '@lucide/vue'
@@ -264,9 +265,10 @@ onBeforeUnmount(() => {
               </div>
               <template v-if="kind === 'budget' && draft?.reasoning.mode === 'budget' && budget">
                 <label class="reasoning-budget"
-                  >思考预算<input
+                  >思考预算<UiInput
                     name="chat_budget"
                     type="number"
+                    size="sm"
                     step="1"
                     :min="budget.min"
                     :max="budget.max"
@@ -443,15 +445,9 @@ onBeforeUnmount(() => {
   margin-top: 14px;
   font-size: 11px;
 }
-.reasoning-budget input {
+.reasoning-budget .ui-input {
   width: 110px;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 7px;
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
 }
 .reasoning-apply {
   margin-top: 10px;

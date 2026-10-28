@@ -41,7 +41,7 @@ it('没有全局默认也能手动选择固定方案，选择草稿不污染允�
   await flushPromises()
   expect(useChatStore().selectionReady).toBe(false)
   expect(page.text()).not.toContain('请选择模型方案')
-  expect(page.get('.chat-model-menu-heading a').text()).toBe('前往模型管理')
+  expect(page.find('.chat-model-menu-heading a').exists()).toBe(false)
   await page
     .get('[data-model-id="' + data.providers[0]!.models[0]!.model_configuration_id + '"]')
     .trigger('click')

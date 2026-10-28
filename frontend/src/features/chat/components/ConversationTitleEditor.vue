@@ -1,5 +1,6 @@
 <!-- 会话标题弹窗：负责草稿、Unicode 长度校验和提交反馈，保存由工作区状态层提供。 -->
 <script setup lang="ts">
+import UiInput from '@/shared/components/ui/UiInput.vue'
 import { computed, nextTick, ref, useId } from 'vue'
 import UiModal from '@/shared/components/ui/UiModal.vue'
 import UiDialogActions from '@/shared/components/ui/UiDialogActions.vue'
@@ -17,7 +18,7 @@ const emit = defineEmits<{ saved: []; cancel: [] }>()
 const draft = ref(props.title),
   error = ref(''),
   saving = ref(false)
-const input = ref<HTMLInputElement>()
+const input = ref<InstanceType<typeof UiInput>>()
 const formId = useId()
 const length = computed(() => Array.from(normalizeTitle(draft.value)).length)
 
@@ -86,7 +87,7 @@ function selectTitle(event: Event): void {
       @keydown="keydown"
     >
       <label :for="formId + '-input'">会话标题</label>
-      <input
+      <UiInput
         :id="formId + '-input'"
         ref="input"
         v-model="draft"
@@ -122,23 +123,6 @@ function selectTitle(event: Event): void {
   color: var(--text-secondary);
   font-size: 12px;
 }
-.conversation-title-editor input {
-  display: block;
-  width: 100%;
-  min-width: 0;
-  padding: 12px 14px;
-  border: 1px solid var(--border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--bg);
-  color: var(--text);
-  font: inherit;
-  font-size: 14px;
-}
-.conversation-title-editor input:focus-visible {
-  outline: 2px solid var(--brand);
-  /* 内容区允许滚动，焦点线放在控件边界内，避免贴边输入框的左右描边被裁切。 */
-  outline-offset: -1px;
-}
 .title-editor-hint {
   display: flex;
   justify-content: space-between;
@@ -156,10 +140,5 @@ function selectTitle(event: Event): void {
   margin: 14px 0 0;
   font-size: 12px;
   line-height: 1.6;
-}
-@media (max-width: 760px) {
-  .conversation-title-editor input {
-    font-size: 16px;
-  }
 }
 </style>

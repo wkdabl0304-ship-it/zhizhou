@@ -1,5 +1,8 @@
 <!-- 模型方案表单：按供应商及协议读取目录，管理推理联合类型、输出预算与异步目录的释放。 -->
 <script setup lang="ts">
+import UiInput from '@/shared/components/ui/UiInput.vue'
+import UiSelect from '@/shared/components/ui/UiSelect.vue'
+import UiCheckbox from '@/shared/components/ui/UiCheckbox.vue'
 import { computed, onBeforeUnmount, reactive, ref, toRaw } from 'vue'
 import { ApiError } from '@/features/auth/authenticated'
 import UiButton from '@/shared/components/ui/UiButton.vue'
@@ -49,6 +52,40 @@ const spec = computed(() =>
   entries.value.find((item) => item.catalog_model_id === draft.catalog_model_id),
 )
 const dirty = computed(() => JSON.stringify(draft) !== initial)
+// 选项文案来自当前目录；旧模型失效时以占位提示呈现，不伪造可选记录。
+const catalogOptions = computed(() =>
+  entries.value.map((item) => ({
+    value: item.catalog_model_id,
+    label: item.display_name + (item.available ? '' : ' · 不可用'),
+    disabled: !item.available,
+  })),
+)
+const effortOptions = computed(
+  () =>
+    spec.value?.reasoning.effort_options.map((effort) => ({
+      value: effort,
+      label: `${effortLabels[effort] ?? effort} · ${effort}`,
+    })) ?? [],
+)
+const reasoningOptions = computed(() =>
+  spec.value
+    ? [
+        ...(draft.reasoning.mode === 'default' &&
+        !spec.value.reasoning.allowed_modes.includes('default')
+          ? [
+              {
+                value: 'default',
+                label: `模型默认 · ${describeReasoning(spec.value.reasoning.default)}`,
+              },
+            ]
+          : []),
+        ...spec.value.reasoning.allowed_modes.map((mode) => ({
+          value: mode,
+          label: modeLabels[mode],
+        })),
+      ]
+    : [],
+)
 /** 读取匹配协议的目录，失败只影响当前编辑器，并提供显式重试。 */
 async function load(): Promise<void> {
   loading.value = true
@@ -73,8 +110,8 @@ async function load(): Promise<void> {
   }
 }
 /** 更换目录模型时重置为其合法默认推理值，输出保留在新模型允许的范围内。 */
-function changeModel(event?: Event): void {
-  if (event) draft.catalog_model_id = (event.target as HTMLSelectElement).value
+function changeModel(value?: string): void {
+  if (value !== undefined) draft.catalog_model_id = value
   if (!spec.value) return
   draft.reasoning_policy = { mode: 'fixed' }
   draft.reasoning = spec.value.reasoning.allowed_modes.includes('default')
@@ -83,8 +120,8 @@ function changeModel(event?: Event): void {
   draft.max_output_tokens = Math.min(draft.max_output_tokens, spec.value.max_output_tokens)
 }
 /** 切换推理形式时只保留该联合分支允许的参数。 */
-function changeMode(event: Event): void {
-  const mode = (event.target as HTMLSelectElement).value as Reasoning['mode']
+function changeMode(value: string): void {
+  const mode = value as Reasoning['mode']
   if (mode === 'effort')
     draft.reasoning = { mode, effort: spec.value!.reasoning.effort_options[0]! }
   else if (mode === 'budget') {
@@ -141,7 +178,7 @@ void load()
     <section class="config-form-section" aria-label="基本信息">
       <h3>基本信息</h3>
       <label
-        >方案名称<input
+        >方案名称<UiInput
           v-model="draft.name"
           name="name"
           maxlength="100"
@@ -152,63 +189,38 @@ void load()
         {{ previous?.catalog?.display_name ?? draft.catalog_model_id }}
       </p>
       <label v-if="!managed"
-        >目录模型<select
-          :value="spec ? draft.catalog_model_id : ''"
+        >目录模型<UiSelect
+          :model-value="spec ? draft.catalog_model_id : ''"
           name="catalog_model_id"
-          @change="changeModel"
-        >
-          <option v-if="!spec" value="" disabled>
-            请选择可用模型{{ previous ? '（原模型可能已不可用）' : '' }}
-          </option>
-          <option
-            v-for="item in entries"
-            :key="item.catalog_model_id"
-            :value="item.catalog_model_id"
-            :disabled="!item.available"
-          >
-            {{ item.display_name }}{{ item.available ? '' : ' · 不可用' }}
-          </option></select
-        ><small>仅展示与当前供应商及接口格式匹配的模型。</small></label
+          :options="catalogOptions"
+          :placeholder="`请选择可用模型${previous ? '（原模型可能已不可用）' : ''}`"
+          @update:model-value="changeModel"
+        /><small>仅展示与当前供应商及接口格式匹配的模型。</small></label
       >
-      <label v-if="!managed" class="config-switch"
-        ><input v-model="draft.enabled" name="enabled" type="checkbox" />启用此模型方案</label
-      >
+      <UiCheckbox v-if="!managed" v-model="draft.enabled" name="enabled">启用此模型方案</UiCheckbox>
     </section>
     <template v-if="spec">
       <section class="config-form-section" aria-label="模型参数">
         <h3>模型参数</h3>
         <div class="config-form-grid">
           <label
-            >推理方式<select
-              :value="draft.reasoning.mode"
+            >推理方式<UiSelect
+              :model-value="draft.reasoning.mode"
               name="reasoning_mode"
-              @change="changeMode"
-            >
-              <option
-                v-if="
-                  draft.reasoning.mode === 'default' &&
-                  !spec.reasoning.allowed_modes.includes('default')
-                "
-                value="default"
-              >
-                模型默认 · {{ describeReasoning(spec.reasoning.default) }}
-              </option>
-              <option v-for="mode in spec.reasoning.allowed_modes" :key="mode" :value="mode">
-                {{ modeLabels[mode] }}
-              </option></select
-            ><small v-if="draft.reasoning.mode === 'default'"
+              :options="reasoningOptions"
+              @update:model-value="changeMode"
+            /><small v-if="draft.reasoning.mode === 'default'"
               >目录默认：{{ describeReasoning(spec.reasoning.default) }}</small
             ></label
           >
           <label v-if="draft.reasoning.mode === 'effort'"
-            >推理档位<select v-model="draft.reasoning.effort" name="effort">
-              <option v-for="effort in spec.reasoning.effort_options" :key="effort" :value="effort">
-                {{ effortLabels[effort] ?? effort }} · {{ effort }}
-              </option>
-            </select></label
-          >
+            >推理档位<UiSelect
+              v-model="draft.reasoning.effort"
+              name="effort"
+              :options="effortOptions"
+          /></label>
           <label v-if="draft.reasoning.mode === 'budget' && spec.reasoning.budget"
-            >思考预算（tokens）<input
+            >思考预算（tokens）<UiInput
               v-model.number="draft.reasoning.budget_tokens"
               name="budget_tokens"
               type="number"
@@ -223,7 +235,7 @@ void load()
             ></label
           >
           <label
-            >最大输出 tokens<input
+            >最大输出 tokens<UiInput
               v-model.number="draft.max_output_tokens"
               name="max_output_tokens"
               type="number"

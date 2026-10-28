@@ -7,6 +7,7 @@ import ChatView from '@/views/ChatView.vue'
 import WorkspaceLayout from '@/layouts/WorkspaceLayout.vue'
 import { useAuthStore } from '@/features/auth/store'
 import { postLoginPath } from '@/features/auth/validation'
+import { canManageOrganization } from '@/features/auth/permissions'
 
 /** 创建带认证守卫的应用路由；测试可注入内存历史，不修改浏览器地址或共享导航状态。 */
 export function createAppRouter(
@@ -28,6 +29,12 @@ export function createAppRouter(
             path: 'models',
             name: 'models',
             component: () => import('@/views/ModelManagementView.vue'),
+            meta: { permission: 'model:manage' },
+          },
+          {
+            path: 'organization',
+            name: 'organization',
+            component: () => import('@/views/OrganizationView.vue'),
           },
         ],
       },
@@ -71,6 +78,13 @@ export function createAppRouter(
     if (to.meta.requiresAuth && !auth.isAuthenticated)
       return { name: 'login', query: { redirect: to.fullPath }, replace: true }
     if (to.meta.guestOnly && auth.isAuthenticated) return postLoginPath(to.query.redirect)
+    if (
+      (to.meta.permission && !auth.can(String(to.meta.permission))) ||
+      (to.name === 'organization' && !canManageOrganization(auth.user))
+    ) {
+      auth.notice = '当前账号没有访问此管理页面的权限。'
+      return { name: 'chat', replace: true }
+    }
     return true
   })
   return router

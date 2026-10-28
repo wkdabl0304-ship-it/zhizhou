@@ -25,15 +25,21 @@ describe('登录后返回地址', () => {
     '/login',
     '/register',
     '/unknown',
+    '/organization/unknown',
     '/\n',
   ])('拒绝不安全或不存在的返回地址 %#', (value) => {
     expect(postLoginPath(value)).toBe('/')
   })
   // 查询参数和片段可跟随合法内部入口保留，不执行其中的外部地址。
-  it.each(['/', '/?from=login#composer', '/dev/ui', '/models', '/models?from=chat'])(
-    '保留合法内部地址 %s',
-    (value) => {
-      expect(postLoginPath(value)).toBe(value)
-    },
-  )
+  it.each([
+    '/',
+    '/?from=login#composer',
+    '/dev/ui',
+    '/models',
+    '/models?from=chat',
+    '/organization',
+    '/organization?from=login#members',
+  ])('保留合法内部地址 %s', (value) => {
+    expect(postLoginPath(value)).toBe(value)
+  })
 })

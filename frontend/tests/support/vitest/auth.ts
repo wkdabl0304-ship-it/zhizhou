@@ -6,8 +6,14 @@ import { createAuthData } from '@tests/support/data/auth'
 import { response } from '@tests/support/vitest/http'
 
 /** 为当前用例登录测试账号，并从聊天请求计数中排除认证准备请求。 */
-export async function authenticate(pinia: Pinia, fetchMock: Mock<typeof fetch>): Promise<void> {
+export async function authenticate(
+  pinia: Pinia,
+  fetchMock: Mock<typeof fetch>,
+  management = false,
+): Promise<void> {
   const { CREDENTIALS, LOGIN } = createAuthData()
+  if (management)
+    LOGIN.user.grants.push({ permission: 'model:manage', scope_type: 'global', scope_id: null })
   setActivePinia(pinia)
   fetchMock.mockResolvedValueOnce(response(LOGIN))
   await useAuthStore(pinia).login(CREDENTIALS)

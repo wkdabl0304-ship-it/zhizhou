@@ -1,3 +1,4 @@
+import { chooseSelect } from '@tests/support/vitest/controls'
 /** 管理推理策略回归：范围必须来自目录，固定与自选切换不残留不适用字段。 */
 import { expect, it } from 'vitest'
 import { mount } from '@vue/test-utils'
@@ -27,6 +28,7 @@ it('默认值须在开放范围，预算上限不得越过输出限制', () => {
 it('切换策略生成合法预算范围，移除预算方式时不残留预算字段', async () => {
   const { catalog } = modelConfigData()
   const page = mount(ReasoningPolicyEditor, {
+    attachTo: document.body,
     props: {
       model: catalog,
       reasoning: { mode: 'budget', budget_tokens: 4096 },
@@ -37,7 +39,7 @@ it('切换策略生成合法预算范围，移除预算方式时不残留预算�
       },
     },
   })
-  await page.get('select').setValue('selectable')
+  await chooseSelect(page.get('[role="combobox"]'), 'selectable')
   const policy = page.props('modelValue')
   expect(policy).toEqual({
     mode: 'selectable',
@@ -53,6 +55,6 @@ it('切换策略生成合法预算范围，移除预算方式时不残留预算�
     effort_options: [],
     budget: null,
   })
-  await page.get('select').setValue('fixed')
+  await chooseSelect(page.get('[role="combobox"]'), 'fixed')
   expect(page.props('modelValue')).toEqual({ mode: 'fixed' })
 })

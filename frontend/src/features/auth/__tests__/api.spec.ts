@@ -65,6 +65,22 @@ describe('认证 HTTP 契约', () => {
     { ...LOGIN, expires_in: 1.5 },
     { ...LOGIN, expires_in: Number.MAX_SAFE_INTEGER },
     { ...LOGIN, user: { ...USER, role: 'unknown' } },
+    { ...LOGIN, user: { ...USER, grants: undefined } },
+    {
+      ...LOGIN,
+      user: {
+        ...USER,
+        grants: [{ permission: 'model:manage', scope_type: 'global', scope_id: 'wrong' }],
+      },
+    },
+    {
+      ...LOGIN,
+      user: {
+        ...USER,
+        grants: [{ permission: 'conversation:read', scope_type: 'self', scope_id: 'other' }],
+      },
+    },
+    { ...LOGIN, user: { ...USER, roles: 'super_admin' } },
     null,
   ])('拒绝损坏的登录数据 %#', async (data) => {
     fetchMock.mockResolvedValue(response(data))
