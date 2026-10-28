@@ -18,9 +18,9 @@ pytestmark = pytest.mark.postgres
 
 @pytest.mark.anyio
 async def test_register_login_jwt_claims_and_disabled_account(postgres_settings):
-    """验证两类账号的注册登录，以及真实 JWT 的认证边界。
+    """验证普通账号的注册登录、拒绝公开提权，以及真实 JWT 的认证边界。
 
-    覆盖必需声明、有效期、签名算法和账号停用状态，测试账号仅写入隔离库。
+    覆盖必需声明、有效期、签名算法、凭据版本类型与边界和账号停用状态，测试账号仅写入隔离库。
     """
 
     async with runtime(postgres_settings) as environment:
@@ -30,11 +30,14 @@ async def test_register_login_jwt_claims_and_disabled_account(postgres_settings)
         body = {
             "username": " " + username.upper() + " ",
             "password": "password-123",
-            "role": "super_admin",
+            "role": "user",
         }
         response = await client.post("/api/auth/register", json=body)
         assert response.status_code == 200 and response.json()["code"] == 0
-        assert response.json()["data"]["role"] == "super_admin"
+        assert response.json()["data"]["role"] == "user"
+        rejected = await client.post("/api/auth/register", json={**body, "username": "forbidden_admin", "role": "super_admin"})
+        assert rejected.status_code == 422
+        assert response.json()["data"]["roles"] == ["user"]
         assert "password" not in response.text
         assert (await client.post("/api/auth/register", json=body)).json()[
             "code"
@@ -71,6 +74,7 @@ async def test_register_login_jwt_claims_and_disabled_account(postgres_settings)
             "exp": now + timedelta(hours=1),
             "iss": "zhizhou",
             "aud": "zhizhou-api",
+            "token_version": 1,
         }
         bad_claims = [
             {**payload, "exp": now - timedelta(seconds=1)},
@@ -79,6 +83,11 @@ async def test_register_login_jwt_claims_and_disabled_account(postgres_settings)
             {**payload, "sub": "not-a-uuid"},
             {key: value for key, value in payload.items() if key != "exp"},
         ]
+        # 凭据版本只接受正整数，布尔值不能因 Python 中 True == 1 而被当作版本 1。
+        bad_claims.extend(
+            {**payload, "token_version": value}
+            for value in (None, True, False, 0, -1, "1", 1.5)
+        )
         tokens = [
             jwt.encode(claims, postgres_settings.jwt_secret, algorithm="HS256")
             for claims in bad_claims

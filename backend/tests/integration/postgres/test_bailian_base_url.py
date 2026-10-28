@@ -15,7 +15,7 @@ PREFIX = "/api/model-config"
 async def test_pasted_address_crud_snapshot_and_key_retention(postgres_settings):
     """完整地址经正式 API 保存并进入模型快照；更换地址保留原密钥且拒绝过期或错误写入。"""
     async with open_runtime(postgres_settings, configured=False) as runtime:
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         client, service = runtime.client, runtime.model_config
         address = "https://ws-paste.cn-beijing.maas.aliyuncs.com/compatible-mode/v1"
         result = await client.post(f"{PREFIX}/provider-configurations", headers=headers, json={
@@ -56,7 +56,7 @@ async def test_pasted_address_crud_snapshot_and_key_retention(postgres_settings)
 async def test_legacy_rows_display_equivalent_url_without_resetting_key(postgres_settings, legacy, address):
     """旧地域配置读取为等价 URL，读取不改版本，后续保存自然转换 JSON 而不重置密钥。"""
     async with open_runtime(postgres_settings, configured=False) as runtime:
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         service, client = runtime.model_config, runtime.client
         # 直接写入旧版 JSON 形状模拟已部署数据；新版本创建接口会主动保存规范地址。
         async with runtime.database.sessions.begin() as session:

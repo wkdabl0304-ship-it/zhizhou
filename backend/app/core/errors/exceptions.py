@@ -47,6 +47,13 @@ class RequestError(AppError):
     _statuses: ClassVar[dict[ErrorCode, int]] = {
         ErrorCode.UNAUTHENTICATED: 401,
         ErrorCode.INVALID_CREDENTIALS: 401,
+        ErrorCode.FORBIDDEN: 403,
+        ErrorCode.USER_NOT_FOUND: 404,
+        ErrorCode.DEPARTMENT_NOT_FOUND: 404,
+        ErrorCode.USER_IN_OTHER_DEPARTMENT: 409,
+        ErrorCode.LAST_SUPER_ADMIN: 409,
+        ErrorCode.TARGET_STATE_CONFLICT: 409,
+        ErrorCode.DEPARTMENT_NAME_EXISTS: 409,
         ErrorCode.CONVERSATION_NOT_FOUND: 404,
         ErrorCode.CONVERSATION_BUSY: 409,
         ErrorCode.INVALID_ARGUMENT: 422,

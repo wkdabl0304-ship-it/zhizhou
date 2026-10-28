@@ -1,4 +1,4 @@
-"""账号注册、密码校验和 JWT 生命周期；所有角色都使用同一所有权校验入口。"""
+"""账号注册、密码校验和 JWT 凭据版本生命周期；公开身份通过统一授权服务解析。"""
 
 from datetime import UTC, datetime, timedelta
 from uuid import UUID
@@ -21,6 +21,7 @@ from app.schemas.auth import (
     RegisterRequest,
     UserInfo,
 )
+from app.services.authorization import AuthorizationService, management_lock
 
 
 class AuthService:
@@ -41,6 +42,7 @@ class AuthService:
         self.database = database
         self.settings = settings
         self.passwords = PasswordHash.recommended() # 创建密码哈希工具
+        self.authorization = AuthorizationService(database)
         # 未知账号也执行一次密码校验，避免走明显不同的哈希计算路径。
         self._dummy_hash: str | None = None
 
@@ -57,7 +59,7 @@ class AuthService:
     async def register(self, body: RegisterRequest) -> RegisteredUser:
         """注册新账号并返回不含密码摘要的账号信息。
 
-        body 提供已校验的用户名、密码与角色。先在线程池计算密码摘要，
+        body 提供已校验的用户名和密码。先在线程池计算密码摘要，
         再在短事务中创建账号；数据库唯一约束保证并发重名不会重复注册。
         用户名冲突转换为 USERNAME_EXISTS，其他数据库异常继续向外传播。
         """
@@ -65,9 +67,11 @@ class AuthService:
         try:
             async with self.database.sessions.begin() as session:
                 user = await users.add_user(
-                    session, body.username, password_hash, body.role
+                    session, body.username, password_hash
                 )
-                result = RegisteredUser.model_validate(user)
+                await self.authorization.bind(session, user, "user")
+                info = await self.authorization.info(session, user)
+                result = RegisteredUser(**info.model_dump(), created_at=user.created_at)
             return result
         except IntegrityError as exc:
             if getattr(exc.orig, "sqlstate", None) == "23505":
@@ -89,6 +93,15 @@ class AuthService:
         valid = await to_thread.run_sync(self.passwords.verify, body.password, encoded)
         if user is None or not valid or not user.is_active:
             raise RequestError(ErrorCode.INVALID_CREDENTIALS)
+        # 哈希校验不持事务；签发前取得共享管理锁，避免与改密或停用交错后签发旧凭据令牌。
+        verified_hash, verified_version = user.password_hash, user.token_version
+        async with self.database.sessions.begin() as session:
+            await management_lock(session, shared=True)
+            user = await users.by_id(session, user.id)
+            if user is None or not user.is_active or user.password_hash != verified_hash or user.token_version != verified_version:
+                raise RequestError(ErrorCode.INVALID_CREDENTIALS)
+            info = await self.authorization.info(session, user)
+            version = user.token_version
         now = datetime.now(UTC)
         token = jwt.encode(
             {
@@ -97,6 +110,7 @@ class AuthService:
                 "exp": now + timedelta(seconds=self.settings.jwt_ttl_seconds),
                 "iss": self.settings.jwt_issuer,
                 "aud": self.settings.jwt_audience,
+                "token_version": version,
             },
             self.settings.jwt_secret,
             algorithm="HS256",
@@ -104,7 +118,7 @@ class AuthService:
         return LoginResponse(
             access_token=token,
             expires_in=self.settings.jwt_ttl_seconds,
-            user=UserInfo.model_validate(user),
+            user=info,
         )
 
     async def authenticate(self, token: str) -> User:
@@ -112,7 +126,7 @@ class AuthService:
 
         token 必须包含规定的 JWT 声明并通过签名、有效期及签发方和接收方
         校验；随后查询数据库中的最新账号状态，不只信任令牌本身。
-        令牌无效、账号不存在或已停用时统一抛出 UNAUTHENTICATED。
+        令牌无效、凭据版本过期、账号不存在或已停用时统一抛出 UNAUTHENTICATED。
         """
         try:
             payload = jwt.decode(
@@ -121,13 +135,22 @@ class AuthService:
                 algorithms=["HS256"],
                 issuer=self.settings.jwt_issuer,
                 audience=self.settings.jwt_audience,
-                options={"require": ["sub", "iat", "exp", "iss", "aud"]},
+                options={"require": ["sub", "iat", "exp", "iss", "aud", "token_version"]},
             )
             user_id = UUID(payload["sub"])
+            if type(payload["token_version"]) is not int or payload["token_version"] < 1:
+                raise ValueError("无效凭据版本")
         except jwt.InvalidTokenError, ValueError, TypeError, KeyError:
             raise RequestError(ErrorCode.UNAUTHENTICATED) from None
         async with self.database.sessions() as session:
             user = await users.by_id(session, user_id)
-        if user is None or not user.is_active:
+        if user is None or not user.is_active or user.token_version != payload["token_version"]:
             raise RequestError(ErrorCode.UNAUTHENTICATED)
         return user
+
+    async def me(self, actor: User) -> UserInfo:
+        """读取当前账号及其最新授权，使前端恢复身份时及时发现归属和角色变化。"""
+        async with self.database.sessions.begin() as session:
+            await management_lock(session, shared=True)
+            user = await self.authorization.current(session, actor)
+            return await self.authorization.info(session, user)

@@ -39,6 +39,8 @@ from app.llm.runtime import ConfiguredChatAgent
 from app.llm.providers.failures import ProviderFailure
 from app.core.errors.codes import ErrorCode
 from app.schemas.model_config import DefaultUpdate
+from app.schemas.authorization import MemberAdd
+from app.services.users import grant_super_admin
 
 FRONTEND_ROOT = Path(__file__).resolve().parents[3] / "frontend"
 
@@ -173,6 +175,13 @@ def build_test_app(settings, model: ControlledModel, control_token: str):
         if body.get("kind") not in {"hold", "fail"}:
             raise HTTPException(422)
         return {"prompt": model.prepare(body["kind"])}
+
+    @app.post("/__e2e__/super-admin")
+    async def assign_test_admin(request: Request, body: MemberAdd):
+        """仅持本次控制令牌的 fixture 可为随机测试库账号授予管理身份，生产路由不存在。"""
+        await authorize(request)
+        await grant_super_admin(request.app.state.auth_service.database, body.username)
+        return {"granted": True}
 
     @app.post("/__e2e__/model-configuration")
     async def configure_models(request: Request):

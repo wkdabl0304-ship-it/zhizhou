@@ -97,3 +97,18 @@ async def test_reset_control_requires_token_and_validates_mode(monkeypatch):
         reset.assert_not_awaited()
         assert (await client.post("/__e2e__/model-configuration", headers=headers, json={"mode": "empty"})).status_code == 200
         reset.assert_awaited_once_with(app.state.model_config_service, seeded=False)
+
+
+@pytest.mark.anyio
+async def test_admin_control_only_allows_authenticated_test_fixture(monkeypatch):
+    """测试管理身份必须经本次控制令牌授予，公开注册不会自动获得管理权限。"""
+    grant = AsyncMock()
+    monkeypatch.setattr("tests.support.e2e.grant_super_admin", grant)
+    app = build_test_app(None, ControlledModel(), "control")
+    app.state.auth_service = SimpleNamespace(database=object())
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        assert (await client.post("/__e2e__/super-admin", json={"username": "alice"})).status_code == 403
+        grant.assert_not_awaited()
+        response = await client.post("/__e2e__/super-admin", headers={"Authorization": "Bearer control"}, json={"username": " ALIce "})
+        assert response.json() == {"granted": True}
+        grant.assert_awaited_once_with(app.state.auth_service.database, "alice")

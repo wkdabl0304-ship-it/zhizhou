@@ -249,7 +249,9 @@ async def test_rename_api_validation_ownership_visibility_and_order(postgres_set
         assert (await runtime.client.get(f"/api/conversations/{cid}", headers=headers)).json()["data"]["conversation"]["title"] == data["title"]
         # 选择失效不妨碍改名，返回值仍需像目录一样包含动态失效原因。
         model = (await runtime.model_config.list_models())[0]
-        disabled = await runtime.client.patch(f"/api/model-config/models/{model.id}", headers=headers,
+        # 会话所有者仍可为普通用户；配置变更由本例另一个可信超管身份执行。
+        configuration_headers = headers if owner_role == "super_admin" else foreign
+        disabled = await runtime.client.patch(f"/api/model-config/models/{model.id}", headers=configuration_headers,
                                               json={"version": model.version, "enabled": False})
         assert disabled.json()["code"] == 0
         boundary = await runtime.client.patch(path, headers=headers, json={"title": "🙂" * 100})

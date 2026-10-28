@@ -17,20 +17,21 @@ async def by_username(session: AsyncSession, username: str) -> User | None:
     return await session.scalar(select(User).where(User.username == username))
 
 
-async def by_id(session: AsyncSession, user_id: UUID) -> User | None:
-    """按用户 ID 查询账号，供令牌认证时检查最新状态；未找到时返回 None。"""
-    return await session.get(User, user_id)
+async def by_id(session: AsyncSession, user_id: UUID, *, lock: bool = False) -> User | None:
+    """按 ID 读取最新账号，管理写入可锁定行；未找到返回 None，不复用过期 ORM 状态。"""
+    statement = select(User).where(User.id == user_id).execution_options(populate_existing=True)
+    return await session.scalar(statement.with_for_update() if lock else statement)
 
 
 async def add_user(
-    session: AsyncSession, username: str, password_hash: str, role: str
+    session: AsyncSession, username: str, password_hash: str
 ) -> User:
     """创建账号记录并返回包含数据库默认字段的 ORM 对象。
 
     password_hash 必须是服务层已计算的密码摘要；这里只执行 flush，
     事务提交和用户名唯一约束冲突的转换由认证服务负责。
     """
-    user = User(username=username, password_hash=password_hash, role=role)
+    user = User(username=username, password_hash=password_hash)
     session.add(user)
     await session.flush()
     return user

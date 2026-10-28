@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 HTTP_ERROR_CODES = {
     401: ErrorCode.UNAUTHENTICATED,
+    403: ErrorCode.FORBIDDEN,
     404: ErrorCode.NOT_FOUND,
     405: ErrorCode.METHOD_NOT_ALLOWED,
     422: ErrorCode.INVALID_ARGUMENT,
@@ -120,6 +121,7 @@ ERROR_RESPONSES = {
     }
     for status, error_code in {
         401: ErrorCode.UNAUTHENTICATED,
+        403: ErrorCode.FORBIDDEN,
         404: ErrorCode.NOT_FOUND,
         405: ErrorCode.METHOD_NOT_ALLOWED,
         409: ErrorCode.CONVERSATION_BUSY,

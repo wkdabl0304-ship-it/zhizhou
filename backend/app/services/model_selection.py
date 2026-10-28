@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors.codes import ErrorCode
 from app.core.errors.exceptions import RequestError, ServiceError
-from app.db.business import BusinessDatabase
+from app.db.business import BusinessDatabase, session_scope
 from app.llm.models.policy import resolve_parameters
 from app.llm.models.selection import concrete_reasoning, require_allowed, validate_policy
 from app.llm.providers.endpoints import resolve_endpoint
@@ -63,9 +63,9 @@ class ModelSelectionService:
         self.database = database
         self.secrets = secrets
 
-    async def options(self) -> ModelOptions:
-        """返回同一查询快照下的有效选项及默认选择，不泄露端点和凭据。"""
-        async with self.database.sessions() as session:
+    async def options(self, *, session: AsyncSession | None = None) -> ModelOptions:
+        """返回安全选项及默认，可复用授权事务，避免每次读取占用两个池连接。"""
+        async with session_scope(self.database, session) as session:
             rows = await repository.option_rows(session)
             providers = {}
             default = None

@@ -1,6 +1,6 @@
 # 知舟后端
 
-使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现账号密码注册、JWT 登录、用户会话隔离、游标读取最近及更早的会话和历史、软删除、AI 自动标题与手动改名，以及异步 SSE 聊天与公开工具过程持久化。业务数据使用 SQLAlchemy 2.1 异步 ORM 与 Alembic，模型上下文由 LangGraph 的 PostgreSQL checkpoint 独立保存。模型通过供应商层和模型处理层接入 OpenAI、Anthropic、DeepSeek 与阿里云百炼，可经接口维护全局供应商配置、模型方案和默认选择，不对外返回模型推理。天气工具返回固定演示内容。
+使用 Python 3.14 及以上版本和 uv 管理后端项目。当前已实现账号密码注册、JWT 登录、RBAC 与资源范围权限、用户和部门管理、用户会话隔离、游标读取最近及更早的会话和历史、软删除、AI 自动标题与手动改名，以及异步 SSE 聊天与公开工具过程持久化。业务数据使用 SQLAlchemy 2.1 异步 ORM 与 Alembic，模型上下文由 LangGraph 的 PostgreSQL checkpoint 独立保存。模型通过供应商层和模型处理层接入 OpenAI、Anthropic、DeepSeek 与阿里云百炼，可经接口维护全局供应商配置、模型方案和默认选择，不对外返回模型推理。天气工具返回固定演示内容。
 
 前端已接入注册、登录、当前用户校验及服务端会话目录、游标历史、流式续聊和软删除。页面、身份生命周期及跨窗口生成的交互边界见[前端文档](../frontend/README.md#页面与聊天边界)，也可通过 Swagger 或 HTTP 客户端验收接口。
 
@@ -40,7 +40,7 @@ docker compose -f docker-compose-dev.yml up -d postgres
 - `POSTGRES_PORT`：智能体连接的宿主机端口。Compose 当前固定映射 `5432:5432`，修改此变量时还需要相应修改 Compose 端口映射。
 - `POSTGRES_HOST`：默认 `127.0.0.1`，显式提供时不能为空。
 - `JWT_SECRET`：必填，至少 32 字节的独立随机密钥，没有默认值；不要填写示例密码或提交到 Git。
-- `JWT_TTL_SECONDS`：默认 `7200`，必须为正整数；过期后重新登录，不提供刷新或服务端撤销。
+- `JWT_TTL_SECONDS`：默认 `7200`，必须为正整数；过期后重新登录，不提供刷新令牌；停用和改密通过凭据版本撤销旧令牌。
 
 配置加密主密钥、数据库用户、密码、库名、端口及 JWT 密钥必填且不能仅包含空白；端口范围为 1–65535。供应商配置使用后端登记的官方端点，不接收任意地址。可运行 `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成独立随机 JWT 密钥，再保存到本地 `.env`。
 
@@ -63,9 +63,9 @@ SQLAlchemy 业务引擎和 Session 工厂在生命周期中创建，短事务独
 
 | 方法与路径 | 输入 | 成功 data |
 | --- | --- | --- |
-| `POST /api/auth/register` | `{username,password,role?}` | `{id,username,role,created_at}` |
+| `POST /api/auth/register` | `{username,password,role?:"user"}` | 公开身份及 `created_at` |
 | `POST /api/auth/login` | `{username,password}` | `{access_token,token_type,expires_in,user}` |
-| `GET /api/auth/me` | Bearer JWT | `{id,username,role}` |
+| `GET /api/auth/me` | Bearer JWT | `{id,username,role,department,roles,grants}` |
 | `GET /api/conversations` | `limit=20&cursor=...` | `{items,next_cursor}` |
 | `GET /api/conversations/{conversation_id}` | `limit=20&cursor=...` | `{conversation,items,next_cursor}` |
 | `DELETE /api/conversations/{conversation_id}` | 无请求体 | `null` |
@@ -73,9 +73,11 @@ SQLAlchemy 业务引擎和 Session 工厂在生命周期中创建，短事务独
 | `PATCH /api/conversations/{conversation_id}/model-selection` | `{model_selection_version,model_selection}` | 更新后的会话信息 |
 | `POST /api/chat` | `{message,conversation_id?,model_selection?,model_selection_version?}` | SSE，首轮选择与续聊版本不能混用，见[聊天接口](#启动与聊天接口) |
 
-注册成功后单独登录。用户名去除首尾空白并转小写，限定 3～32 位 ASCII 字母、数字或下划线；密码 8～128 个字符，不去除空格，使用 Argon2 摘要，哈希与校验在线程池执行。角色仅允许 `user` 和 `super_admin`，默认 `user`；两种角色均只能操作自己的会话，当前没有跨用户管理功能。
+注册成功后单独登录。用户名去除首尾空白并转小写，限定 3～32 位 ASCII 字母、数字或下划线；密码 8～128 个字符，不去除空格，使用 Argon2 摘要，哈希与校验在线程池执行。公开注册只创建无部门普通用户，拒绝指定管理角色。所有身份只能操作自己的个人会话。部门、用户管理和角色任免接口、逐字段数据库说明见[权限对接文档](docs/authorization-api.md)。
 
-JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud`，`sub` 为用户 UUID，签发方为 `zhizhou`，受众为 `zhizhou-api`。每次认证都验证固定算法、签名和声明，并从数据库确认账号存在且可用。客户端退出只清除令牌，已签发令牌到期前仍可能有效。
+JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud / token_version`，`sub` 为用户 UUID，签发方为 `zhizhou`，受众为 `zhizhou-api`。每次认证验证签名、声明、账号启停和最新凭据版本；角色和权限不写入 JWT。客户端退出只清除本地令牌；停用和改密撤销既有令牌，旧版本无凭据版本声明的 JWT 需重新登录。
+
+首次初始化：先注册启用账号，再在 `backend/` 执行 `uv run python -m app.manage grant-super-admin <用户名>`。命令可重复执行，仅本地运维可用；没有免认证 HTTP 初始化接口。在线操作保护最后一名可用超管。详见[运维与迁移](docs/authorization-api.md#错误并发和运维)。
 
 会话 ID 为后端生成的 UUID，统一命名 `conversation_id`。不存在、属于他人或已删除均返回 HTTP 404 和 `40401`，不暴露是否为他人所有。登录失败返回 401 和 `40102`，无效登录状态返回 401 和 `40101`，并保留 `WWW-Authenticate: Bearer`。重名注册返回 HTTP 200 和业务码 `20001`；参数错误为 422；会话忙为 409 和 `40901`。
 
@@ -109,7 +111,7 @@ Content-Type: application/json
 
 内部 `title_source` 为 `provisional / auto / manual`。自动保存仅匹配当前用户、未删除且仍为 `provisional` 的行；手动修改原子写入 `manual`，因此无论自动和手动更新按哪种顺序完成，最终均保留手动标题。模型等待期间不占用业务事务，读取和条件保存分别使用短事务。
 
-当前迁移 `0005_conversation_titles` 在已有 `conversations` 中增加 `title_source VARCHAR(20) NOT NULL DEFAULT 'manual'` 及枚举 CHECK，不增加表或索引；旧标题原样保留并保护为 `manual`，新建会话显式写入 `provisional`。升级执行 `uv run alembic upgrade head`；降级仅移除来源字段及约束，保留当前标题。
+标题迁移 `0005_conversation_titles` 在已有 `conversations` 中增加 `title_source VARCHAR(20) NOT NULL DEFAULT 'manual'` 及枚举 CHECK，不增加表或索引；旧标题原样保留并保护为 `manual`，新建会话显式写入 `provisional`。升级执行 `uv run alembic upgrade head`；降级仅移除来源字段及约束，保留当前标题。
 
 SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到后从会话列表的 `data.items[].title` 或详情的 `data.conversation.title` 读取最终标题。本期前端尚未提供改名入口或聊天完成后的标题刷新，现有目录刷新仍可读取新标题；不提供手动重新生成接口。
 
@@ -119,7 +121,8 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 
 | 表 | 主要字段与约束 |
 | --- | --- |
-| `users` | UUID 主键、唯一 username、password_hash、role、is_active、created_at、updated_at；角色 CHECK 约束 |
+| `users` | UUID 主键、唯一 username、password_hash、is_active、department_id、token_version、created_at、updated_at；部门外键和凭据正整数约束 |
+| `departments / roles / permissions / role_permissions / user_roles` | 部门、角色目录、操作目录、范围模板和用户角色绑定；字段与约束统一见[权限数据模型](docs/authorization-api.md#数据库逐字段说明) |
 | `conversations` | UUID 主键、user_id 外键、title、title_source、last_message_at、created_at、updated_at、deleted_at；标题来源 CHECK；未删除会话的用户与复合排序部分索引 |
 | `chat_turns` | UUID 主键、conversation_id 外键、seq、用户与最终助手正文、assistant_message_id、JSONB public_events、状态与错误码、时间；会话内 seq 唯一及状态 CHECK 约束 |
 
@@ -133,7 +136,7 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 
 ## 模型配置接口与两层适配
 
-可通过前端[模型管理页面](../frontend/README.md#模型管理)操作，也可在 `/docs` 登录授权后验收接口。所有登录用户，包括 `user` 和 `super_admin`，都可管理同一套全局配置；模型配置的共享范围不改变聊天历史的用户所有权。
+可通过前端[模型管理页面](../frontend/README.md#模型管理)操作，也可在 `/docs` 登录授权后验收接口。配置管理及目录要求 `model:manage@global`，普通用户保留 `model:use` 和 `/api/model-config/options`。前端尚未按权限隐藏入口，服务端独立返回 `40301`；模型全局配置不改变聊天历史的用户所有权。
 
 首次设置按以下顺序执行：**创建供应商配置 → 创建模型方案 → 可选测试 → 设置默认或在首轮明确选择**。保存和设为默认都只做本地校验，只有显式测试或聊天才调用上游。前端聊天页支持手动选择有效方案，无全局默认也能发送。
 
@@ -150,7 +153,7 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 
 ### 数据表与一致性
 
-实体位于 `app/models/model_config.py`，模型选择迁移为 `0004_model_selection`；当前最新迁移 `0005_conversation_titles` 另增加[标题来源](#自动标题与手动改名)。模型目录不入库，用户保存的模型方案才入库。
+实体位于 `app/models/model_config.py`，模型选择迁移为 `0004_model_selection`；`0005_conversation_titles` 增加[标题来源](#自动标题与手动改名)，当前最新迁移 `0006_authorization` 增加权限表和用户凭据版本。模型目录不入库，用户保存的模型方案才入库。
 
 供应商配置保存品牌、API 格式、官方端点及 API Key；模型方案引用供应商配置，再选择具体模型和推理设置。升级执行 `uv run alembic upgrade head`，迁移保留已有配置、默认引用和轮次快照；原方案默认启用且推理固定，旧会话选择为空。接口统一使用 `/provider-configurations`，引用字段为 `provider_configuration_id`。
 
@@ -414,7 +417,7 @@ from app.core.errors.exceptions import BusinessError
 raise BusinessError(ErrorCode.BUSINESS_ERROR)
 ```
 
-代码通过目录名称引用错误，不散落码值或自定义客户端解释。`BusinessError` 只接受已定义的业务码；`ServiceError` 接受已定义的系统码。异常定义不依赖 FastAPI，供 Agent、业务模块和命令行共用。当前只提供通用业务异常入口，尚未新增额度、权限等具体业务限制。
+代码通过目录名称引用错误，不散落码值或自定义客户端解释。`BusinessError` 只接受已定义的业务码；`ServiceError` 接受已定义的系统码。异常定义不依赖 FastAPI，供 Agent、业务模块和命令行共用。权限与管理冲突使用明确的 403、404、409 错误，详见[权限错误目录](docs/authorization-api.md#错误并发和运维)；额度限制尚未实现。
 
 异常对象的 `error_code` 属性保存 `ErrorCode` 目录成员，可通过 `exc.error_code.code` 和 `exc.error_code.message` 读取数字码与解释；被包装的底层异常通过 `exc.__cause__` 查看。
 
@@ -522,7 +525,7 @@ CLI 子进程的标准输出和错误输出通过两条管道并发读取，再�
 
 标题专项单元测试覆盖规范化、严格类型、Unicode 长度、输入截断及关闭资源；PostgreSQL 专项 `test_conversation_titles.py` 与 `test_conversation_title_migration.py` 覆盖标题先于 done、问答历史隔离、失败/超时/取消重试、并发手动改名、角色隔离、排序、选择失效仍可改名、迁移往返与来源约束。供应商协议测试用五种正式客户端格式验证无工具标题调用；聊天 E2E 通过真实改名接口验证刷新及续聊后标题保留。
 
-集成测试覆盖注册竞争、JWT 声明与账号状态、ORM 约束和索引、Alembic 排除 checkpoint 表、两种角色所有权隔离、游标边界、公开工具历史、软删除、跨连接锁、取消清理、遗留状态恢复及最终提交失败。模型仍使用本地替身，不访问真实模型。其他测试覆盖配置优先级、资源释放、接口协议、导入无外部副作用，以及真实 LangChain 图的多轮对话和工具调用；日志配置在独立子进程中验证。
+集成测试覆盖注册竞争、JWT 声明与账号状态、ORM 约束和索引、Alembic 排除 checkpoint 表、角色与部门范围、个人内容隔离、游标边界、公开工具历史、软删除、跨连接锁、取消清理、遗留状态恢复及最终提交失败。权限专项覆盖凭据撤销、最后超管保护、跨部门加入竞争、撤权后事务复查及历史身份迁移。模型仍使用本地替身，不访问真实模型。其他测试覆盖配置优先级、资源释放、接口协议、导入无外部副作用，以及真实 LangChain 图的多轮对话和工具调用；日志配置在独立子进程中验证。
 
 受限模型选择专项位于 `tests/unit/llm/test_selection.py`、`tests/integration/postgres/test_model_selection.py` 和 `test_model_selection_migration.py`：覆盖固定/自选范围、预算边界、启停与默认、立即保存、版本竞争、所有权、执行锁、目录批量查询、配置失效、无效输入无副作用和迁移往返。已有供应商协议测试继续验证跨模型历史与凭据轮换兼容。
 
@@ -544,7 +547,7 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 - `app/llm/`：供应商专用客户端、模型目录与参数策略、历史兼容、凭据加密和每轮执行装配；测试位于 `tests/unit/llm/` 及供应商协议集成测试。
 - `app/core/`：Web、CLI 与其他后端模块共用的基础能力；`settings.py` 读取和校验配置，`logging.py` 集中配置标准日志，`event_loop.py` 创建兼容 Psycopg 的事件循环，`errors/` 维护错误码、应用异常和异常日志责任。
 - `app/db/`：异步业务引擎、迁移版本校验、跨进程会话执行锁，以及独立管理的 checkpoint 资源。
-- `app/schemas/`：聊天请求、聊天数据模型及通用响应模型和构建函数。
+- `app/schemas/`：认证、权限和聊天输入输出，以及通用响应模型；`identifiers.py` 集中维护用户名类型与规范化函数，供 HTTP 输入和本地运维共同复用。
 - `app/api/`：API 总路由、公共请求依赖、按业务划分的子路由、SSE 编码与断开清理，以及统一异常处理器和错误响应文档；结构与扩展步骤见[分级 API 路由](#分级-api-路由)。
 - `app/models/`：SQLAlchemy 业务实体。
 - `app/repositories/`：无隐式提交的异步 ORM 读写，事务提交由业务服务负责。

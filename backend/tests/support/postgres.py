@@ -186,9 +186,14 @@ async def open_runtime(settings: Settings, model=None, *, configured=True) -> As
 
 
 async def account(auth, role="user"):
-    """创建本例专享账号并返回用户及 Bearer 请求头，随机名称避免账号冲突。"""
+    """注册独立普通账号，再经可信运维入口准备所需测试身份，不绕过公开注册限制。"""
     username = "u_" + uuid4().hex[:20]
-    registered = await auth.register(RegisterRequest(username=username, password="password-with-spaces ", role=role))
+    registered = await auth.register(RegisterRequest(username=username, password="password-with-spaces "))
+    if role == "super_admin":
+        from app.services.users import grant_super_admin
+        await grant_super_admin(auth.database, username)
+    elif role != "user":
+        raise ValueError("测试工厂仅提供普通用户或可信超管初始化")
     logged = await auth.login(LoginRequest(username=username.upper(), password="password-with-spaces "))
     return registered, {"Authorization": f"Bearer {logged.access_token}"}
 

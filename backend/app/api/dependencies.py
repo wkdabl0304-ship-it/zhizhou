@@ -15,13 +15,31 @@ from app.models import User
 from app.services.auth import AuthService
 from app.services.conversations import ConversationService
 from app.services.model_config import ModelConfigService
+from app.services.departments import DepartmentService
+from app.services.users import UserManagementService
+from app.services.model_management import ModelManagementService
 
 bearer = HTTPBearer(auto_error=False)
 
 
 def get_model_config_service(request: Request) -> ModelConfigService:
-    """取得共享模型配置服务；后续权限控制可在模型配置路由入口统一补充。"""
+    """取得内部配置资源；对外管理必须经 ModelManagementService 授权后调用。"""
     return request.app.state.model_config_service
+
+
+def get_model_management_service(request: Request) -> ModelManagementService:
+    """为模型接口包装已授权业务入口，复用底层配置服务及其连接工厂。"""
+    return ModelManagementService(get_model_config_service(request))
+
+
+def get_user_management_service(request: Request) -> UserManagementService:
+    """为用户管理接口提供轻量服务，复用认证服务的数据库资源。"""
+    return UserManagementService(get_auth_service(request).database)
+
+
+def get_department_service(request: Request) -> DepartmentService:
+    """为部门接口提供轻量服务，不在依赖解析期间创建连接或事务。"""
+    return DepartmentService(get_auth_service(request).database)
 
 
 def get_auth_service(request: Request) -> AuthService:

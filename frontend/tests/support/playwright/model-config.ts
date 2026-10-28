@@ -1,5 +1,5 @@
 /** 配置 E2E 共用资源：串行项目重置随机库配置，提供正式页面操作与另一客户端认证。 */
-import { test as base, expect, type Account } from './fixtures'
+import { test as base, expect, createAccount, type Account } from './fixtures'
 import type { APIRequestContext, Page } from '@playwright/test'
 
 /** 返回仅测试启动器提供的控制地址，缺少环境时禁止连接开发服务。 */
@@ -10,6 +10,18 @@ export function control() {
   return { url, token }
 }
 export const test = base.extend<{ configuration: void }>({
+  // 配置场景需要真实管理员：先公开注册，再用仅测试可用的受控运维入口授予角色。
+  account: async ({ request }, use) => {
+    const account = await createAccount(request)
+    const { url, token } = control()
+    const response = await request.post(`${url}/__e2e__/super-admin`, {
+      headers: { Authorization: `Bearer ${token}` },
+      data: { username: account.username },
+    })
+    expect(response.ok()).toBe(true)
+    expect(await response.json()).toEqual({ granted: true })
+    await use(account)
+  },
   // 每例前后通过正式服务清理/恢复全局配置，失败也执行 finally；配置项目间由依赖图串行。
   configuration: [
     async ({ request }, use) => {

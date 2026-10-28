@@ -26,7 +26,7 @@ async def test_empty_configuration_startup_and_authenticated_catalog(postgres_se
     async with open_runtime(postgres_settings, configured=False) as runtime:
         client = runtime.client
         assert (await client.get(PREFIX + "/catalog/providers")).status_code == 401
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         providers = await client.get(PREFIX + "/catalog/providers", headers=headers)
         assert {item["provider"] for item in providers.json()["data"]} == {"openai", "anthropic", "deepseek", "bailian"}
         response = await client.get(PREFIX + "/catalog/models?provider=deepseek", headers=headers)
@@ -39,10 +39,10 @@ async def test_empty_configuration_startup_and_authenticated_catalog(postgres_se
             assert await session.scalar(select(func.count()).select_from(Conversation)) == 0
 
 
-async def test_crud_versions_references_and_global_role_access(postgres_settings):
-    """普通用户和管理员共享配置，版本冲突和删除引用均不能损坏已有默认。"""
+async def test_admin_crud_versions_and_reference_constraints(postgres_settings):
+    """两个获授权管理员共享配置，版本冲突和删除引用均不能损坏已有默认。"""
     async with open_runtime(postgres_settings, configured=False) as runtime:
-        _, user_headers = await account(runtime.auth)
+        _, user_headers = await account(runtime.auth, "super_admin")
         _, admin_headers = await account(runtime.auth, "super_admin")
         client = runtime.client
         secret = "private-new-test-key"
@@ -95,7 +95,7 @@ async def test_crud_versions_references_and_global_role_access(postgres_settings
 async def test_invalid_inputs_and_provider_configuration_update_rollback(postgres_settings):
     """无效组合、空密钥、未知字段和不兼容供应商配置变更均被拒绝且不留下部分修改。"""
     async with open_runtime(postgres_settings) as runtime:
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         provider_configuration = (await runtime.model_config.list_provider_configurations())[0]
         model = (await runtime.model_config.list_models())[0]
         for changes in ({"api_key": None}, {"api_key": " "}, {"provider": "openai"}, {"base_url": "https://evil.invalid"}):
@@ -123,7 +123,7 @@ async def test_snapshot_change_key_rotation_smoke_test_and_chat_persistence(post
         assert before.origin != after.origin and before.credential_revision == 1 and after.credential_revision == 2
         assert before.parameters["extra_body"]["thinking"]["type"] == "enabled"
         assert after.parameters["extra_body"]["thinking"]["type"] == "disabled"
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         result = await runtime.client.post(f"{PREFIX}/models/{after.configuration_id}/test", headers=headers)
         assert result.json()["data"]["verified"] == "streaming_text", result.text
         assert result.json()["data"]["provider_configuration_version"] == 2
@@ -174,7 +174,7 @@ async def test_inflight_turn_keeps_snapshot_and_next_turn_sees_update(postgres_s
                     yield chunk
 
     async with open_runtime(postgres_settings, WaitingModel()) as runtime:
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         pending = asyncio.create_task(send(runtime.client, headers, "等待更新"))
         try:
             async with asyncio.timeout(10):
@@ -204,7 +204,7 @@ async def test_inflight_turn_keeps_snapshot_and_next_turn_sees_update(postgres_s
 async def test_test_endpoint_reports_upstream_auth_without_invalidating_login(postgres_settings, caplog):
     """上游鉴权失败返回业务错误而非登录 401，错误响应和日志均不回显原始密钥。"""
     async with open_runtime(postgres_settings) as runtime:
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         model = (await runtime.model_config.list_models())[0]
 
         @asynccontextmanager
@@ -248,7 +248,7 @@ async def test_unavailable_catalog_keeps_configuration_readable_and_rejects_chat
         monkeypatch.delitem(CATALOG, model.catalog_model_id)
         saved = await runtime.model_config.get_model(model.id)
         assert saved.available is False and saved.catalog is None
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         response = await runtime.client.post("/api/chat", headers=headers, json={"message": "不应落库"})
         assert response.status_code == 503 and response.json()["code"] == ErrorCode.MODEL_NOT_CONFIGURED.code
         async with runtime.database.sessions() as session:
@@ -261,7 +261,7 @@ async def test_default_switch_compare_and_set_across_concurrent_requests(postgre
     """两个客户端同时修改默认时只有一个版本能提交，不会把后提交的旧选择覆盖进去。"""
     async with open_runtime(postgres_settings) as runtime:
         model = (await runtime.model_config.list_models())[0]
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         responses = await asyncio.gather(*[
             runtime.client.put(PREFIX + "/default", headers=headers,
                                json={"version": 2, "model_configuration_id": selected})

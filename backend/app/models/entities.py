@@ -26,17 +26,20 @@ class Base(DeclarativeBase):
 
 
 class User(Base):
-    """登录账号；角色暂不改变会话所有权约束，密码只保存带盐摘要。"""
+    """登录账号、单部门归属与凭据版本；授权关系单独保存，密码只存带盐摘要。"""
 
     __tablename__ = "users"
     __table_args__ = (
-        CheckConstraint("role IN ('user', 'super_admin')", name="ck_users_role"),
+        CheckConstraint("token_version > 0", name="ck_users_token_version"),
     )
 
     id: Mapped[UUID] = mapped_column(primary_key=True, default=uuid4)
     username: Mapped[str] = mapped_column(String(32), unique=True)
     password_hash: Mapped[str] = mapped_column(Text)
-    role: Mapped[str] = mapped_column(String(20), default="user", server_default="user")
+    department_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("departments.id", ondelete="RESTRICT"), index=True
+    )
+    token_version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )

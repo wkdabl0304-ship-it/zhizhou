@@ -23,7 +23,7 @@ router = APIRouter(prefix="/auth", tags=["认证"])
 async def register(
     body: RegisterRequest, service: Annotated[AuthService, Depends(get_auth_service)]
 ):
-    """创建普通用户或仅记录身份的超级管理员；成功后仍需单独登录。"""
+    """创建无部门普通用户并绑定基础授权；成功后仍需单独登录。"""
     return success(await service.register(body))
 
 
@@ -31,11 +31,12 @@ async def register(
 async def login(
     body: LoginRequest, service: Annotated[AuthService, Depends(get_auth_service)]
 ):
-    """验证用户名密码并返回短期访问令牌，不创建刷新令牌或登录会话。"""
+    """验证用户名密码并返回可按凭据版本撤销的短期令牌，不创建刷新令牌。"""
     return success(await service.login(body))
 
 
 @router.get("/me", response_model=ApiResponse[UserInfo])
-async def me(user: Annotated[User, Depends(get_current_user)]):
+async def me(user: Annotated[User, Depends(get_current_user)],
+             service: Annotated[AuthService, Depends(get_auth_service)]):
     """返回 JWT 对应的当前有效用户，便于客户端恢复登录身份。"""
-    return success(UserInfo.model_validate(user))
+    return success(await service.me(user))

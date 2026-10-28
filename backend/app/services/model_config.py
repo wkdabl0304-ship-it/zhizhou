@@ -7,10 +7,11 @@ from uuid import UUID
 
 from langchain_core.messages import HumanMessage
 from pydantic import ValidationError
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors.codes import ErrorCode
 from app.core.errors.exceptions import BusinessError, RequestError
-from app.db.business import BusinessDatabase
+from app.db.business import BusinessDatabase, session_scope
 from app.llm.models.catalog import CATALOG
 from app.llm.providers.clients import open_model
 from app.llm.providers.endpoints import resolve_endpoint
@@ -64,7 +65,12 @@ def model_info(model: ModelConfiguration, provider_configuration: ProviderConfig
 
 
 class ModelConfigService:
-    """提供全局配置管理，每次数据库操作独立使用短事务，测试和聊天不持写锁。"""
+    """维护内部配置存储及运行时快照；对外管理必须经过 ModelManagementService。
+
+    本类供已授权入口、可信初始化和测试装配使用，不作为 Agent 工具的授权入口。
+    管理方法的 session 参数只供已授权入口复用事务；省略时使用独立短事务。
+    借用事务不自行提交或关闭，避免嵌套连接耗尽池；测试和聊天不持配置写锁。
+    """
 
     def __init__(self, database: BusinessDatabase, encryption_key: str, *, model_opener=open_model):
         """绑定数据库、部署加密主密钥与可替换模型边界，不主动访问供应商。"""
@@ -73,20 +79,20 @@ class ModelConfigService:
         self.selections = ModelSelectionService(database, self.secrets)
         self.model_opener = model_opener
 
-    async def list_provider_configurations(self) -> list[ProviderConfigurationInfo]:
+    async def list_provider_configurations(self, *, session: AsyncSession | None = None) -> list[ProviderConfigurationInfo]:
         """返回所有供应商配置的安全展示字段，不序列化 ORM 凭据列。"""
-        async with self.database.sessions() as session:
+        async with session_scope(self.database, session) as session:
             return [provider_info(row) for row in await repository.provider_configurations(session)]
 
-    async def get_provider_configuration(self, provider_configuration_id: UUID) -> ProviderConfigurationInfo:
+    async def get_provider_configuration(self, provider_configuration_id: UUID, *, session: AsyncSession | None = None) -> ProviderConfigurationInfo:
         """读取指定供应商配置，不存在时返回独立资源错误。"""
-        async with self.database.sessions() as session:
+        async with session_scope(self.database, session) as session:
             row = await repository.provider_configuration(session, provider_configuration_id)
             if row is None:
                 raise RequestError(ErrorCode.PROVIDER_CONFIGURATION_NOT_FOUND)
             return provider_info(row)
 
-    async def create_provider_configuration(self, body: ProviderConfigurationCreate) -> ProviderConfigurationInfo:
+    async def create_provider_configuration(self, body: ProviderConfigurationCreate, *, session: AsyncSession | None = None) -> ProviderConfigurationInfo:
         """验证官方端点后加密保存供应商配置，不进行真实上游测试。"""
         try:
             address = resolve_endpoint(body.provider, body.api_format, body.endpoint_config)
@@ -95,16 +101,16 @@ class ModelConfigService:
         except ValueError:
             raise RequestError(ErrorCode.INVALID_ARGUMENT) from None
         ciphertext = self.secrets.encrypt(body.api_key)
-        async with self.database.sessions.begin() as session:
+        async with session_scope(self.database, session, write=True) as session:
             await repository.settings(session, lock=True)
             row = ProviderConfiguration(**body.model_dump(exclude={"api_key"}, exclude_none=True), api_key_ciphertext=ciphertext)
             session.add(row)
             await session.flush()
             return provider_info(row)
 
-    async def patch_provider_configuration(self, provider_configuration_id: UUID, patch: ProviderConfigurationPatch) -> ProviderConfigurationInfo:
+    async def patch_provider_configuration(self, provider_configuration_id: UUID, patch: ProviderConfigurationPatch, *, session: AsyncSession | None = None) -> ProviderConfigurationInfo:
         """按版本更新供应商配置，端点或格式变化时校验关联方案，不兼容更新整体回滚。"""
-        async with self.database.sessions.begin() as session:
+        async with session_scope(self.database, session, write=True) as session:
             await repository.settings(session, lock=True)
             row = await repository.provider_configuration(session, provider_configuration_id)
             if row is None:
@@ -140,9 +146,9 @@ class ModelConfigService:
             await session.flush()
             return provider_info(row)
 
-    async def delete_provider_configuration(self, provider_configuration_id: UUID, version: int) -> None:
+    async def delete_provider_configuration(self, provider_configuration_id: UUID, version: int, *, session: AsyncSession | None = None) -> None:
         """删除没有关联模型的供应商配置，版本过期或仍被引用时保留原数据。"""
-        async with self.database.sessions.begin() as session:
+        async with session_scope(self.database, session, write=True) as session:
             await repository.settings(session, lock=True)
             row = await repository.provider_configuration(session, provider_configuration_id)
             if row is None:
@@ -152,24 +158,24 @@ class ModelConfigService:
                 raise RequestError(ErrorCode.MODEL_CONFIG_IN_USE)
             await session.delete(row)
 
-    async def list_models(self, provider_configuration_id: UUID | None = None) -> list[ModelInfo]:
+    async def list_models(self, provider_configuration_id: UUID | None = None, *, session: AsyncSession | None = None) -> list[ModelInfo]:
         """返回可复用模型配置及计算能力，可按供应商配置筛选。"""
-        async with self.database.sessions() as session:
+        async with session_scope(self.database, session) as session:
             if provider_configuration_id is not None and await repository.provider_configuration(session, provider_configuration_id) is None:
                 raise RequestError(ErrorCode.PROVIDER_CONFIGURATION_NOT_FOUND)
             return [model_info(model, provider_configuration) for model, provider_configuration in await repository.model_rows(session, provider_configuration_id)]
 
-    async def get_model(self, model_id: UUID) -> ModelInfo:
+    async def get_model(self, model_id: UUID, *, session: AsyncSession | None = None) -> ModelInfo:
         """读取指定模型配置和当前能力，目录停用不妨碍读取历史配置。"""
-        async with self.database.sessions() as session:
+        async with session_scope(self.database, session) as session:
             row = await repository.model_row(session, model_id)
             if row is None:
                 raise RequestError(ErrorCode.MODEL_CONFIGURATION_NOT_FOUND)
             return model_info(*row)
 
-    async def create_model(self, body: ModelCreate) -> ModelInfo:
+    async def create_model(self, body: ModelCreate, *, session: AsyncSession | None = None) -> ModelInfo:
         """验证模型策略后保存配置，同一模型可以拥有不同推理方案。"""
-        async with self.database.sessions.begin() as session:
+        async with session_scope(self.database, session, write=True) as session:
             await repository.settings(session, lock=True)
             provider_configuration = await repository.provider_configuration(session, body.provider_configuration_id)
             if provider_configuration is None:
@@ -180,9 +186,9 @@ class ModelConfigService:
             await session.flush()
             return model_info(row, provider_configuration)
 
-    async def patch_model(self, model_id: UUID, patch: ModelPatch) -> ModelInfo:
+    async def patch_model(self, model_id: UUID, patch: ModelPatch, *, session: AsyncSession | None = None) -> ModelInfo:
         """按版本更新模型参数，成功后下一轮聊天自然读取新配置。"""
-        async with self.database.sessions.begin() as session:
+        async with session_scope(self.database, session, write=True) as session:
             await repository.settings(session, lock=True)
             pair = await repository.model_row(session, model_id)
             if pair is None:
@@ -205,9 +211,9 @@ class ModelConfigService:
             await session.flush()
             return model_info(row, provider_configuration)
 
-    async def delete_model(self, model_id: UUID, version: int) -> None:
+    async def delete_model(self, model_id: UUID, version: int, *, session: AsyncSession | None = None) -> None:
         """删除非默认模型配置，默认引用必须先显式切换或清除。"""
-        async with self.database.sessions.begin() as session:
+        async with session_scope(self.database, session, write=True) as session:
             settings = await repository.settings(session, lock=True)
             pair = await repository.model_row(session, model_id)
             if pair is None:
@@ -218,15 +224,15 @@ class ModelConfigService:
                 raise RequestError(ErrorCode.MODEL_CONFIG_IN_USE)
             await session.delete(row)
 
-    async def get_default(self) -> DefaultInfo:
+    async def get_default(self, *, session: AsyncSession | None = None) -> DefaultInfo:
         """读取默认引用及可选模型概要，空默认是正常的首次配置状态。"""
-        async with self.database.sessions() as session:
+        async with session_scope(self.database, session) as session:
             settings, model, provider_configuration = await repository.default_row(session)
             return DefaultInfo.model_validate(settings).model_copy(update={"model": model_info(model, provider_configuration) if model else None})
 
-    async def set_default(self, body: DefaultUpdate) -> DefaultInfo:
+    async def set_default(self, body: DefaultUpdate, *, session: AsyncSession | None = None) -> DefaultInfo:
         """原子切换或清空全局默认，只做本地有效性校验，不触发上游调用。"""
-        async with self.database.sessions.begin() as session:
+        async with session_scope(self.database, session, write=True) as session:
             settings = await repository.settings(session, lock=True)
             require_version(settings.version, body.version)
             info = None

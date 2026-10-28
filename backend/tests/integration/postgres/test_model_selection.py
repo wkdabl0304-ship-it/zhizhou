@@ -33,7 +33,7 @@ async def test_options_activation_default_and_management_test(postgres_settings)
     """启停影响可选范围和默认有效性，保留子方案状态与凭据版本，仍允许管理测试。"""
     async with open_runtime(postgres_settings) as runtime:
         client, service = runtime.client, runtime.model_config
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         assert (await client.get(PREFIX + "/options")).status_code == 401
         initial = (await client.get(PREFIX + "/options", headers=headers)).json()["data"]
         mid = initial["default_selection"]["model_configuration_id"]
@@ -187,7 +187,7 @@ async def test_policy_patch_validation_is_atomic_and_options_are_effective(postg
     """策略整体替换，不能保存非法默认、能力或区间；成功后选项提供有效边界。"""
     async with open_runtime(postgres_settings) as runtime:
         client, service = runtime.client, runtime.model_config
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         model = (await service.list_models())[0]
         for extra in (
             {"enabled": None}, {"reasoning_policy": None},
@@ -241,7 +241,7 @@ async def test_budget_creation_options_and_chat_boundaries(postgres_settings):
     """创建预算方案后上下界均可实际聊天，边界外及关闭选择被拒绝且不增加轮次。"""
     async with open_runtime(postgres_settings, configured=False) as runtime:
         client = runtime.client
-        _, headers = await account(runtime.auth)
+        _, headers = await account(runtime.auth, "super_admin")
         created = await client.post(PREFIX + "/provider-configurations", headers=headers, json={
             "name": "Claude 预算", "provider": "anthropic", "api_format": "messages",
             "endpoint_config": {"endpoint_id": "official"}, "api_key": "fake-budget-key", "enabled": True})

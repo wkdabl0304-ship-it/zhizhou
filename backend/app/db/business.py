@@ -15,7 +15,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.settings import DatabaseSettings, Settings
 
-SCHEMA_REVISION = "0005_conversation_titles"
+SCHEMA_REVISION = "0006_authorization"
 
 
 def database_url(settings: Settings | DatabaseSettings) -> URL:
@@ -41,6 +41,24 @@ class BusinessDatabase:
     engine: AsyncEngine
     lock_engine: AsyncEngine
     sessions: async_sessionmaker[AsyncSession]
+
+
+@asynccontextmanager
+async def session_scope(database: BusinessDatabase, session: AsyncSession | None = None, *,
+                        write: bool = False) -> AsyncIterator[AsyncSession]:
+    """复用调用者事务或创建独立短会话，避免授权包装层持连接时再次申请连接。
+
+    传入 session 时必须已有事务，提交、回滚及关闭均由调用者负责；否则写操作
+    创建 begin 上下文，读操作只创建会话。借用事务的异常原样传播给外层回滚。
+    """
+    if session is not None:
+        if not session.in_transaction():
+            raise ValueError("复用的业务 Session 必须处于调用者事务中")
+        yield session
+        return
+    context = database.sessions.begin() if write else database.sessions()
+    async with context as opened:
+        yield opened
 
 
 async def check_schema(engine: AsyncEngine) -> None:

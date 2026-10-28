@@ -41,6 +41,7 @@ from app.llm.types import ModelSnapshot
 from app.llm.runtime import ConfiguredChatAgent
 from app.services.model_config import ModelConfigService
 from app.services.conversation_titles import ConversationTitleService
+from app.services.authorization import AuthorizationService, management_lock
 from app.schemas.model_selection import ModelSelection, ModelSelectionUpdate
 
 logger = logging.getLogger(__name__)
@@ -80,10 +81,13 @@ class ConversationService:
         self.model_config = model_config
         self.title_generator = title_generator
         self.locks = ConversationLocks(database.lock_engine)
+        self.authorization = AuthorizationService(database)
 
     async def update_title(self, user_id: UUID, conversation_id: UUID, body: ConversationTitleUpdate) -> ConversationInfo:
         """立即保存自己的手动标题，允许生成期间修改并永久停止自动覆盖。"""
         async with self.database.sessions.begin() as session:
+            await management_lock(session, shared=True)
+            await self.authorization.require(session, user_id, "conversation:update", owner_id=user_id)
             row = await repository.update_title(session, user_id, conversation_id, body.title, source="manual")
             if row is None:
                 raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
@@ -110,13 +114,14 @@ class ConversationService:
             logger.warning("生成会话标题失败 conversation_id=%s turn_id=%s error_type=%s",
                            prepared.conversation_id, prepared.turn_id, type(error).__name__)
 
-    async def require_owned(self, user_id: UUID, conversation_id: UUID) -> None:
+    async def require_owned(self, user_id: UUID, conversation_id: UUID, *, permission: str = "conversation:read") -> None:
         """确认指定会话存在、未删除且属于当前用户。
 
         user_id 来自认证结果。会话不存在、已删除或属于他人时均抛出
         CONVERSATION_NOT_FOUND；在申请执行锁前调用，避免越权请求干扰他人。
         """
         async with self.database.sessions() as session:
+            await self.authorization.require(session, user_id, permission, owner_id=user_id)
             if await repository.owned(session, user_id, conversation_id) is None:
                 raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
 
@@ -131,11 +136,13 @@ class ConversationService:
         配置验证和保存均在短事务内完成，失败不会改变旧选择；不更新最近消息时间，
         也不解密凭据或调用供应商。生成期间与删除、续聊竞争同一跨进程锁。
         """
-        await self.require_owned(user_id, conversation_id)
+        await self.require_owned(user_id, conversation_id, permission="conversation:update")
         async with self.locks.hold(conversation_id) as acquired:
             if not acquired:
                 raise RequestError(ErrorCode.CONVERSATION_BUSY)
             async with self.database.sessions.begin() as session:
+                await management_lock(session, shared=True)
+                await self.authorization.require(session, user_id, "conversation:update", owner_id=user_id)
                 conversation = await repository.owned(session, user_id, conversation_id)
                 if conversation is None:
                     raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
@@ -166,6 +173,7 @@ class ConversationService:
                 raise RequestError(ErrorCode.INVALID_ARGUMENT)
             before = (parsed.at, parsed.id)
         async with self.database.sessions() as session:
+            await self.authorization.require(session, user_id, "conversation:read", owner_id=user_id)
             rows = await repository.recent(session, user_id, limit + 1, before)
             infos = await self._conversation_infos(session, rows[:limit])
         selected = rows[:limit]
@@ -204,6 +212,7 @@ class ConversationService:
             before_seq = parsed.seq
         await self.recover_one(conversation_id)
         async with self.database.sessions() as session:
+            await self.authorization.require(session, user_id, "conversation:read", owner_id=user_id)
             conversation = await repository.owned(session, user_id, conversation_id)
             if conversation is None:
                 raise RequestError(ErrorCode.CONVERSATION_NOT_FOUND)
@@ -236,6 +245,7 @@ class ConversationService:
         均保留；不存在或不属于该用户的会话统一返回未找到。
         """
         async with self.database.sessions() as session:
+            await self.authorization.require(session, user_id, "conversation:delete", owner_id=user_id)
             if (
                 await repository.owned(
                     session, user_id, conversation_id, include_deleted=True
@@ -247,6 +257,8 @@ class ConversationService:
             if not acquired:
                 raise RequestError(ErrorCode.CONVERSATION_BUSY)
             async with self.database.sessions.begin() as session:
+                await management_lock(session, shared=True)
+                await self.authorization.require(session, user_id, "conversation:delete", owner_id=user_id)
                 conversation = await repository.owned(
                     session, user_id, conversation_id, include_deleted=True
                 )
@@ -296,12 +308,17 @@ class ConversationService:
         if (not is_new and model_selection is not None) or (is_new and model_selection_version is not None):
             raise RequestError(ErrorCode.INVALID_ARGUMENT)
         if not is_new:
-            await self.require_owned(user_id, conversation_id)
+            await self.require_owned(user_id, conversation_id, permission="conversation:chat")
         conversation_id = conversation_id or uuid4()
         async with self.locks.hold(conversation_id) as acquired:
             if not acquired:
                 raise RequestError(ErrorCode.CONVERSATION_BUSY)
             async with self.database.sessions.begin() as session:
+                await management_lock(session, shared=True)
+                await self.authorization.require(session, user_id, "conversation:chat", owner_id=user_id)
+                await self.authorization.require(session, user_id, "model:use")
+                if is_new:
+                    await self.authorization.require(session, user_id, "conversation:create", owner_id=user_id)
                 if is_new:
                     conversation = Conversation(
                         id=conversation_id, user_id=user_id, title=normalize_title(message)[:24],

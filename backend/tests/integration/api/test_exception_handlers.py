@@ -68,7 +68,7 @@ def test_response_construction_preserves_data_type(app):
     ("/does-not-exist", 404, 40400),
     ("/http/400", 400, 40000),
     ("/http/401", 401, 40101),
-    ("/http/403", 403, 40000),
+    ("/http/403", 403, 40301),
     ("/http/404", 404, 40400),
     ("/http/405", 405, 40500),
     ("/http/422", 422, 42200),
