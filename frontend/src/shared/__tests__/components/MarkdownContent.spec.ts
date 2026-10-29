@@ -121,7 +121,8 @@ describe('助手 Markdown 富文本', () => {
     await buttons[1]!.trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenLastCalledWith('<b>literal</b>\n')
-    expect(wrapper.get('[role="status"]').text()).toBe('代码已复制')
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
   })
 
   // 剪贴板权限失败通过组件内状态反馈，不丢失代码，也不抛出未处理异常。
@@ -134,7 +135,7 @@ describe('助手 Markdown 富文本', () => {
     const wrapper = render('```text\n需要保留的代码\n```')
     await wrapper.get('button').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[role="status"]').text()).toContain('复制失败')
+    expect(wrapper.get('[role="alert"]').text()).toContain('复制失败')
     expect(wrapper.get('pre code').element.textContent).toBe('需要保留的代码\n')
   })
 })

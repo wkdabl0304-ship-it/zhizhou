@@ -121,7 +121,11 @@ export const useAuthStore = defineStore('auth', () => {
       } catch (error) {
         if (version !== revision) return
         if (error instanceof AuthApiError && error.status === 401)
-          clearSession('登录状态无效或已过期，请重新登录')
+          clearSession(
+            error.code === 40103
+              ? '账号已被停用，请联系管理员'
+              : '登录状态无效或已过期，请重新登录',
+          )
         else
           restoreError.value =
             error instanceof AuthApiError ? error.message : '无法验证登录状态，请稍后重试'
@@ -171,8 +175,8 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   /** 接受当前令牌的服务端失效通知；旧请求的 401 不能退出后来登录的新账号。 */
-  function invalidate(token: string): void {
-    if (accessToken.value === token) clearSession('登录状态无效或已过期，请重新登录')
+  function invalidate(token: string, message = '登录状态无效或已过期，请重新登录'): void {
+    if (accessToken.value === token) clearSession(message)
   }
 
   /** 将新注册账号带回登录表单，仅保存用户名；注册响应不会建立认证状态。 */

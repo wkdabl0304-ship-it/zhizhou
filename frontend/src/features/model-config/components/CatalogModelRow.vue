@@ -1,5 +1,7 @@
 <!-- 模型目录行：以受控开关展示已保存状态，高级设置和有副作用的操作由弹窗协调。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
+import UiTag from '@/shared/components/ui/UiTag.vue'
 import { computed } from 'vue'
 import { FlaskConical, Settings2, Star, Trash2 } from '@lucide/vue'
 import UiSwitch from '@/shared/components/ui/UiSwitch.vue'
@@ -37,19 +39,24 @@ const stale = computed(
   >
     <div class="catalog-model-main">
       <div class="catalog-model-identity">
-        <h3>{{ title }} <span v-if="current" class="config-badge">当前默认</span></h3>
+        <h3>{{ title }} <UiTag size="xs" v-if="current" tone="brand">当前默认</UiTag></h3>
         <p class="config-model-id">
           {{ row.catalog?.model_id ?? row.model?.catalog?.model_id ?? row.model?.catalog_model_id }}
         </p>
-        <span class="catalog-model-status">{{
-          !available
-            ? '当前不可用'
-            : row.model?.enabled
-              ? providerEnabled
-                ? '已启用'
-                : '已启用 · 连接已停用'
-              : '已停用'
-        }}</span>
+        <UiTag
+          size="sm"
+          :tone="available && row.model?.enabled && providerEnabled ? 'brand' : 'neutral'"
+          dot
+          >{{
+            !available
+              ? '当前不可用'
+              : row.model?.enabled
+                ? providerEnabled
+                  ? '已启用'
+                  : '已启用 · 连接已停用'
+                : '已停用'
+          }}</UiTag
+        >
       </div>
       <UiSwitch
         :model-value="!!row.model?.enabled"
@@ -92,12 +99,7 @@ const stale = computed(
           @click="$emit('test')"
           ><FlaskConical :size="13" aria-hidden="true" />测试</UiButton
         >
-        <UiButton
-          size="sm"
-          variant="ghost"
-          class="config-danger"
-          :disabled="busy"
-          @click="$emit('delete')"
+        <UiButton size="sm" variant="danger" :disabled="busy" @click="$emit('delete')"
           ><Trash2 :size="13" aria-hidden="true" />删除</UiButton
         >
       </div>
@@ -105,7 +107,7 @@ const stale = computed(
     <div v-if="test?.running || test?.result || test?.error" class="catalog-test-feedback">
       <p v-if="test?.running" role="status" class="config-hint">正在测试文本流…</p>
       <p v-else-if="stale" role="status" class="config-hint">配置已修改，请重新测试</p>
-      <p v-else-if="test?.error" role="status" class="config-error">{{ test.error }}</p>
+      <UiFeedback v-else-if="test?.error">{{ test.error }}</UiFeedback>
       <p v-else-if="test?.result" role="status" class="config-test-success">
         文本流通过 · {{ Math.round(test.result.latency_ms) }} ms
       </p>

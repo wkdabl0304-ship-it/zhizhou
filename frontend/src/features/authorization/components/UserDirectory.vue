@@ -1,5 +1,7 @@
 <!-- 全站账号目录：按用户名、状态与归属筛选，管理员操作均固定目标并由共享弹窗提交。 -->
 <script setup lang="ts">
+import UiTag from '@/shared/components/ui/UiTag.vue'
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiInput from '@/shared/components/ui/UiInput.vue'
 import UiSelect from '@/shared/components/ui/UiSelect.vue'
 import UiCheckbox from '@/shared/components/ui/UiCheckbox.vue'
@@ -101,9 +103,11 @@ defineExpose({ reload })
       <UiCheckbox v-model="unassigned" class="checkbox-filter">仅无部门</UiCheckbox
       ><UiButton size="sm" type="submit">筛选</UiButton>
     </form>
-    <p v-if="departments.error.value" class="directory-error" role="alert">
-      部门筛选暂不可用。<UiButton size="sm" @click="departments.load()">重试部门筛选</UiButton>
-    </p>
+    <UiFeedback v-if="departments.error.value">
+      部门筛选暂不可用。<template #actions
+        ><UiButton size="sm" @click="departments.load()">重试部门筛选</UiButton></template
+      >
+    </UiFeedback>
     <UiButton
       v-if="departments.cursor.value"
       size="sm"
@@ -112,10 +116,12 @@ defineExpose({ reload })
       >加载更多筛选部门</UiButton
     >
     <p v-if="directory.loading.value" role="status">正在加载账号…</p>
-    <div v-if="directory.error.value" class="directory-error" role="alert">
+    <UiFeedback v-if="directory.error.value">
       {{ directory.error.value }}
-      <UiButton size="sm" @click="directory.load()">重试账号目录</UiButton>
-    </div>
+      <template #actions
+        ><UiButton size="sm" @click="directory.load()">重试账号目录</UiButton></template
+      >
+    </UiFeedback>
     <div
       v-else-if="!directory.loading.value && !directory.items.value.length"
       class="directory-empty"
@@ -130,16 +136,18 @@ defineExpose({ reload })
           user.username.slice(0, 1).toUpperCase()
         }}</span>
         <div class="person-identity">
-          <strong>{{ user.username }}<small v-if="user.id === auth.user?.id">本人</small></strong
+          <strong
+            >{{ user.username
+            }}<UiTag size="xs" v-if="user.id === auth.user?.id" tone="brand">本人</UiTag></strong
           ><span>{{ user.department?.name ?? '未分配部门' }}</span
-          ><span v-if="user.roles.includes('super_admin')" class="role-label">超级管理员</span
-          ><span v-else-if="user.roles.includes('department_admin')" class="role-label"
-            >部门管理员</span
-          ><span v-else class="role-label">普通用户</span>
+          ><UiTag size="xs" v-if="user.roles.includes('super_admin')" tone="accent"
+            >超级管理员</UiTag
+          ><UiTag size="xs" v-else-if="user.roles.includes('department_admin')">部门管理员</UiTag
+          ><UiTag size="xs" v-else>普通用户</UiTag>
         </div>
-        <span class="status-badge" :class="{ inactive: !user.is_active }">{{
+        <UiTag size="xs" :tone="user.is_active ? 'brand' : 'neutral'" dot>{{
           user.is_active ? '已启用' : '已停用'
-        }}</span>
+        }}</UiTag>
         <div class="person-actions">
           <UiButton
             v-if="auth.can('user:set_active')"

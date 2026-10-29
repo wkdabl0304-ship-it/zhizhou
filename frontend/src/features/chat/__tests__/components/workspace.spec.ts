@@ -216,7 +216,7 @@ describe('聊天工作空间', () => {
       }),
     )
     await flushPromises()
-    expect(wrapper.find('.message-error').exists()).toBe(false)
+    expect(wrapper.find('.message > .ui-feedback').exists()).toBe(false)
     await wrapper.get('textarea').setValue('下一条草稿')
     expect(wrapper.get('.chat-composer button[type="submit"]').attributes('disabled')).toBeDefined()
     stream.push(eventFrame('done', { conversation_id, message_id: 'reply', reply: '**最终回答**' }))

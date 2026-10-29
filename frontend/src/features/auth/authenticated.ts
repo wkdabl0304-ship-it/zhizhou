@@ -30,7 +30,16 @@ export async function authenticatedFetch(
     if (options.signal?.aborted) throw new DOMException('请求已取消', 'AbortError')
     throw new ApiError('网络连接失败，请稍后重试')
   }
-  if (response.status === 401) auth.invalidate(token)
+  if (response.status === 401) {
+    // 克隆后读取认证原因，保留原始响应供业务层解析；只认可固定错误码，不展示代理页内容。
+    let code: unknown
+    try {
+      code = (await response.clone().json())?.code
+    } catch {
+      /* 非 JSON 401 仍按通用失效处理。 */
+    }
+    auth.invalidate(token, code === 40103 ? '账号已被停用，请联系管理员' : undefined)
+  }
   if (response.status === 403 && auth.accessToken === token) {
     auth.notice = '权限已发生变化，已同步当前可用操作。'
     await auth.refreshIdentity(token)

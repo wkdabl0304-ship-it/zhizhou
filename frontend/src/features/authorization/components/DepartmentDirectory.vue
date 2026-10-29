@@ -1,5 +1,7 @@
 <!-- 部门与成员双栏工作台：按后端可见范围呈现组织，部门管理员不请求全站账号目录。 -->
 <script setup lang="ts">
+import UiTag from '@/shared/components/ui/UiTag.vue'
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiInput from '@/shared/components/ui/UiInput.vue'
 import { computed, ref, watch } from 'vue'
 import { Building2, Plus, ArrowRight, Users, Search } from '@lucide/vue'
@@ -89,10 +91,12 @@ defineExpose({ reload })
       >
         正在展开组织目录…
       </p>
-      <div v-if="departments.error.value" class="directory-error" role="alert">
+      <UiFeedback v-if="departments.error.value">
         {{ departments.error.value }}
-        <UiButton size="sm" @click="departments.load()">重试部门目录</UiButton>
-      </div>
+        <template #actions
+          ><UiButton size="sm" @click="departments.load()">重试部门目录</UiButton></template
+        >
+      </UiFeedback>
       <p
         v-else-if="!departments.loading.value && !departments.items.value.length"
         class="directory-empty"
@@ -175,10 +179,12 @@ defineExpose({ reload })
         </div>
         <p class="quiet-label">成员身份仅展示当前部门的角色。</p>
         <p v-if="members.loading.value" role="status">正在加载成员…</p>
-        <div v-if="members.error.value" class="directory-error" role="alert">
+        <UiFeedback v-if="members.error.value">
           {{ members.error.value }}
-          <UiButton size="sm" @click="members.load()">重试成员目录</UiButton>
-        </div>
+          <template #actions
+            ><UiButton size="sm" @click="members.load()">重试成员目录</UiButton></template
+          >
+        </UiFeedback>
         <div
           v-else-if="!members.loading.value && !members.items.value.length"
           class="directory-empty"
@@ -200,14 +206,17 @@ defineExpose({ reload })
             }}</span>
             <div class="person-identity">
               <strong
-                >{{ member.username }}<small v-if="member.id === auth.user?.id">本人</small></strong
+                >{{ member.username
+                }}<UiTag size="xs" v-if="member.id === auth.user?.id" tone="brand"
+                  >本人</UiTag
+                ></strong
               ><span>{{
                 member.roles.includes('department_admin') ? '部门管理员' : '部门成员'
               }}</span>
             </div>
-            <span class="status-badge" :class="{ inactive: !member.is_active }">{{
+            <UiTag size="xs" :tone="member.is_active ? 'brand' : 'neutral'" dot>{{
               member.is_active ? '已启用' : '已停用'
-            }}</span>
+            }}</UiTag>
             <div class="person-actions">
               <UiButton
                 v-if="

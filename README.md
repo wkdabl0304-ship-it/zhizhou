@@ -6,6 +6,7 @@
 
 <p align="center"><strong>心有山海，自有知舟。</strong></p>
 <p align="center">让知识流动，让想法抵达。</p>
+<p align="center">面向企业员工的 AI 工作助手：直接对话，自动查阅有权限的内部资料，给出附带出处的回答，并逐步支持文件生成与修改。</p>
 <p align="center"><sub>An open-source AI workspace for conversations, model governance, and scoped organization access.</sub></p>
 
 <p align="center">
@@ -47,6 +48,12 @@ flowchart LR
 ```
 
 知舟当前是一个可本地部署、可继续开发的 MVP。它已经把对话、模型与组织管理连成一条可用路径；文件工作区、企业知识库、人工审批和完整生产容器化仍在规划中。
+
+### 接下来要实现的体验
+
+员工上传文件时，可以选择仅用于当前会话，或保存到有写入权限的全局、部门、个人文件空间及目录。空间文件自动建立检索索引；聊天时，智能体在授权范围内查找资料、按需阅读原文，并给出结论及源文件出处。无法解析的文件仍保留查找和打开入口，后续逐步支持在个人空间生成文件及修改授权文件。
+
+文件管理是用户入口，RAG 是后台能力：用户管理完整原文件，无需配置切分或维护另一套知识库。上述能力尚未实现，具体规则、边界及待决事项见[产品定位与功能蓝图](docs/product-positioning.md)。
 
 ## 它能带来什么
 
@@ -186,6 +193,7 @@ flowchart LR
 zhizhou/
 ├── frontend/          # 工作区界面、共享组件与浏览器测试
 ├── backend/           # API、鉴权、会话、模型配置与数据库迁移
+├── docs/product-positioning.md # 产品定位、文件与检索规则及待决事项
 ├── docs/images/       # README 使用的真实产品截图
 ├── AGENTS.md          # 协作、测试与文档约定
 └── README.md          # 这个项目的起点
@@ -211,6 +219,7 @@ uv run pytest -q
 
 | 你想做什么               | 从这里开始                                            |
 | ------------------------ | ----------------------------------------------------- |
+| 理解产品方向与文件知识库规划 | [产品定位与功能蓝图](docs/product-positioning.md)   |
 | 开发界面或理解交互       | [前端开发说明](frontend/README.md)                    |
 | 启动 API、数据库与 SSE   | [后端开发说明](backend/README.md)                     |
 | 理解用户、部门和范围授权 | [组织权限接口契约](backend/docs/authorization-api.md) |

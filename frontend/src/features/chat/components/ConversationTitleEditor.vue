@@ -1,5 +1,6 @@
 <!-- 会话标题弹窗：负责草稿、Unicode 长度校验和提交反馈，保存由工作区状态层提供。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiInput from '@/shared/components/ui/UiInput.vue'
 import { computed, nextTick, ref, useId } from 'vue'
 import UiModal from '@/shared/components/ui/UiModal.vue'
@@ -103,7 +104,7 @@ function selectTitle(event: Event): void {
         <span>最多 {{ TITLE_LIMIT }} 个字符</span
         ><span :class="{ 'is-invalid': length > TITLE_LIMIT }">{{ length }}/{{ TITLE_LIMIT }}</span>
       </div>
-      <p v-if="error" role="alert">{{ error }}</p>
+      <UiFeedback v-if="error" compact>{{ error }}</UiFeedback>
     </form>
     <template #footer
       ><UiDialogActions

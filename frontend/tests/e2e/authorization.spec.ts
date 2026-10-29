@@ -158,6 +158,25 @@ test('账号搜索、超管授予撤销、停启与改密使旧令牌失效', as
   await row.getByRole('button', { name: '停用', exact: true }).click()
   await confirm(page, '停用账号', '停用账号')
   await expect(row).toContainText('已停用')
+  // 另一个独立浏览器会话通过真实登录页验证停用原因，不替换后端或缓存身份。
+  const visitor = await page
+    .context()
+    .browser()!
+    .newContext({ baseURL: new URL(page.url()).origin })
+  try {
+    const loginPage = await visitor.newPage()
+    await loginPage.goto('/login')
+    await loginPage.getByLabel('用户名', { exact: true }).fill(target.username)
+    await loginPage.getByLabel('密码', { exact: true }).fill(target.password)
+    await loginPage.getByRole('button', { name: '登录知舟', exact: true }).click()
+    await expect(loginPage.getByRole('alert')).toHaveText('账号已被停用，请联系管理员')
+    await loginPage.screenshot({ path: testInfo.outputPath('disabled-account.png') })
+    await loginPage.getByLabel('密码', { exact: true }).fill('wrong-password')
+    await loginPage.getByRole('button', { name: '登录知舟', exact: true }).click()
+    await expect(loginPage.getByRole('alert')).toHaveText('用户名或密码错误')
+  } finally {
+    await visitor.close()
+  }
   expect(
     (await request.get(`${apiUrl()}/api/auth/me`, { headers: previous.headers })).status(),
   ).toBe(401)
@@ -171,6 +190,30 @@ test('账号搜索、超管授予撤销、停启与改密使旧令牌失效', as
   ).toBe(401)
   await identity(request, { ...target, password: ' new-e2e-password ' })
 })
+
+// 同一账号登录后被管理端停用，刷新和业务请求都必须带明确原因返回登录页。
+for (const trigger of ['刷新恢复', '业务请求'] as const) {
+  test(`已登录账号被停用后通过${trigger}显示具体原因`, async ({ page, account, request }) => {
+    const target = await createAccount(request)
+    const administrator = await identity(request, account)
+    await login(page, target)
+    await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
+    const current = await identity(request, target)
+    const disabled = await request.put(`${apiUrl()}/api/users/${current.user.id}/active`, {
+      headers: administrator.headers,
+      data: { is_active: false },
+    })
+    expect(disabled.ok()).toBe(true)
+    if (trigger === '刷新恢复') await page.reload()
+    else {
+      await page.getByRole('textbox', { name: '消息内容', exact: true }).fill('停用后尝试发送')
+      await page.getByRole('button', { name: '发送消息', exact: true }).click()
+    }
+    await expect(page).toHaveURL(/\/login/)
+    await expect(page.getByRole('alert')).toHaveText('账号已被停用，请联系管理员')
+    await expect(page.getByRole('textbox', { name: '消息内容' })).toHaveCount(0)
+  })
+}
 
 test('部门管理员仅管理本部门，按用户名加入成员并移出本人后回收入口', async ({
   page,

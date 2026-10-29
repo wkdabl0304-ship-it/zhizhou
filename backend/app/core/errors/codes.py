@@ -22,6 +22,7 @@ class ErrorCode(Enum):
     REQUEST_FAILED = (40000, "请求失败")
     UNAUTHENTICATED = (40101, "登录状态无效或已过期，请重新登录")
     INVALID_CREDENTIALS = (40102, "用户名或密码错误")
+    ACCOUNT_DISABLED = (40103, "账号已被停用，请联系管理员")
     FORBIDDEN = (40301, "没有执行此操作的权限")
     NOT_FOUND = (40400, "接口不存在")
     CONVERSATION_NOT_FOUND = (40401, "会话不存在或不可用")

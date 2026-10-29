@@ -1,5 +1,6 @@
 <!-- 组织管理操作弹窗：固定资源、解释操作后果，密码仅在当前表单和一次请求中存在。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiInput from '@/shared/components/ui/UiInput.vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { ApiError } from '@/features/auth/authenticated'
@@ -179,19 +180,16 @@ onBeforeUnmount(() => {
           :autocomplete="password ? 'new-password' : 'off'"
           :maxlength="action.kind === 'add-member' ? 32 : undefined"
           :disabled="busy"
-          :aria-invalid="attempted && !!validation"
-          :aria-describedby="attempted && validation ? 'management-validation' : undefined"
+          :aria-invalid="!!error || (attempted && !!validation)"
+          :aria-describedby="
+            error || (attempted && validation) ? 'management-validation' : undefined
+          "
+          @input="error = ''"
         />
       </label>
-      <p
-        v-if="attempted && validation"
-        id="management-validation"
-        class="directory-error"
-        role="alert"
-      >
-        {{ validation }}
-      </p>
-      <p v-if="error" class="directory-error" role="alert">{{ error }}</p>
+      <UiFeedback v-if="error || (attempted && validation)" id="management-validation">
+        {{ error || validation }}
+      </UiFeedback>
     </form>
     <template #footer
       ><UiDialogActions
@@ -228,9 +226,5 @@ label {
 .action-target span {
   font-size: 11px;
   color: var(--text-muted);
-}
-.directory-error {
-  color: var(--danger);
-  font-size: 13px;
 }
 </style>

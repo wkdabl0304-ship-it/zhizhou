@@ -1,5 +1,6 @@
 <!-- 模型管理页面：展示供应商品牌卡片，具体配置由供应商弹窗负责。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useModelConfigStore } from '@/features/model-config/store'
 import type { ProviderInfo } from '@/features/model-config/types'
@@ -38,9 +39,9 @@ onBeforeUnmount(() => store.cancelManagement())
           </h2>
           <span class="config-hint">所有登录用户共享配置</span>
         </div>
-        <p v-if="store.loadError" class="config-error" role="alert">
+        <UiFeedback v-if="store.loadError">
           {{ store.loadError }}，请稍后重新进入页面。
-        </p>
+        </UiFeedback>
         <p v-if="store.loading && !store.selected" role="status">正在读取模型配置…</p>
         <div class="provider-brand-grid">
           <ProviderCard

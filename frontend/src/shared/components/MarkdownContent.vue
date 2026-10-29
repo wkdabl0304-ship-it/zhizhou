@@ -1,5 +1,6 @@
 <!-- 共享富文本组件：随源文更新 Markdown，并通过事件委托复制各代码块的原始文本。 -->
 <script setup lang="ts">
+import UiFeedback from './ui/UiFeedback.vue'
 import { computed, ref } from 'vue'
 import { renderMarkdown } from '@/shared/utils/markdown'
 
@@ -21,7 +22,7 @@ async function copyCode(event: MouseEvent): Promise<void> {
   if (!code) return
   try {
     await navigator.clipboard.writeText(code.textContent ?? '')
-    copyFeedback.value = '代码已复制'
+    copyFeedback.value = ''
   } catch {
     copyFeedback.value = '复制失败，请手动选择代码复制'
   }
@@ -32,7 +33,7 @@ async function copyCode(event: MouseEvent): Promise<void> {
   <div class="markdown-content">
     <!-- 仅注入受控解析器生成的 HTML；html:false 禁止执行助手源文中的 HTML 标签。 -->
     <div class="markdown-body" @click="copyCode" v-html="html" />
-    <span v-if="copyFeedback" class="code-copy-status" role="status">{{ copyFeedback }}</span>
+    <UiFeedback v-if="copyFeedback" compact :message="copyFeedback" />
   </div>
 </template>
 
@@ -148,17 +149,6 @@ async function copyCode(event: MouseEvent): Promise<void> {
   color: var(--text-secondary);
   font-size: 12px;
 }
-.markdown-body :deep(.markdown-code-copy) {
-  flex-shrink: 0;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 4px;
-  background: transparent;
-  font-size: 12px;
-}
-.markdown-body :deep(.markdown-code-copy:hover) {
-  background: var(--surface-hover);
-}
 .markdown-body :deep(pre) {
   max-width: 100%;
   overflow-x: auto;
@@ -209,9 +199,5 @@ async function copyCode(event: MouseEvent): Promise<void> {
 .markdown-body :deep(.hljs-comment),
 .markdown-body :deep(.hljs-meta) {
   color: var(--syntax-comment);
-}
-.code-copy-status {
-  color: var(--text-muted);
-  font-size: 12px;
 }
 </style>

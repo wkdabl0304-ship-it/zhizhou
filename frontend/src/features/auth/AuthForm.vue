@@ -1,8 +1,11 @@
 <!-- 认证表单：管理输入、密码显隐和字段校验，向页面提交短生命周期凭据，不自行请求后端。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiInput from '@/shared/components/ui/UiInput.vue'
+import UiButton from '@/shared/components/ui/UiButton.vue'
+import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import { computed, ref } from 'vue'
-import { ArrowRight, Eye, EyeOff, LoaderCircle } from '@lucide/vue'
+import { ArrowRight, Eye, EyeOff } from '@lucide/vue'
 import type { AuthMode, Credentials } from './types'
 import { validateAuth } from './validation'
 
@@ -43,7 +46,7 @@ function submit(): void {
     novalidate
     @submit.prevent="submit"
   >
-    <p v-if="error" class="form-error" role="alert">{{ error }}</p>
+    <UiFeedback v-if="error">{{ error }}</UiFeedback>
     <div class="auth-field">
       <label :for="`${idPrefix}-username`">用户名</label>
       <UiInput
@@ -70,9 +73,9 @@ function submit(): void {
       <p v-if="registering" :id="`${idPrefix}-username-hint`" class="field-hint">
         3–32 位字母、数字或下划线，不区分大小写
       </p>
-      <p v-if="usernameMessage" :id="`${idPrefix}-username-error`" class="field-error" role="alert">
+      <UiFeedback v-if="usernameMessage" :id="`${idPrefix}-username-error`" compact>
         {{ usernameMessage }}
-      </p>
+      </UiFeedback>
     </div>
     <div class="auth-field">
       <label :for="`${idPrefix}-password`">密码</label>
@@ -98,21 +101,20 @@ function submit(): void {
           "
           required
           ><template #suffix
-            ><button
-              type="button"
+            ><UiIconButton
               class="password-toggle"
-              :aria-label="visible ? '隐藏密码' : '显示密码'"
+              :label="visible ? '隐藏密码' : '显示密码'"
               :aria-pressed="visible"
               :disabled="busy"
               @click="visible = !visible"
             >
-              <EyeOff v-if="visible" :size="18" /><Eye v-else :size="18" /></button></template
+              <EyeOff v-if="visible" :size="18" /><Eye v-else :size="18" /></UiIconButton></template
         ></UiInput>
       </div>
       <p v-if="registering" :id="`${idPrefix}-password-hint`" class="field-hint">8–128 个字符</p>
-      <p v-if="errors.password" :id="`${idPrefix}-password-error`" class="field-error" role="alert">
+      <UiFeedback v-if="errors.password" :id="`${idPrefix}-password-error`" compact>
         {{ errors.password }}
-      </p>
+      </UiFeedback>
     </div>
     <div v-if="registering" class="auth-field">
       <label :for="`${idPrefix}-confirmation`">确认密码</label>
@@ -129,21 +131,16 @@ function submit(): void {
         :aria-describedby="errors.confirmation ? `${idPrefix}-confirmation-error` : undefined"
         required
       />
-      <p
-        v-if="errors.confirmation"
-        :id="`${idPrefix}-confirmation-error`"
-        class="field-error"
-        role="alert"
-      >
+      <UiFeedback v-if="errors.confirmation" :id="`${idPrefix}-confirmation-error`" compact>
         {{ errors.confirmation }}
-      </p>
+      </UiFeedback>
     </div>
-    <button class="auth-submit" type="submit" :disabled="busy">
-      <LoaderCircle v-if="busy" class="loading-icon" :size="17" /><span>{{
+    <UiButton class="auth-submit" variant="primary" type="submit" :loading="busy">
+      <span>{{
         busy ? (registering ? '正在创建账号…' : '正在登录…') : registering ? '创建账号' : '登录知舟'
       }}</span
       ><ArrowRight v-if="!busy" :size="17" />
-    </button>
+    </UiButton>
   </form>
 </template>
 
@@ -162,90 +159,21 @@ label {
 .password-toggle:hover {
   color: var(--brand);
 }
-.field-hint,
-.field-error {
+.field-hint {
   margin: 7px 0 0;
   font-size: 12px;
   line-height: 1.65;
-}
-.field-hint {
   color: var(--text-muted);
 }
-.field-error,
-.form-error {
-  color: var(--danger);
+.auth-field .ui-feedback {
+  margin-top: 7px;
 }
-.form-error {
-  margin: 0 0 22px;
-  padding: 11px 13px;
-  border-radius: 9px;
-  background: var(--danger-soft);
-  font-size: 13px;
+.auth-form > .ui-feedback {
+  margin-bottom: 22px;
 }
 .auth-submit {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
   width: 100%;
   min-height: 46px;
   margin-top: 29px;
-  padding: 12px 16px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--action);
-  color: var(--action-contrast);
-  font: inherit;
-  font-size: 14px;
-  font-weight: 500;
-  transition:
-    background-color 180ms ease,
-    box-shadow 180ms ease,
-    transform 180ms ease;
-}
-.auth-submit:hover:not(:disabled) {
-  background: var(--brand-hover);
-  box-shadow: 0 8px 24px color-mix(in srgb, var(--brand) 22%, transparent);
-}
-/* 光带只在悬停时掠过一次，不持续闪动或影响点击区域。 */
-.auth-submit::before {
-  content: '';
-  position: absolute;
-  inset: 0 auto 0 -45%;
-  width: 36%;
-  background: linear-gradient(90deg, transparent, rgb(255 255 255 / 16%), transparent);
-  transform: translateX(-160%) skewX(-18deg);
-  transition: transform 650ms ease;
-  pointer-events: none;
-}
-.auth-submit:hover:not(:disabled)::before {
-  transform: translateX(480%) skewX(-18deg);
-}
-.auth-submit:active:not(:disabled) {
-  transform: translateY(1px);
-}
-.auth-submit:disabled {
-  cursor: wait;
-  opacity: 0.7;
-}
-.loading-icon {
-  animation: auth-loading 1s linear infinite;
-}
-@keyframes auth-loading {
-  to {
-    transform: rotate(360deg);
-  }
-}
-@media (prefers-reduced-motion: reduce) {
-  .loading-icon {
-    animation: none;
-  }
-  input,
-  .auth-submit,
-  .auth-submit::before {
-    transition: none;
-  }
 }
 </style>

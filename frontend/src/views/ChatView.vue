@@ -1,5 +1,7 @@
 <!-- 聊天页内容：组合首页输入、消息历史和发送区；导航与品牌外壳由 WorkspaceLayout 统一提供。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
+import UiButton from '@/shared/components/ui/UiButton.vue'
 import { nextTick, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '@/features/chat/store'
@@ -34,26 +36,23 @@ async function send(text: string): Promise<void> {
   <template v-else>
     <section class="conversation-scroll" aria-label="对话内容">
       <div class="history-controls">
-        <button
+        <UiButton
           v-if="chat.activeConversation.nextCursor"
-          type="button"
+          size="sm"
           :disabled="chat.activeConversation.loading || chat.isSending"
           @click="chat.loadEarlier"
         >
           加载更早消息
-        </button>
+        </UiButton>
         <span v-if="chat.activeConversation.loading" role="status">正在加载历史…</span>
       </div>
-      <p v-if="chat.activeConversation.historyError" class="history-error" role="alert">
-        {{ chat.activeConversation.historyError
-        }}<button
-          type="button"
-          :disabled="chat.activeConversation.loading"
-          @click="chat.refreshHistory"
-        >
-          重试
-        </button>
-      </p>
+      <UiFeedback
+        v-if="chat.activeConversation.historyError"
+        :message="chat.activeConversation.historyError"
+        retry-label="重试"
+        :busy="chat.activeConversation.loading"
+        @retry="chat.refreshHistory"
+      />
       <p v-if="chat.activeConversation.remoteRunning" class="history-notice" role="status">
         此会话正在其他页面生成，完成后将自动同步。
       </p>
@@ -91,22 +90,15 @@ async function send(text: string): Promise<void> {
   color: var(--text-muted);
   font-size: 12px;
 }
-.history-controls button {
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 5px 10px;
-  background: var(--surface);
-  color: var(--brand);
+.conversation-scroll > .ui-feedback {
+  max-width: var(--content-width);
+  margin: 12px auto;
 }
-.history-error,
 .history-notice {
   max-width: var(--content-width);
   margin: 12px auto;
   font-size: 13px;
   color: var(--text-secondary);
-}
-.history-error {
-  color: var(--danger);
 }
 .home-scroll {
   display: flex;

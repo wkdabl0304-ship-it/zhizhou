@@ -41,6 +41,16 @@ function saveSession(expiresAt = Date.now() + 60_000): void {
 }
 
 describe('认证状态', () => {
+  it('刷新恢复时发现账号已停用，清除凭据并保留具体原因', async () => {
+    saveSession()
+    fetchMock.mockResolvedValue(response(null, 401, 40103, '账号已被停用，请联系管理员'))
+    const auth = useAuthStore()
+    await auth.initialize()
+    expect(auth.isAuthenticated).toBe(false)
+    expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
+    expect(auth.notice).toBe('账号已被停用，请联系管理员')
+    expect(auth.restoreError).toBe('')
+  })
   // 登录只在当前标签页保存令牌和有效期，退出同步结束内存与存储身份。
   it('登录不持久化密码或用户信息，退出清除凭据', async () => {
     fetchMock.mockResolvedValue(response(LOGIN))

@@ -115,15 +115,14 @@ async def test_register_login_jwt_claims_and_disabled_account(postgres_settings)
                 .where(User.username == username)
                 .values(is_active=False)
             )
-        assert (
-            await client.get("/api/auth/me", headers=headers)
-        ).status_code == 401
-        assert (
-            await client.post(
-                "/api/auth/login",
-                json={"username": username, "password": "password-123"},
-            )
-        ).status_code == 401
+        # 停用原因只向已持有效令牌或提供正确密码的本人解释，错误密码仍返回凭据错误。
+        disabled = await client.get("/api/auth/me", headers=headers)
+        assert disabled.status_code == 401 and disabled.json()["code"] == 40103
+        for password, code in [("password-123", 40103), ("wrong-password", 40102)]:
+            denied = await client.post("/api/auth/login", json={"username": username, "password": password})
+            assert denied.status_code == 401 and denied.json()["code"] == code
+            if code == 40103:
+                assert denied.json()["message"] == "账号已被停用，请联系管理员"
 
 
 @pytest.mark.anyio

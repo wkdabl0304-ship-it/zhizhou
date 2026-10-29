@@ -5,6 +5,8 @@ import { ArrowLeft, PanelLeft, Plus, Search, Mail } from '@lucide/vue'
 import { DropdownMenuItem } from 'reka-ui'
 import ThemeMenu from '@/shared/components/ThemeMenu.vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
+import UiTag from '@/shared/components/ui/UiTag.vue'
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiPageHeader from '@/shared/components/ui/UiPageHeader.vue'
 import UiModal from '@/shared/components/ui/UiModal.vue'
 import UiConfirmDialog from '@/shared/components/ui/UiConfirmDialog.vue'
@@ -25,6 +27,7 @@ import type { ChatMessage } from '@/features/chat/types'
 const exampleModal = ref(false),
   exampleConfirm = ref(false)
 const draft = ref('')
+const exampleFailure = ref(true)
 const drawer = ref(false)
 const submitted = ref('')
 const menuSelection = ref('尚未选择')
@@ -40,6 +43,13 @@ const stateOptions = [
   { value: 'inactive', label: '已停用' },
   { value: 'archived', label: '已归档 · 暂不可选', disabled: true },
 ]
+// 同文案、同语义色对照留白差异，避免误把颜色或字号变化当成尺寸效果。
+const tagSizes = [
+  { size: 'xs', label: 'XS · 行内身份' },
+  { size: 'sm', label: 'SM · 普通列表' },
+  { size: 'md', label: 'MD · 独立状态' },
+  { size: 'lg', label: 'LG · 重点展示' },
+] as const
 
 /** 显示共享控件当前结果，便于验证输入、选择与复选是否在同一表单中协作。 */
 function submitControls(): void {
@@ -242,11 +252,38 @@ function record(text: string): void {
       <div class="preview-row">
         <UiButton variant="primary">主要操作</UiButton><UiButton>次要操作</UiButton
         ><UiButton variant="ghost">轻量操作</UiButton><UiButton disabled>禁用操作</UiButton
-        ><UiButton loading>处理中</UiButton
+        ><UiButton variant="danger">删除操作</UiButton><UiButton loading>处理中</UiButton
         ><UiTooltip text="支持键盘聚焦与 Esc 关闭"
           ><UiIconButton label="示例提示"><Plus :size="18" /></UiIconButton
         ></UiTooltip>
       </div>
+    </section>
+    <section aria-label="标签与失败反馈">
+      <h2>标签与失败反馈</h2>
+      <div class="preview-row">
+        <UiTag size="xs">普通用户</UiTag><UiTag size="xs" tone="brand">本人</UiTag
+        ><UiTag size="xs" tone="accent">超级管理员</UiTag> <UiTag tone="brand" dot>已启用</UiTag
+        ><UiTag dot>已停用</UiTag><UiTag tone="danger" dot>不可用</UiTag>
+        <UiTag size="xs" tone="brand">当前默认</UiTag>
+      </div>
+      <p class="preview-status">
+        尺寸主要调整内边距与间距；姓名旁和密集目录用 XS，独立状态可用 MD 或 LG。
+      </p>
+      <div class="preview-tag-sizes" role="group" aria-label="标签尺寸对比">
+        <div v-for="example in tagSizes" :key="example.size" class="preview-tag-size">
+          <span>{{ example.label }}</span>
+          <UiTag :size="example.size" tone="brand" dot>已启用</UiTag>
+        </div>
+      </div>
+      <UiFeedback
+        v-if="exampleFailure"
+        title="暂时无法读取目录"
+        message="网络连接中断，请检查网络后重试。"
+        retry-label="重试示例"
+        @retry="exampleFailure = false"
+      />
+      <UiButton v-else size="sm" @click="exampleFailure = true">再次模拟失败</UiButton>
+      <UiFeedback compact message="请输入完整的邮箱地址。" />
     </section>
     <section aria-label="基础表单控件">
       <div class="preview-section-heading">
@@ -256,7 +293,7 @@ function record(text: string): void {
             输入、选择与勾选共用纸面、细边框和柔和焦点，保留原生表单语义。
           </p>
         </div>
-        <span class="preview-component-tag">FORM CONTROLS</span>
+        <UiTag tone="accent">FORM CONTROLS</UiTag>
       </div>
       <form class="preview-controls" aria-label="控件联动示例" @submit.prevent="submitControls">
         <label class="preview-field" for="preview-username"
@@ -298,10 +335,8 @@ function record(text: string): void {
             aria-invalid="true"
             aria-describedby="preview-input-error"
             ><template #prefix><Mail :size="16" /></template></UiInput
-          ><small id="preview-input-error" class="preview-error"
-            >请输入完整的邮箱地址。</small
-          ></label
-        >
+          ><UiFeedback id="preview-input-error" compact message="请输入完整的邮箱地址。" />
+        </label>
         <label class="preview-field">禁用输入<UiInput model-value="当前不可编辑" disabled /></label>
         <label class="preview-field">只读输入<UiInput model-value="已确认的信息" readonly /></label>
         <label class="preview-field"
@@ -475,6 +510,23 @@ h2 {
   font-size: 12px;
   overflow-wrap: anywhere;
 }
+.preview-tag-sizes {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+  gap: 16px;
+  margin-block: 18px;
+}
+.preview-tag-size {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+.preview-tag-size > span {
+  color: var(--text-muted);
+  font-size: 11px;
+}
 .preview-disabled {
   margin-top: 24px;
 }
@@ -489,12 +541,6 @@ h2 {
 }
 .preview-section-heading h2 {
   margin-bottom: 8px;
-}
-.preview-component-tag {
-  color: var(--accent);
-  font-size: 10px;
-  letter-spacing: 2px;
-  white-space: nowrap;
 }
 .preview-controls,
 .preview-state-grid {

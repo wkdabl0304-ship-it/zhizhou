@@ -60,6 +60,7 @@ it('密码原样提交，失败清空敏感值并允许重试', async () => {
   })
   expect((body.get('input').element as HTMLInputElement).value).toBe('')
   expect(body.text()).toContain('账号状态已变化')
+  expect(body.findAll('.ui-feedback')).toHaveLength(1)
   expect(wrapper.emitted('conflict')).toHaveLength(1)
   expect(wrapper.emitted('saved')).toBeUndefined()
 })
@@ -149,6 +150,24 @@ it('账号筛选明确传递停用与无部门条件，停用账号不显示授�
   )
   expect(wrapper.text()).toContain('启用')
   expect(wrapper.text()).not.toContain('授予超管')
+})
+
+it('本人、角色与账号状态使用共同标签，明确区分身份和可用状态', async () => {
+  const { admin, department, managedUser } = authorizationData()
+  fetchMock.mockImplementation(async (url) =>
+    response({
+      items: String(url).startsWith('/api/departments')
+        ? [department]
+        : [{ ...managedUser, ...admin, is_active: true }],
+      next_cursor: null,
+    }),
+  )
+  const wrapper = mount(UserDirectory)
+  await flushPromises()
+  const tags = wrapper.findAll('.ui-tag').map((tag) => tag.text())
+  expect(tags).toEqual(expect.arrayContaining(['本人', '超级管理员', '已启用']))
+  expect(wrapper.findAll('.ui-tag').every((tag) => tag.classes().includes('ui-tag--xs'))).toBe(true)
+  expect(wrapper.find('small').exists()).toBe(false)
 })
 
 it('按具体部门筛选账号，并在勾选无部门时清除互斥条件', async () => {

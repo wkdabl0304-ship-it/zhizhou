@@ -81,8 +81,9 @@ class AuthService:
     async def login(self, body: LoginRequest) -> LoginResponse:
         """验证登录信息并返回访问令牌、有效期和当前用户信息。
 
-        body 提供用户名和密码，密码校验在线程池进行。账号不存在、已停用
-        或密码错误统一抛出 INVALID_CREDENTIALS；成功后签发包含用户 ID、
+        body 提供用户名和密码，密码校验在线程池进行。账号不存在或密码错误
+        抛出 INVALID_CREDENTIALS；正确密码对应停用账号时抛出 ACCOUNT_DISABLED。
+        成功后签发包含用户 ID、
         颁发时间、过期时间及签发方和接收方约束的 HS256 JWT。
         """
         async with self.database.sessions() as session:
@@ -91,14 +92,18 @@ class AuthService:
             await self.initialize()
         encoded = user.password_hash if user is not None else self._dummy_hash
         valid = await to_thread.run_sync(self.passwords.verify, body.password, encoded)
-        if user is None or not valid or not user.is_active:
+        if user is None or not valid:
             raise RequestError(ErrorCode.INVALID_CREDENTIALS)
+        if not user.is_active:
+            raise RequestError(ErrorCode.ACCOUNT_DISABLED)
         # 哈希校验不持事务；签发前取得共享管理锁，避免与改密或停用交错后签发旧凭据令牌。
         verified_hash, verified_version = user.password_hash, user.token_version
         async with self.database.sessions.begin() as session:
             await management_lock(session, shared=True)
             user = await users.by_id(session, user.id)
-            if user is None or not user.is_active or user.password_hash != verified_hash or user.token_version != verified_version:
+            if user is not None and not user.is_active:
+                raise RequestError(ErrorCode.ACCOUNT_DISABLED)
+            if user is None or user.password_hash != verified_hash or user.token_version != verified_version:
                 raise RequestError(ErrorCode.INVALID_CREDENTIALS)
             info = await self.authorization.info(session, user)
             version = user.token_version
@@ -126,7 +131,7 @@ class AuthService:
 
         token 必须包含规定的 JWT 声明并通过签名、有效期及签发方和接收方
         校验；随后查询数据库中的最新账号状态，不只信任令牌本身。
-        令牌无效、凭据版本过期、账号不存在或已停用时统一抛出 UNAUTHENTICATED。
+        令牌无效、凭据版本过期或账号不存在时抛出 UNAUTHENTICATED；停用账号单独提示。
         """
         try:
             payload = jwt.decode(
@@ -144,7 +149,9 @@ class AuthService:
             raise RequestError(ErrorCode.UNAUTHENTICATED) from None
         async with self.database.sessions() as session:
             user = await users.by_id(session, user_id)
-        if user is None or not user.is_active or user.token_version != payload["token_version"]:
+        if user is not None and not user.is_active:
+            raise RequestError(ErrorCode.ACCOUNT_DISABLED)
+        if user is None or user.token_version != payload["token_version"]:
             raise RequestError(ErrorCode.UNAUTHENTICATED)
         return user
 

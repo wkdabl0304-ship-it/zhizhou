@@ -1,5 +1,6 @@
 <!-- 供应商品牌卡片：汇总安全的连接及启用数量，点击后由页面打开配置弹窗。 -->
 <script setup lang="ts">
+import UiTag from '@/shared/components/ui/UiTag.vue'
 import { ArrowUpRight } from '@lucide/vue'
 import type { ProviderInfo, ProviderConfiguration, ModelConfiguration } from '../types'
 import { computed } from 'vue'
@@ -36,9 +37,9 @@ const descriptions = {
   >
     <div class="provider-card-top">
       <span class="provider-logo-frame"><ProviderLogo :provider="brand.provider" /></span
-      ><span class="provider-connection-status" :class="{ 'is-configured': connected }"
-        ><i />{{ !connections.length ? '未配置' : connected ? '已配置' : '连接已停用' }}</span
-      >
+      ><UiTag size="md" :tone="connected ? 'brand' : 'neutral'" dot>{{
+        !connections.length ? '未配置' : connected ? '已配置' : '连接已停用'
+      }}</UiTag>
     </div>
     <h3>{{ brand.display_name }}</h3>
     <p>{{ descriptions[brand.provider] }}</p>

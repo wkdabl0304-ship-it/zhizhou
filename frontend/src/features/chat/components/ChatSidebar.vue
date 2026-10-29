@@ -1,5 +1,8 @@
 <!-- 聊天侧栏：共用于桌面导航与窄屏抽屉，向上报告选择、新建和折叠事件。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
+import UiTag from '@/shared/components/ui/UiTag.vue'
+import UiButton from '@/shared/components/ui/UiButton.vue'
 import { computed } from 'vue'
 import { ArrowUpRight, LogOut, PanelLeft, SquarePen, SlidersHorizontal, Users } from '@lucide/vue'
 import type { Conversation } from '@/features/chat/types'
@@ -72,18 +75,14 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
     </button>
     <nav v-if="!compact" class="conversation-nav" aria-label="会话记录">
       <div class="sidebar-section-label">你的对话</div>
-      <p v-if="error" class="directory-error" role="alert">
-        {{ error
-        }}<button
-          type="button"
-          class="directory-action"
-          :disabled="loading"
-          @click="$emit('retry')"
-        >
-          重试
-        </button>
-      </p>
-      <p v-if="actionError" class="directory-error" role="alert">{{ actionError }}</p>
+      <UiFeedback
+        v-if="error"
+        :message="error"
+        retry-label="重试"
+        :busy="loading"
+        @retry="$emit('retry')"
+      />
+      <UiFeedback v-if="actionError">{{ actionError }}</UiFeedback>
       <p v-if="loading" class="directory-hint" role="status">正在加载会话…</p>
       <p v-else-if="!conversations.length && !error" class="directory-hint">
         还没有对话，开启一次新的思考。
@@ -137,15 +136,16 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
         <span class="workspace-note-dot" />为每一个好想法，找到方向。
       </div>
       <ThemeMenu :compact="compact" />
-      <button
+      <UiButton
         v-if="auth.user"
         class="logout-button"
-        type="button"
+        variant="ghost"
+        size="sm"
         aria-label="退出登录"
         @click="auth.logout"
       >
         <LogOut :size="17" /><span v-if="!compact">退出登录</span>
-      </button>
+      </UiButton>
       <RouterLink v-if="isDev && !compact" class="preview-link" to="/dev/ui"
         >组件预览<ArrowUpRight :size="14"
       /></RouterLink>
@@ -155,7 +155,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
           <span>{{ auth.user?.username ?? '知舟工作空间' }}</span
           ><small>{{ auth.user?.department?.name ?? '让工作，始于一句话' }}</small>
         </div>
-        <span v-if="auth.user" class="profile-status">已登录</span>
+        <UiTag size="xs" v-if="auth.user" tone="brand" dot>已登录</UiTag>
       </div>
     </div>
   </div>
@@ -180,27 +180,14 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   color: var(--brand);
   background: var(--surface-active);
 }
-.directory-action {
-  border: 0;
-  border-radius: 6px;
-  padding: 4px 6px;
-  background: transparent;
-  color: var(--brand);
-  font: inherit;
-  font-size: 12px;
-}
 .directory-more {
   display: block;
   margin: 12px auto;
 }
-.directory-hint,
-.directory-error {
+.directory-hint {
   margin: 12px 8px;
   font-size: 12px;
   color: var(--text-muted);
-}
-.directory-error {
-  color: var(--danger);
 }
 /* 导航占满宿主高度，只有会话列表滚动，底部外观与工作空间入口始终可达。 */
 .chat-sidebar {
@@ -308,23 +295,9 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   padding-top: 20px;
 }
 .logout-button {
-  display: flex;
-  align-items: center;
-  gap: 9px;
   width: 100%;
-  min-height: 36px;
-  padding: 7px 10px;
-  border: 0;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--text-muted);
-  font: inherit;
-  font-size: 12px;
-  text-align: left;
-}
-.logout-button:hover {
-  background: var(--surface-hover);
-  color: var(--text);
+  justify-content: flex-start;
+  margin-top: 8px;
 }
 .workspace-note {
   display: flex;
@@ -380,6 +353,10 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   font-size: 12px;
   min-width: 0;
 }
+.sidebar-profile > .ui-tag {
+  flex-shrink: 0;
+  margin-left: auto;
+}
 .sidebar-profile > div > span,
 .sidebar-profile small {
   overflow: hidden;
@@ -389,14 +366,6 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
 .sidebar-profile small {
   color: var(--text-muted);
   font-size: 10px;
-}
-.profile-status {
-  flex-shrink: 0;
-  white-space: nowrap;
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: 8px;
-  letter-spacing: 1px;
 }
 .is-compact {
   align-items: center;

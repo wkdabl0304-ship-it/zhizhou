@@ -16,6 +16,8 @@ it('连接卡片显示摘要、选择状态和直接操作，开关等待服务�
   })
   expect(wrapper.text()).toContain(provider.name)
   expect(wrapper.text()).toContain('密钥已配置')
+  expect(wrapper.findAll('.ui-tag')).toHaveLength(2)
+  expect(wrapper.findAll('.ui-tag').every((tag) => tag.classes().includes('ui-tag--xs'))).toBe(true)
   expect(wrapper.get('.connection-card-select').attributes('aria-pressed')).toBe('true')
   await wrapper.get('.connection-card-select').trigger('click')
   await wrapper.get('[role="switch"]').trigger('click')

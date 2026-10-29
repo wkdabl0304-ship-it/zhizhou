@@ -16,6 +16,19 @@ beforeEach(async () => {
 })
 
 describe('带身份的业务请求', () => {
+  it('停用账号退出时保留明确原因，并让业务层继续读取原始响应', async () => {
+    fetchMock.mockResolvedValue(response(null, 401, 40103, '账号已被停用，请联系管理员'))
+    const result = await authenticatedFetch('/api/example')
+    expect(useAuthStore().isAuthenticated).toBe(false)
+    expect(useAuthStore().notice).toBe('账号已被停用，请联系管理员')
+    await expect(readEnvelope(result)).rejects.toMatchObject({ code: 40103 })
+  })
+
+  it('非 JSON 401 安全回退到失效说明', async () => {
+    fetchMock.mockResolvedValue(new Response('proxy', { status: 401 }))
+    await authenticatedFetch('/api/example')
+    expect(useAuthStore().notice).toContain('登录状态无效')
+  })
   it('403 只刷新当前身份并保留失败响应，不重放原操作', async () => {
     const { USER } = createAuthData()
     fetchMock
@@ -74,10 +87,11 @@ describe('带身份的业务请求', () => {
     const { LOGIN, CREDENTIALS } = createAuthData()
     fetchMock.mockResolvedValueOnce(response({ ...LOGIN, access_token: 'new-token' }))
     await useAuthStore().login(CREDENTIALS)
-    pending.resolve(response(null, 401, 40101))
+    pending.resolve(response(null, 401, 40103))
     await oldRequest
     expect(useAuthStore().accessToken).toBe('new-token')
     expect(useAuthStore().isAuthenticated).toBe(true)
+    expect(useAuthStore().notice).toBe('')
   })
 
   it('取消保留 AbortError，其他网络失败转换为安全说明', async () => {

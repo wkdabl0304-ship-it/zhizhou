@@ -118,7 +118,7 @@ describe('会话导航与历史界面', () => {
       .mockResolvedValueOnce(response({ items: [info()], next_cursor: null }))
     const page = await open()
     expect(page.get('[role="alert"]').text()).toContain('网络连接失败')
-    await page.get('.directory-action').trigger('click')
+    await page.get('.ui-feedback-actions button').trigger('click')
     await flushPromises()
     expect(page.find('[role="alert"]').exists()).toBe(false)
     expect(page.get('.conversation-item').text()).toContain('历史话题')

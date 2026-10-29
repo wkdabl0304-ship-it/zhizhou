@@ -1,7 +1,9 @@
 <!-- 消息展示：助手正文解析 Markdown，用户正文保持纯文本；兼容流式状态和预览结构化块。 -->
 <script setup lang="ts">
 import { computed, ref } from 'vue'
-import { Check, Copy, TriangleAlert } from '@lucide/vue'
+import { Check, Copy } from '@lucide/vue'
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
+import UiTag from '@/shared/components/ui/UiTag.vue'
 import type { ChatMessage } from '@/features/chat/types'
 import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
@@ -57,8 +59,7 @@ async function copy(): Promise<void> {
     :aria-label="message.role === 'user' ? '你的消息' : '知舟的回复'"
   >
     <div v-if="message.role === 'assistant'" class="assistant-heading">
-      <BrandLogo :size="25" /><span>知舟</span
-      ><span v-if="message.demo" class="demo-label">演示回复</span>
+      <BrandLogo :size="25" /><span>知舟</span><UiTag size="xs" v-if="message.demo">演示回复</UiTag>
     </div>
     <AgentActivity
       v-if="message.role === 'assistant' && message.activities?.length"
@@ -90,15 +91,13 @@ async function copy(): Promise<void> {
       <span class="thinking-dots" aria-hidden="true"><i /><i /><i /></span>
       {{ progressLabel }}
     </div>
-    <div v-if="message.status === 'error'" class="message-error" role="alert">
-      <TriangleAlert :size="18" />
-      <div>
-        {{
-          message.blocks.length || message.activities?.length ? '回复未完成' : '暂时无法获取回复'
-        }}
-        <p>{{ message.error || '请稍后再试，已接收的内容仍然保留。' }}</p>
-      </div>
-    </div>
+    <UiFeedback
+      v-if="message.status === 'error'"
+      :title="
+        message.blocks.length || message.activities?.length ? '回复未完成' : '暂时无法获取回复'
+      "
+      :message="message.error || '请稍后再试，已接收的内容仍然保留。'"
+    />
     <div
       v-if="message.role === 'user' || !message.status || message.status === 'complete'"
       class="message-actions"
@@ -111,13 +110,7 @@ async function copy(): Promise<void> {
             v-else
             :size="15" /></UiIconButton
       ></UiTooltip>
-      <span v-if="copyState !== 'idle'" class="copy-status" role="status">{{
-        copyState === 'failed'
-          ? '复制失败，请手动选择文本复制'
-          : copyState === 'copied'
-            ? '已复制'
-            : ''
-      }}</span>
+      <UiFeedback v-if="copyState === 'failed'" compact message="复制失败，请手动选择文本复制" />
     </div>
   </article>
 </template>
@@ -178,24 +171,11 @@ async function copy(): Promise<void> {
   font-size: 13px;
   font-weight: 500;
 }
-.demo-label {
-  margin-left: 2px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  background: var(--surface-soft);
-  color: var(--text-muted);
-  font-size: 10px;
-  font-weight: 400;
-}
 .message-actions {
   display: flex;
   align-items: center;
   gap: 8px;
   margin: 12px 0 0 -7px;
-}
-.copy-status {
-  font-size: 11px;
-  color: var(--text-muted);
 }
 .code-block {
   overflow: hidden;
@@ -244,22 +224,8 @@ pre {
 .thinking-dots i:nth-child(3) {
   animation-delay: 0.3s;
 }
-.message-error {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 14px;
-  border-radius: var(--radius-md);
-  background: var(--danger-soft);
-  color: var(--danger);
-  font-size: 14px;
-}
 .message-error svg {
   margin-top: 4px;
-}
-.message-error p {
-  margin: 2px 0 0;
-  font-size: 12px;
 }
 @keyframes pulse {
   0%,

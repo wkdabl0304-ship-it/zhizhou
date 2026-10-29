@@ -1,5 +1,6 @@
 <!-- 登录与注册页面：组合共享外壳和表单，协调请求、错误说明及路由跳转。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import { onBeforeUnmount, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AuthLayout from '@/features/auth/AuthLayout.vue'
@@ -23,6 +24,8 @@ async function submit(credentials: Credentials): Promise<void> {
   if (busy.value) return
   busy.value = true
   error.value = ''
+  auth.notice = ''
+  auth.restoreError = ''
   usernameError.value = ''
   controller = new AbortController()
   const signal = controller.signal
@@ -75,15 +78,14 @@ onBeforeUnmount(() => controller?.abort())
           mode === 'register' ? '创建账号，让每一次思考都有归处。' : '登录，继续你的思考与工作。'
         }}
       </p>
-      <div v-if="auth.restoreError" class="auth-notice" role="alert">
-        {{ auth.restoreError
-        }}<button type="button" class="auth-link" :disabled="busy" @click="retryRestore">
-          重试验证
-        </button>
-      </div>
-      <p v-else-if="mode === 'login' && auth.notice" class="auth-notice" role="status">
-        {{ auth.notice }}
-      </p>
+      <UiFeedback
+        v-if="auth.restoreError"
+        :message="auth.restoreError"
+        retry-label="重试验证"
+        :busy="busy"
+        @retry="retryRestore"
+      />
+      <UiFeedback v-else-if="mode === 'login' && auth.notice" :message="auth.notice" />
       <!-- 路由切换时重建表单，确保密码、显隐和旧错误不会跨登录/注册页面保留。 -->
       <AuthForm
         :key="mode"
@@ -150,18 +152,6 @@ h2 {
 .auth-link:hover {
   text-decoration: underline;
   text-underline-offset: 3px;
-}
-.auth-notice {
-  margin: 0 0 22px;
-  padding: 11px 13px;
-  border-radius: 9px;
-  background: var(--surface-soft);
-  color: var(--text-secondary);
-  font-size: 13px;
-}
-.auth-notice button {
-  display: block;
-  margin-top: 6px;
 }
 @media (max-width: 760px) {
   .form-eyebrow {

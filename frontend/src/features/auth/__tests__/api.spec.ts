@@ -46,6 +46,7 @@ describe('认证 HTTP 契约', () => {
   // HTTP 与业务码任一失败都不得建立登录，重名信息可供页面关联到用户名。
   it.each([
     [401, 40102, '用户名或密码错误'],
+    [401, 40103, '账号已被停用，请联系管理员'],
     [200, 20001, '用户名已存在'],
   ])('HTTP %i 业务码 %i 保留可展示的错误信息', async (status, code, message) => {
     fetchMock.mockResolvedValue(response(null, status, code, message))

@@ -1,0 +1,110 @@
+/* 静态标签和失败反馈：沿用水墨主题语义色，明暗主题、窄屏及长文本共用同一规则。 */
+.ui-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  padding: 1px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.5;
+  vertical-align: middle;
+  overflow-wrap: anywhere;
+}
+/* 相邻两档保持相同字号，尺寸差异主要来自留白；点标记随密度微调。 */
+.ui-tag--xs {
+  gap: 3px;
+  padding: 0 4px;
+  border-radius: 4px;
+}
+.ui-tag--md {
+  gap: 5px;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.ui-tag--lg {
+  gap: 6px;
+  padding: 4px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+}
+.ui-tag--brand {
+  color: var(--brand);
+  background: var(--brand-soft);
+  border-color: color-mix(in srgb, var(--brand) 24%, var(--border));
+}
+.ui-tag--accent {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 25%, var(--border));
+}
+.ui-tag--danger {
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 25%, var(--border));
+}
+.ui-tag-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.ui-tag--xs .ui-tag-dot {
+  width: 4px;
+  height: 4px;
+}
+.ui-feedback {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-block: 12px;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--danger) 24%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: 13px;
+  line-height: 1.65;
+  text-align: left;
+}
+.ui-feedback > svg {
+  margin-top: 2px;
+}
+.ui-feedback-content {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+.ui-feedback-content strong {
+  display: block;
+  margin-bottom: 3px;
+  font-weight: 600;
+}
+.ui-feedback-actions {
+  flex-shrink: 0;
+}
+.ui-feedback--compact {
+  gap: 6px;
+  margin-block: 8px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+@media (max-width: 540px) {
+  .ui-feedback {
+    flex-wrap: wrap;
+  }
+  .ui-feedback-content {
+    flex-basis: calc(100% - 32px);
+  }
+  .ui-feedback-actions {
+    margin-left: 28px;
+  }
+}

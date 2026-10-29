@@ -1,5 +1,7 @@
 <!-- 登录工作区共用布局：聊天与模型管理保留同一侧栏、折叠状态和移动抽屉，子页面只维护内容。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
+import UiTag from '@/shared/components/ui/UiTag.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PanelLeft, SquarePen } from '@lucide/vue'
@@ -14,7 +16,6 @@ import { useMotionPreference } from '@/shared/composables/useMotionPreference'
 import UiDrawer from '@/shared/components/ui/UiDrawer.vue'
 import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
-import UiButton from '@/shared/components/ui/UiButton.vue'
 import { useAuthStore } from '@/features/auth/store'
 
 const route = useRoute(),
@@ -148,15 +149,14 @@ watch(
       />
     </aside>
     <main class="chat-main" :class="{ 'is-home': home, 'is-management': management }">
-      <div v-if="auth.restoreError" class="workspace-notice" role="alert">
-        {{ auth.restoreError }}；管理操作已暂停。<UiButton
-          size="sm"
-          :loading="checkingIdentity"
-          @click="retryIdentity"
-          >重试权限校验</UiButton
-        >
-      </div>
-      <p v-else-if="auth.notice" class="workspace-notice" role="status">{{ auth.notice }}</p>
+      <UiFeedback
+        v-if="auth.restoreError"
+        :message="auth.restoreError + '；管理操作已暂停。'"
+        retry-label="重试权限校验"
+        :busy="checkingIdentity"
+        @retry="retryIdentity"
+      />
+      <UiFeedback v-else-if="auth.notice" :message="auth.notice" />
       <RiverBackdrop v-if="home" :motion="enabled" />
       <UiPageHeader
         v-if="!management"
@@ -171,7 +171,7 @@ watch(
         <template #actions
           ><div class="header-end">
             <span class="header-edition">KNOWLEDGE IN FLOW</span
-            ><span class="prototype-badge"><span />知舟 AI</span
+            ><UiTag size="sm" tone="brand" dot>知舟 AI</UiTag
             ><UiTooltip v-if="!management && chat.activeConversation" text="新建对话"
               ><UiIconButton label="新建对话" @click="navigate()"
                 ><SquarePen :size="18" /></UiIconButton
@@ -221,13 +221,6 @@ watch(
   </div>
 </template>
 <style scoped>
-.workspace-notice {
-  margin: 0;
-  padding: 10px 24px;
-  color: var(--brand);
-  background: var(--brand-soft);
-  font-size: 13px;
-}
 .workspace-mobile-navigation {
   position: absolute;
   top: 10px;
@@ -261,6 +254,10 @@ watch(
   min-width: 0;
   min-height: 0;
   flex-direction: column;
+}
+.chat-main > .ui-feedback {
+  flex-shrink: 0;
+  margin: 12px 16px;
 }
 .chat-header {
   display: flex;
@@ -302,22 +299,6 @@ watch(
   color: var(--accent);
   font-size: 9px;
   letter-spacing: 1.5px;
-}
-.prototype-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 3px 8px;
-  border: 1px solid var(--border);
-  border-radius: 20px;
-  color: var(--text-muted);
-  font-size: 10px;
-}
-.prototype-badge > span {
-  width: 5px;
-  height: 5px;
-  border-radius: 50%;
-  background: var(--brand);
 }
 .chat-shell[data-visible='false'] :deep(*),
 .chat-shell[data-visible='false'] :deep(*::before),

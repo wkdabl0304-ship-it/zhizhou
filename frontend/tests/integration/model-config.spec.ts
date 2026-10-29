@@ -196,7 +196,7 @@ it('无默认可写草稿但禁止发送，在管理页直接设默认后返回�
   const card = new DOMWrapper(document.body).get(
     `article[aria-label="模型方案：${data.model.name}"]`,
   )
-  expect(card.get('.config-badge').text()).toBe('当前默认')
+  expect(card.findAll('.ui-tag').some((tag) => tag.text() === '当前默认')).toBe(true)
   expect(card.findAll('button').map((button) => button.text())).toContain('清除默认')
   expect(document.querySelector('.config-notice')).toBeNull()
   expect(document.body.textContent).not.toContain('用于尚未选择模型的会话')

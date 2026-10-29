@@ -1,5 +1,6 @@
 <!-- 配置编辑器外壳：统一提交、冲突提示、未保存关闭确认和离页保护，表单字段由业务插槽提供。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import { onBeforeUnmount, ref, watchEffect, useId } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '@/features/auth/store'
@@ -75,7 +76,7 @@ onBeforeUnmount(() => {
   >
     <form :id="formId" class="config-fields" novalidate @submit.prevent="emit('submit')">
       <fieldset :disabled="busy || loading"><slot /></fieldset>
-      <p v-if="error" class="config-error" role="alert">{{ error }}</p>
+      <UiFeedback v-if="error">{{ error }}</UiFeedback>
       <p v-if="conflict" class="config-hint">当前输入仍保留。关闭后重新编辑，可使用最新配置。</p>
     </form>
     <template #footer

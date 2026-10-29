@@ -1,5 +1,6 @@
 <!-- 组织与权限页面：编排部门、账号目录与操作反馈，领域契约及目录生命周期留在 authorization。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { Building2, Users, ShieldCheck, ArrowUpRight } from '@lucide/vue'
 import { useAuthStore } from '@/features/auth/store'
@@ -123,7 +124,7 @@ onBeforeUnmount(() => {
           <Users :size="17" />全站账号
         </button>
       </nav>
-      <p v-if="notice" class="operation-notice" role="status">{{ notice }}</p>
+      <UiFeedback v-if="notice" :message="notice" />
       <DepartmentDirectory
         v-if="tab === 'departments' && departmentsAllowed"
         ref="departments"

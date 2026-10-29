@@ -74,25 +74,6 @@
   background: var(--brand-soft);
   color: var(--brand);
 }
-.provider-connection-status {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.provider-connection-status i {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-muted);
-}
-.provider-connection-status.is-configured {
-  color: var(--brand);
-}
-.provider-connection-status.is-configured i {
-  background: var(--brand);
-}
 .provider-brand-card h3 {
   margin: 22px 0 8px;
   font-size: 21px;
@@ -201,10 +182,6 @@
 .catalog-model-identity .config-model-id {
   margin-bottom: 6px;
 }
-.catalog-model-status {
-  font-size: 11px;
-  color: var(--text-muted);
-}
 /* 参数摘要与全部操作共用卡片底栏，空间不足时操作组整体换行并靠右。 */
 .catalog-model-footer {
   display: flex;
@@ -226,7 +203,7 @@
   align-items: center;
   justify-content: flex-end;
   flex-wrap: wrap;
-  gap: 2px;
+  gap: 6px;
   margin-left: auto;
 }
 .catalog-model-tools .ui-button {
@@ -238,7 +215,7 @@
   margin-top: 12px;
   padding: 10px 12px;
   border-radius: 8px;
-  background: var(--brand-soft);
+  background: var(--surface-soft);
 }
 .catalog-test-feedback p {
   margin: 0;
@@ -309,19 +286,6 @@
   font-size: 12px;
   font-weight: 400;
 }
-.config-badge {
-  display: inline-block;
-  padding: 3px 7px;
-  border-radius: 5px;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-size: 11px;
-  white-space: nowrap;
-}
-.config-badge--invalid {
-  background: var(--danger-soft);
-  color: var(--danger);
-}
 .config-model-id {
   margin: 0 0 12px;
   font-family: var(--font-mono);
@@ -351,14 +315,6 @@
   margin: 8px 0 0;
   color: var(--text-muted);
   font-size: 11px;
-}
-.config-danger {
-  color: var(--danger) !important;
-}
-.config-error {
-  color: var(--danger);
-  font-size: 13px;
-  overflow-wrap: anywhere;
 }
 .config-fields {
   min-height: 0;

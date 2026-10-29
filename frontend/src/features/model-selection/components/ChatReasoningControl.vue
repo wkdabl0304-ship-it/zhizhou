@@ -1,5 +1,6 @@
 <!-- 输入区思考强度：以单一滑块包含关闭档，遵循后端允许范围及会话确认版本。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiInput from '@/shared/components/ui/UiInput.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent } from 'reka-ui'
@@ -278,7 +279,7 @@ onBeforeUnmount(() => {
                 <button type="submit" class="reasoning-apply">应用预算</button>
               </template>
             </fieldset>
-            <p v-if="error" role="alert">{{ error }}</p>
+            <UiFeedback v-if="error" compact>{{ error }}</UiFeedback>
           </form>
         </PopoverContent>
       </PopoverPortal>

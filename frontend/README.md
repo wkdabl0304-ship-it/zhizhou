@@ -199,6 +199,8 @@ pnpm test:e2e -- tests/e2e/model-selection.spec.ts --project=model-config-deskto
 
 提交前运行改动相关测试，涉及导航、认证或聊天主流程时同时运行对应集成和 E2E；推送前运行 `pnpm verify`，并在后端执行 `uv run pytest -q`。仓库不自动接入 CI 或 Git hook。Firefox、WebKit、真实供应商模型以及字体和动画视觉效果仍需专项验收。
 
+Windows 下两套浏览器验收共用 `tests/support/playwright/browser.ts` 的启动策略，关闭 Chromium 的 `TcpPortRandomizationWin`，回退到系统默认端口分配，以缓解高频回环短连接下间歇出现的 `net::ERR_ADDRESS_IN_USE`。该选项仅影响验收浏览器，不修改系统端口范围、生产代码、请求重试或业务断言；其他平台沿用默认启动选项。平台边界由 `tests/support/__tests__/browser.spec.ts` 验证。背景见 [Chromium 官方说明](https://groups.google.com/a/chromium.org/g/blink-dev/c/-Bmnni7Xv0A)。
+
 ## 目录职责
 
 - `src/main.ts`、`src/App.vue`：应用装配、公共样式、主题初始化、TooltipProvider 与身份失效后的路由回退。
@@ -230,6 +232,9 @@ pnpm test:e2e -- tests/e2e/model-selection.spec.ts --project=model-config-deskto
 
 | 组件 | 配置与用途 |
 | --- | --- |
+| `UiButton / UiIconButton` | 统一实心主操作、纸面次操作、轻量描边和危险操作；`variant=primary/secondary/ghost/danger`，`ghost` 兼容原调用并使用细描边。加载与禁用保留原生按钮和忙碌语义，键盘焦点独立于选中态。 |
+| `UiTag` | 静态身份和状态标签，`tone=neutral/brand/accent/danger`、`size=xs/sm/md/lg`（默认 `sm`）、可选 `dot`；没有点击与实时通知语义。尺寸主要调整内边距：`xs` 为 `0 × 4px`，用于本人、角色和密集目录；`sm` 为 `1 × 6px`，用于普通列表状态；`md` 为 `2 × 8px`，用于卡片独立状态；`lg` 为 `4 × 12px`，用于重点展示。前两档字号 11px，后两档 12px；页面通过 size 选择密度，不单独覆盖 padding。`/dev/ui` 提供四档同文案对照。 |
+| `UiFeedback` | 仅用于失败，`message / title / compact` 展示面板或字段反馈，默认 `role=alert`，ID 可关联输入；`retryLabel / busy` 配合 `retry` 事件，也可用 `actions` 插槽。调用方负责清除错误和更新内容，不生成成功消息。 |
 | `UiInput` | `v-model` 保留原始文本，`v-model.number` 由调用方选择数字转换；支持受控 `value / input`、原生输入属性与校验说明，`size=sm/md`、`prefix / suffix` 插槽及 `focus() / select()`。输入法候选阶段不提前更新模型，组成结束后提交完整值。 |
 | `UiSelect` | 通过 `options: {value,label,disabled?}[]` 与字符串 `v-model` 控制，支持 `size / placeholder / disabled / name`；方向键、Home/End 浏览，Enter 确认，Esc 取消并恢复焦点。空字符串可表达“全部”，内部代理值与业务值隔离，表单提交原值；Portal 菜单适应视口并继承弹窗层级。 |
 | `UiCheckbox` | 布尔 `v-model`，原生 checkbox 保留 `name / value / disabled / aria-*` 与键盘、表单语义；默认插槽显示标签，`description` 插槽显示说明。方框与文字整行可点击，悬停显示手形，禁用显示不可操作光标。 |
@@ -240,7 +245,7 @@ pnpm test:e2e -- tests/e2e/model-selection.spec.ts --project=model-config-deskto
 
 弹层通过 `useDialogLayer` 继承逻辑层级，Portal 不会破坏嵌套关系。通常无需手动设置层级；像会话弹窗宿主这样位于抽屉之外、需要覆盖抽屉的场景可显式传 `layer`。弹窗恢复焦点优先使用触发元素，触发器已被删除时回到剩余弹层或页面标题。业务取消和离页保护由调用方负责；公共组件不自动提交、丢弃草稿或关闭失败操作。
 
-业务标签保留在各自表单，校验规则与业务枚举仍由 feature 管理。登录注册、组织管理、供应商和模型表单、会话改名以及聊天预算输入共用上述控件；滑块与聊天输入区保留专门组件。组织页签使用圆角内描边区分键盘焦点，选中下划线与焦点独立，鼠标点击不额外叠加方形色块。操作成功通过内容更新、弹窗关闭或导航体现，不额外显示成功消息；失败保留一次明确说明与必要的重试入口。
+字段名称与业务枚举保留在各自表单，校验规则与业务枚举仍由 feature 管理。登录注册、组织管理、供应商和模型表单、会话改名以及聊天预算输入共用上述控件；滑块与聊天输入区保留专门组件。组织页签使用圆角内描边区分键盘焦点，选中下划线与焦点独立，鼠标点击不额外叠加方形色块。操作成功通过内容更新、弹窗关闭或导航体现，不额外显示成功消息；失败保留一次明确说明与必要的重试入口。复制成功仅更新按钮状态，不增加成功提示；模型测试的文本流和耗时属于测试结果，保留展示。停用账号在登录、刷新恢复和业务请求失效三个入口均显示后端 `40103` 的明确原因，旧令牌迟到的错误不会清除新登录身份。
 
 `pnpm test:e2e:preview` 使用 `tests/support/playwright/preview.config.ts` 启动独立 `127.0.0.1:4187` 开发服务器，结束后自动关闭；不复用正在运行的开发服务，不连接业务后端。`pnpm test:all`、`pnpm verify` 均包含此验收。生产 E2E 继续使用正式构建，并验证 `/dev/ui` 不可访问。控件模块测试在 `src/shared/__tests__/components/controls.spec.ts`，跨控件预览集成在 `tests/integration/component-preview.spec.ts`，键盘选择支撑位于 `tests/support/vitest/controls.ts`、`tests/support/playwright/controls.ts`，测试不直接修改隐藏表单代理。
 

@@ -1,5 +1,6 @@
 /** 真实浏览器测试：由隔离启动器提供后端地址，预览正式产物，失败保留诊断材料。 */
 import { defineConfig } from '@playwright/test'
+import { browserLaunchOptions } from './tests/support/playwright/browser'
 
 export default defineConfig({
   testDir: './tests/e2e',
@@ -13,6 +14,7 @@ export default defineConfig({
   use: {
     baseURL: process.env.E2E_BASE_URL,
     browserName: 'chromium',
+    launchOptions: browserLaunchOptions(),
     screenshot: 'only-on-failure',
     trace: 'retain-on-failure',
     reducedMotion: 'reduce',

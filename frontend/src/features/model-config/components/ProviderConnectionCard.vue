@@ -1,5 +1,6 @@
 <!-- 供应商连接卡片：展示连接摘要与独立开关，通过事件交给弹窗处理切换、草稿和写入。 -->
 <script setup lang="ts">
+import UiTag from '@/shared/components/ui/UiTag.vue'
 import { Pencil, Trash2 } from '@lucide/vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
 import UiSwitch from '@/shared/components/ui/UiSwitch.vue'
@@ -46,10 +47,12 @@ defineEmits<{ select: []; toggle: []; edit: []; delete: [] }>()
       connection.endpoint_config.base_url
     }}</code>
     <div class="connection-card-footer">
-      <span class="connection-card-key"
-        >{{ connection.api_key_configured ? '密钥已配置' : '密钥未配置' }} ·
-        {{ connection.enabled ? '已启用' : '已停用' }}</span
-      >
+      <div class="connection-card-key">
+        <UiTag size="xs">{{ connection.api_key_configured ? '密钥已配置' : '密钥未配置' }}</UiTag>
+        <UiTag size="xs" :tone="connection.enabled ? 'brand' : 'neutral'" dot>{{
+          connection.enabled ? '已启用' : '已停用'
+        }}</UiTag>
+      </div>
       <div class="config-actions">
         <UiButton
           size="sm"
@@ -61,8 +64,7 @@ defineEmits<{ select: []; toggle: []; edit: []; delete: [] }>()
         >
         <UiButton
           size="sm"
-          variant="ghost"
-          class="config-danger"
+          variant="danger"
           aria-label="删除供应商"
           :disabled="busy || blocked"
           @click="$emit('delete')"
@@ -142,12 +144,15 @@ defineEmits<{ select: []; toggle: []; edit: []; delete: [] }>()
   border-top: 1px solid var(--border);
 }
 .connection-card-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
   color: var(--text-muted);
   font-size: 11px;
 }
 .connection-card-footer .config-actions {
   margin-left: auto;
-  gap: 0;
+  gap: 6px;
 }
 .connection-card-footer .ui-button {
   gap: 4px;

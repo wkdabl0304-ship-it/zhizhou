@@ -1,6 +1,7 @@
 /** 开发预览浏览器配置：独立启动本地 Vite，仅验收开发组件页，不改变生产路由或连接业务后端。 */
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from '@playwright/test'
+import { browserLaunchOptions } from './browser'
 
 export default defineConfig({
   testDir: '../../preview-e2e',
@@ -11,6 +12,7 @@ export default defineConfig({
   use: {
     baseURL: 'http://127.0.0.1:4187',
     browserName: 'chromium',
+    launchOptions: browserLaunchOptions(),
     reducedMotion: 'reduce',
     screenshot: 'only-on-failure',
   },

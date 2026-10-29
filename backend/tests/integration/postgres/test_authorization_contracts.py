@@ -166,7 +166,9 @@ async def test_login_cannot_issue_current_credentials_after_concurrent_change(po
             release.set()
             with pytest.raises(RequestError) as rejected:
                 await asyncio.wait_for(task, 10)
-            assert rejected.value.error_code is ErrorCode.INVALID_CREDENTIALS
+            assert rejected.value.error_code is (
+                ErrorCode.ACCOUNT_DISABLED if operation == "disable" else ErrorCode.INVALID_CREDENTIALS
+            )
         finally:
             release.set()
             if not task.done():

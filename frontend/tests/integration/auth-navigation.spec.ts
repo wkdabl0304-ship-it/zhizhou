@@ -78,6 +78,17 @@ async function submitForm(page: VueWrapper, register = false): Promise<void> {
 }
 
 describe('认证页面与工作区边界', () => {
+  it('重新提交登录时清除旧的身份恢复失败，只显示本次停用原因', async () => {
+    const page = await open('/login')
+    useAuthStore().restoreError = '网络连接失败，请稍后重试'
+    await flushPromises()
+    expect(page.get('.ui-feedback').text()).toContain('网络连接失败')
+    fetchMock.mockResolvedValueOnce(response(null, 401, 40103, '账号已被停用，请联系管理员'))
+    await submitForm(page)
+    expect(page.findAll('[role="alert"]')).toHaveLength(1)
+    expect(page.get('[role="alert"]').text()).toBe('账号已被停用，请联系管理员')
+    expect(router.currentRoute.value.name).toBe('login')
+  })
   // 未登录不能进入聊天，开发预览保持可独立打开。
   it('保护工作区并保留原地址，开发预览不要求登录', async () => {
     const page = await open('/?from=bookmark')

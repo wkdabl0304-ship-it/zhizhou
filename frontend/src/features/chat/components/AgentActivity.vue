@@ -1,5 +1,7 @@
 <!-- Agent 时间线：正文与工具按事件顺序显示，成功后整体折叠；展开仍可查看完整过程。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
+import UiTag from '@/shared/components/ui/UiTag.vue'
 import { computed, ref, watch } from 'vue'
 import { Check, ChevronRight, Terminal, Wrench } from '@lucide/vue'
 import type { ActivityStatus, ChatActivity, ChatMessage, ToolActivity } from '@/features/chat/types'
@@ -78,9 +80,13 @@ function toggleProcess(): void {
             <span class="tool-label">{{ item.kind === 'command' ? '命令执行' : '工具调用' }}</span>
             <span class="tool-name">{{ item.name }}</span>
             <code class="input-preview">{{ inputPreview(item) }}</code>
-            <span class="tool-status" :class="`tool-status--${item.status}`">{{
-              statusLabels[item.status]
-            }}</span>
+            <UiTag
+              size="xs"
+              :tone="
+                item.status === 'error' ? 'danger' : item.status === 'running' ? 'brand' : 'neutral'
+              "
+              >{{ statusLabels[item.status] }}</UiTag
+            >
             <ChevronRight class="tool-chevron" :size="14" aria-hidden="true" />
           </summary>
           <div class="tool-content">
@@ -88,7 +94,7 @@ function toggleProcess(): void {
               <span>请求参数</span>
               <pre>{{ formatValue(item.arguments) }}</pre>
             </div>
-            <p v-if="item.error" class="activity-error">{{ item.error }}</p>
+            <UiFeedback v-if="item.error" compact>{{ item.error }}</UiFeedback>
             <section
               v-for="(run, index) in item.runs"
               :key="run.runId"
@@ -97,7 +103,17 @@ function toggleProcess(): void {
             >
               <div class="run-heading">
                 <span>{{ item.runs.length > 1 ? `第 ${index + 1} 次执行` : '执行详情' }}</span>
-                <span>{{ statusLabels[run.status] }}</span>
+                <UiTag
+                  size="xs"
+                  :tone="
+                    run.status === 'error'
+                      ? 'danger'
+                      : run.status === 'running'
+                        ? 'brand'
+                        : 'neutral'
+                  "
+                  >{{ statusLabels[run.status] }}</UiTag
+                >
               </div>
               <div v-if="run.arguments !== undefined" class="activity-field">
                 <span>{{ run.kind === 'command' ? '命令参数' : '输入参数' }}</span>
@@ -107,7 +123,7 @@ function toggleProcess(): void {
                 <span>{{ run.kind === 'command' ? '命令输出' : '返回结果' }}</span>
                 <pre>{{ formatValue(run.output) }}</pre>
               </div>
-              <p v-if="run.error" class="activity-error">{{ run.error }}</p>
+              <UiFeedback v-if="run.error" compact>{{ run.error }}</UiFeedback>
               <p v-if="run.status === 'interrupted'" class="activity-note">
                 未收到执行结果，当前无法确认是否完成。
               </p>
@@ -189,8 +205,11 @@ function toggleProcess(): void {
 }
 .tool-summary > svg,
 .tool-label,
-.tool-status {
+.tool-summary > .ui-tag {
   flex-shrink: 0;
+}
+.tool-summary > .ui-tag {
+  margin-left: auto;
 }
 .tool-name {
   overflow: hidden;
@@ -205,18 +224,6 @@ function toggleProcess(): void {
   white-space: nowrap;
   color: var(--text-muted);
   font-size: 11px;
-}
-.tool-status {
-  margin-left: auto;
-  color: var(--text-muted);
-  font-size: 11px;
-}
-.tool-status--running {
-  color: var(--brand);
-}
-.tool-status--error,
-.activity-error {
-  color: var(--danger);
 }
 .tool-content {
   margin-top: 12px;

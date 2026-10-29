@@ -1,5 +1,6 @@
 <!-- 模型方案表单：按供应商及协议读取目录，管理推理联合类型、输出预算与异步目录的释放。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiInput from '@/shared/components/ui/UiInput.vue'
 import UiSelect from '@/shared/components/ui/UiSelect.vue'
 import UiCheckbox from '@/shared/components/ui/UiCheckbox.vue'
@@ -172,9 +173,10 @@ void load()
       <code v-if="managed">{{ previous?.catalog?.model_id ?? draft.catalog_model_id }}</code>
     </div>
     <p v-if="loading" role="status">正在读取模型目录…</p>
-    <p v-if="catalogError" class="config-error" role="alert">
-      {{ catalogError }} <UiButton size="sm" @click="load">重试读取目录</UiButton>
-    </p>
+    <UiFeedback v-if="catalogError">
+      {{ catalogError }}
+      <template #actions><UiButton size="sm" @click="load">重试读取目录</UiButton></template>
+    </UiFeedback>
     <section class="config-form-section" aria-label="基本信息">
       <h3>基本信息</h3>
       <label

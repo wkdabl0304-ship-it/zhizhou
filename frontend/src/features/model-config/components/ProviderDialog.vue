@@ -1,5 +1,6 @@
 <!-- 供应商配置弹窗：统一连接编辑、目录模型启停、旧方案与草稿的生命周期。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import { computed, onBeforeUnmount, ref, shallowRef, watch } from 'vue'
 import { onBeforeRouteLeave } from 'vue-router'
 import { useAuthStore } from '@/features/auth/store'
@@ -294,16 +295,19 @@ onBeforeUnmount(() => store.cancelManagement())
                 : current.name + ' · 启停自动保存，停用不影响已有历史。'
           }}
         </p>
-        <p v-if="store.loadError && !error" class="config-error" role="alert">
+        <UiFeedback v-if="store.loadError && !error">
           配置暂未同步：{{ store.loadError }}。
-        </p>
-        <p v-if="error" class="config-error" role="alert">
+        </UiFeedback>
+        <UiFeedback v-if="error">
           {{ error }}
-        </p>
+        </UiFeedback>
         <p v-if="loading" role="status" class="config-hint">正在读取模型目录…</p>
-        <p v-if="catalogError" role="alert" class="config-error">
-          {{ catalogError }} <UiButton size="sm" @click="catalogRevision++">重试读取目录</UiButton>
-        </p>
+        <UiFeedback v-if="catalogError">
+          {{ catalogError }}
+          <template #actions
+            ><UiButton size="sm" @click="catalogRevision++">重试读取目录</UiButton></template
+          >
+        </UiFeedback>
         <div class="catalog-model-list">
           <CatalogModelRow
             v-for="row in rows"

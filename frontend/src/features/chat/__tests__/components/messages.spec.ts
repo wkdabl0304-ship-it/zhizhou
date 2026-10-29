@@ -100,6 +100,8 @@ describe('消息展示', () => {
     await assistant.get('[aria-label="复制回复"]').trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith(text)
+    expect(assistant.find('[role="status"]').exists()).toBe(false)
+    expect(assistant.find('[role="alert"]').exists()).toBe(false)
   })
 
   // 模拟剪贴板拒绝权限，必须给出可见降级提示而非未处理异常。
@@ -116,6 +118,6 @@ describe('消息展示', () => {
     await wrapper.get('button').trigger('click')
     await flushPromises()
     expect(writeText).toHaveBeenCalledWith('- 第一项\n- 第二项')
-    expect(wrapper.get('[role="status"]').text()).toContain('复制失败')
+    expect(wrapper.get('[role="alert"]').text()).toContain('复制失败')
   })
 })

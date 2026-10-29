@@ -41,6 +41,8 @@ it('配置版本变化使旧测试失效，不可用模型仍能停用和删除'
     },
   })
   expect(wrapper.text()).toContain('配置已修改，请重新测试')
+  expect(wrapper.get('h3 .ui-tag').classes()).toContain('ui-tag--xs')
+  expect(wrapper.get('.catalog-model-identity > .ui-tag').classes()).toContain('ui-tag--sm')
   expect(wrapper.text()).not.toContain('文本流通过')
   await wrapper.setProps({ row: { key: model.id, model: { ...model, available: false } } })
   expect(

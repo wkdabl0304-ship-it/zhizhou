@@ -1,5 +1,6 @@
 <!-- 输入区模型下拉：仅选择模型及进入管理页，打开菜单和窗口恢复时自动同步允许范围。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { PopoverRoot, PopoverTrigger, PopoverPortal, PopoverContent } from 'reka-ui'
 import { ChevronDown, Check, AlertCircle } from '@lucide/vue'
@@ -183,16 +184,14 @@ onBeforeUnmount(() => {
             <p v-else-if="!choices.error && !choices.models.length" class="chat-model-empty">
               暂无可用模型，你可以先写草稿，配置完成后再发送。
             </p>
-            <p v-if="feedback" role="alert">{{ feedback }}</p>
+            <UiFeedback v-if="feedback" compact>{{ feedback }}</UiFeedback>
             <p v-if="chat.activeConversation?.selectionSaving" role="status">正在保存会话选择…</p>
             <p v-if="chat.isSending">正在生成，结束后可切换模型。</p>
           </div>
         </PopoverContent>
       </PopoverPortal>
     </PopoverRoot>
-    <span v-if="feedback && !open" class="chat-model-accessible-status" role="status">{{
-      feedback
-    }}</span>
+    <UiFeedback v-if="feedback && !open" compact :message="feedback" />
     <span
       v-if="chat.activeConversation?.selectionSaving && !open"
       class="chat-model-accessible-status"
@@ -215,9 +214,9 @@ onBeforeUnmount(() => {
   max-width: 100%;
   min-height: 32px;
   padding: 6px 8px;
-  border: 0;
+  border: 1px solid var(--border);
   border-radius: 8px;
-  background: transparent;
+  background: var(--surface);
   color: var(--text-secondary);
   font: inherit;
   font-size: 12px;

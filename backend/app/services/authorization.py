@@ -39,7 +39,9 @@ class AuthorizationService:
         user_id = actor if isinstance(actor, UUID) else actor.id
         expected_version = actor.token_version if not isinstance(actor, UUID) else None
         user = await users.by_id(session, user_id)
-        if user is None or not user.is_active or (expected_version is not None and user.token_version != expected_version):
+        if user is not None and not user.is_active:
+            raise RequestError(ErrorCode.ACCOUNT_DISABLED)
+        if user is None or (expected_version is not None and user.token_version != expected_version):
             raise RequestError(ErrorCode.UNAUTHENTICATED)
         return user
 

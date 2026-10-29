@@ -1,5 +1,6 @@
 <!-- 公共确认弹窗：复用模态和底栏，业务调用方控制请求、错误及成功后的关闭时机。 -->
 <script setup lang="ts">
+import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiModal from './UiModal.vue'
 import UiDialogActions from './UiDialogActions.vue'
 withDefaults(
@@ -32,7 +33,7 @@ defineEmits<{ 'update:open': [value: boolean]; confirm: [] }>()
     @update:open="$emit('update:open', $event)"
   >
     <div v-if="$slots.default" class="ui-confirm-content"><slot /></div>
-    <p v-if="error" class="ui-confirm-error" role="alert">{{ error }}</p>
+    <UiFeedback v-if="error">{{ error }}</UiFeedback>
     <template #footer>
       <UiDialogActions
         :confirm-label="confirmLabel"
@@ -51,10 +52,5 @@ defineEmits<{ 'update:open': [value: boolean]; confirm: [] }>()
   font-size: 13px;
   line-height: 1.7;
   overflow-wrap: anywhere;
-}
-.ui-confirm-error {
-  color: var(--danger);
-  font-size: 12px;
-  margin: 12px 0 0;
 }
 </style>

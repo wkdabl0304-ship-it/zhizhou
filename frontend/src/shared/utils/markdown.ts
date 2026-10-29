@@ -36,7 +36,7 @@ function renderCode(source: string, info: string): string {
   const code = hljs.getLanguage(language)
     ? hljs.highlight(source, { language, ignoreIllegals: true }).value
     : parser.utils.escapeHtml(source)
-  return `<div class="markdown-code"><div class="markdown-code-heading"><span>${parser.utils.escapeHtml(language)}</span><button type="button" class="markdown-code-copy">复制代码</button></div><pre><code class="hljs">${code}</code></pre></div>\n`
+  return `<div class="markdown-code"><div class="markdown-code-heading"><span>${parser.utils.escapeHtml(language)}</span><button type="button" class="markdown-code-copy ui-button ui-button--ghost ui-button--sm">复制代码</button></div><pre><code class="hljs">${code}</code></pre></div>\n`
 }
 
 // 围栏与缩进代码使用一致的外观和复制入口；未闭合的流式围栏也可由解析器正常渲染。
