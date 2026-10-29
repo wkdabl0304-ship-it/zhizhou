@@ -4,6 +4,8 @@
 
 前端已接入注册、登录、当前用户校验及服务端会话目录、游标历史、流式续聊和软删除。页面、身份生命周期及跨窗口生成的交互边界见[前端文档](../frontend/README.md#页面与聊天边界)，也可通过 Swagger 或 HTTP 客户端验收接口。
 
+共享文件后端已提供全局、部门、个人空间、目录新建和浏览、原文件上传下载、重命名和递归删除，以及可在线配置的范围上传上限。尚无文件管理页面、聊天附件、预览或 RAG；接口、数据字典和运维说明统一见[共享文件接口](docs/files-api.md)。
+
 项目定位和功能规划见[根 README](../README.md)。前后端已接通供应商连接/模型启停、受限推理策略和按会话保存选择；界面状态恢复见[前端文档](../frontend/README.md#模型管理)，后端契约见[模型配置接口](#模型配置接口与两层适配)。
 
 ## 开发命令
@@ -41,6 +43,7 @@ docker compose -f docker-compose-dev.yml up -d postgres
 - `POSTGRES_HOST`：默认 `127.0.0.1`，显式提供时不能为空。
 - `JWT_SECRET`：必填，至少 32 字节的独立随机密钥，没有默认值；不要填写示例密码或提交到 Git。
 - `JWT_TTL_SECONDS`：默认 `7200`，必须为正整数；过期后重新登录，不提供刷新令牌；停用和改密通过凭据版本撤销旧令牌。
+- `FILE_STORAGE_ROOT`：默认 `.data/files`，相对路径基于 `backend/`；用于私有原文件，启动时验证可写，多进程须指向同一目录。上传大小通过文件策略接口配置。
 
 配置加密主密钥、数据库用户、密码、库名、端口及 JWT 密钥必填且不能仅包含空白；端口范围为 1–65535。供应商配置使用后端登记的官方端点，不接收任意地址。可运行 `uv run python -c "import secrets; print(secrets.token_urlsafe(48))"` 生成独立随机 JWT 密钥，再保存到本地 `.env`。
 
@@ -122,6 +125,7 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 | 表 | 主要字段与约束 |
 | --- | --- |
 | `users` | UUID 主键、唯一 username、password_hash、is_active、department_id、token_version、created_at、updated_at；部门外键和凭据正整数约束 |
+| `file_spaces / file_upload_policies / file_blobs / file_entries` | 文件空间归属、范围上传策略、原件生命周期及目录树；字段、状态和约束见[文件数据字典](docs/files-api.md#数据字典) |
 | `departments / roles / permissions / role_permissions / user_roles` | 部门、角色目录、操作目录、范围模板和用户角色绑定；字段与约束统一见[权限数据模型](docs/authorization-api.md#数据库逐字段说明) |
 | `conversations` | UUID 主键、user_id 外键、title、title_source、last_message_at、created_at、updated_at、deleted_at；标题来源 CHECK；未删除会话的用户与复合排序部分索引 |
 | `chat_turns` | UUID 主键、conversation_id 外键、seq、用户与最终助手正文、assistant_message_id、JSONB public_events、状态与错误码、时间；会话内 seq 唯一及状态 CHECK 约束 |
@@ -153,7 +157,7 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 
 ### 数据表与一致性
 
-实体位于 `app/models/model_config.py`，模型选择迁移为 `0004_model_selection`；`0005_conversation_titles` 增加[标题来源](#自动标题与手动改名)，当前最新迁移 `0006_authorization` 增加权限表和用户凭据版本。模型目录不入库，用户保存的模型方案才入库。
+实体位于 `app/models/model_config.py`，模型选择迁移为 `0004_model_selection`；`0005_conversation_titles` 增加[标题来源](#自动标题与手动改名)，`0006_authorization` 增加权限表和用户凭据版本，当前最新迁移 `0007_file_spaces` 增加文件空间与原件生命周期。模型目录不入库，用户保存的模型方案才入库。
 
 供应商配置保存品牌、API 格式、官方端点及 API Key；模型方案引用供应商配置，再选择具体模型和推理设置。升级执行 `uv run alembic upgrade head`，迁移保留已有配置、默认引用和轮次快照；原方案默认启用且推理固定，旧会话选择为空。接口统一使用 `/provider-configurations`，引用字段为 `provider_configuration_id`。
 
@@ -501,6 +505,8 @@ uv run pytest -q
 - [`tests/unit/`](tests/unit/)：按 `core`、`schemas`、`agents`、`services`、`db`、`entrypoints` 划分单模块行为；`support` 验证共享测试支撑的清理与协议边界。
 - [`tests/integration/`](tests/integration/)：按 `api`、`agents`、`services`、`runtime`、`transport`、`postgres` 验证真实组件协作。图使用内存 checkpoint 仍属于集成测试；MockTransport 驱动正式模型客户端也属于集成测试。
 - [`tests/support/`](tests/support/)：可显式导入的应用装配、具名运行环境、SSE 解析、子进程和临时库管理；`fakes/` 放共享替身，`scripts/` 放独立解释器验证脚本。
+
+文件专项执行 `uv run pytest tests/integration/postgres/files tests/integration/api/test_files.py tests/integration/transport/test_file_transfers.py -q`。真实数据库和 E2E 的原件目录跟随随机库生命周期隔离，重启测试保留同一临时目录，结束时清理；不会使用开发原文件。单元测试同时覆盖名称、磁盘路径、大小边界、空间权限及清理任务生命周期。
 - 根 `conftest.py` 仅提供后端路径和事件循环 fixture；子目录 fixture 只影响其实际使用范围，PostgreSQL 配置只在 `integration/postgres/conftest.py` 提供。测试不从 conftest 导入普通函数，不相互导入测试模块。
 
 先确定验证边界，再按被测模块放置用例。同一文件围绕稳定行为组织，场景专属模型或工具留在用例附近，真实共享的辅助代码才进入 support。使用 `tests.support.*` 包路径导入，pytest 的 importlib 模式允许不同目录存在同名测试文件。
@@ -551,6 +557,8 @@ SSE 专项测试另在临时回环端口启动本地 Uvicorn，使用真实 HTTP
 - `app/api/`：API 总路由、公共请求依赖、按业务划分的子路由、SSE 编码与断开清理，以及统一异常处理器和错误响应文档；结构与扩展步骤见[分级 API 路由](#分级-api-路由)。
 - `app/models/`：SQLAlchemy 业务实体。
 - `app/repositories/`：无隐式提交的异步 ORM 读写，事务提交由业务服务负责。
+- `app/services/files/`：共享文件业务入口及空间授权、目录分页、上传策略、传输和可靠清理；不将磁盘路径暴露给 API。
+- `app/storage/`：私有原文件存储适配，当前为本地磁盘；不包含角色或空间权限规则。
 - `app/services/`：认证、会话所有权、游标读取及轮次持久化；`conversation_titles.py` 独立承担无工具标题概括，超时和保存由会话服务编排；具体 SQL 查询交给仓储，HTTP/SSE 编码交给 API 层。
 - `app/utils/`：预留不包含业务规则的通用辅助函数，当前尚无具体实现；游标、SSE 编码和数据库锁仍归属各自模块。
 - `migrations/`：Alembic 异步环境和版本迁移，仅管理业务表。

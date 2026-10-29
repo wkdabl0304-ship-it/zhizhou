@@ -4,6 +4,8 @@ import re
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, replace
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from uuid import uuid4
 
 import anyio
@@ -21,6 +23,8 @@ from app.services.auth import AuthService
 from app.services.conversations import ConversationService
 from app.services.conversation_titles import ConversationTitleService
 from app.services.model_config import ModelConfigService
+from app.services.files import FileService
+from app.storage.local import LocalFileStorage
 from app.schemas.model_config import ProviderConfigurationCreate, ModelCreate, DefaultUpdate
 from app.llm.runtime import ConfiguredChatAgent
 from app.llm.types import ModelSnapshot
@@ -56,6 +60,7 @@ class TemporaryDatabase:
         self.maintenance = replace(base, postgres_db="postgres")
         self.name = f"zhizhou_test_{uuid4().hex}"
         self._created_name: str | None = None
+        self._storage: TemporaryDirectory | None = None
 
     async def create(self) -> Settings:
         """创建本例专属数据库并返回无真实模型凭据的应用配置。
@@ -72,6 +77,8 @@ class TemporaryDatabase:
                 sql.SQL("CREATE DATABASE {}").format(sql.Identifier(self.name))
             )
             self._created_name = self.name
+        # 文件与随机库共享生命周期，真实 lifespan 和 E2E 也不能使用开发原件目录。
+        self._storage = TemporaryDirectory(prefix="zhizhou-test-files-")
         return Settings(
             # 独立的固定测试主密钥只保护随机临时库中的假凭据，不读取真实模型密钥。
             model_config_encryption_key="dGVzdC1tb2RlbC1jb25maWcta2V5LTEyMzQ1Njc4OTA=",
@@ -81,6 +88,7 @@ class TemporaryDatabase:
             postgres_port=self.maintenance.postgres_port,
             postgres_host=self.maintenance.postgres_host,
             jwt_secret="integration-secret-which-is-at-least-48-bytes-long-for-tests",
+            file_storage_root=Path(self._storage.name),
         )
 
     async def drop(self) -> None:
@@ -96,6 +104,9 @@ class TemporaryDatabase:
                 sql.SQL("DROP DATABASE {} WITH (FORCE)").format(sql.Identifier(self._created_name))
             )
         self._created_name = None
+        if self._storage is not None:
+            self._storage.cleanup()
+            self._storage = None
 
 
 @asynccontextmanager
@@ -133,6 +144,7 @@ class PostgresRuntime:
     snapshots: list[ModelSnapshot]
     agent: ConfiguredChatAgent
     title_model: TitleModelStub
+    files: FileService
 
 
 async def seed_model_configuration(service: ModelConfigService):
@@ -153,6 +165,10 @@ async def open_runtime(settings: Settings, model=None, *, configured=True) -> As
         open_business_database(settings) as database,
         open_checkpointer(settings) as checkpointer,
     ):
+        # 与临时数据库共用目录生命周期，使重启用例保留原件且不接触开发磁盘。
+        storage = LocalFileStorage(settings.file_storage_root)
+        await storage.initialize()
+        files = FileService(database, storage)
         auth = AuthService(database, settings)
         await auth.initialize()
         actual_model = model if model is not None else StubChatModel()
@@ -174,14 +190,14 @@ async def open_runtime(settings: Settings, model=None, *, configured=True) -> As
         graph = build_agent(actual_model, [get_weather], checkpointer)
         agent = ConfiguredChatAgent(checkpointer, [get_weather], model_opener=open_stub)
         app = make_app(agent=agent,
-                       conversations=conversations, auth=auth, model_config=configuration)
+                       conversations=conversations, auth=auth, model_config=configuration, files=files)
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
             yield PostgresRuntime(
                 database=database, auth=auth, conversations=conversations,
                 graph=graph, client=client,
-                model_config=configuration, snapshots=snapshots, agent=agent, title_model=title_model,
+                model_config=configuration, snapshots=snapshots, agent=agent, title_model=title_model, files=files,
             )
 
 

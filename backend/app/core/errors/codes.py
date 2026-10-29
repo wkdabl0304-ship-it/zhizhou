@@ -30,6 +30,8 @@ class ErrorCode(Enum):
     MODEL_CONFIGURATION_NOT_FOUND = (40403, "模型配置不存在")
     USER_NOT_FOUND = (40404, "用户不存在")
     DEPARTMENT_NOT_FOUND = (40405, "部门不存在或不可用")
+    FILE_SPACE_NOT_FOUND = (40406, "文件空间不存在或不可用")
+    FILE_ENTRY_NOT_FOUND = (40407, "文件或目录不存在或不可用")
     CONVERSATION_BUSY = (40901, "会话正在生成，请稍后重试")
     MODEL_VERSION_CONFLICT = (40902, "模型配置已被修改，请刷新后重试")
     MODEL_CONFIG_IN_USE = (40903, "配置仍被引用，请先调整关联配置")
@@ -38,6 +40,10 @@ class ErrorCode(Enum):
     LAST_SUPER_ADMIN = (40906, "必须保留至少一名可用超级管理员")
     TARGET_STATE_CONFLICT = (40907, "目标状态或归属已变化，请刷新后重试")
     DEPARTMENT_NAME_EXISTS = (40908, "部门名称已存在")
+    FILE_NAME_EXISTS = (40909, "同一目录中已存在同名文件或目录")
+    FILE_ENTRY_VERSION_CONFLICT = (40910, "文件或目录已被修改，请刷新后重试")
+    FILE_UPLOAD_LIMIT_VERSION_CONFLICT = (40911, "上传限制已被修改，请刷新后重试")
+    FILE_TOO_LARGE = (41301, "文件超过当前上传大小限制")
     METHOD_NOT_ALLOWED = (40500, "请求方法不允许")
     INVALID_ARGUMENT = (42200, "请求参数校验失败")
     MODEL_SELECTION_UNAVAILABLE = (42201, "选择的模型已删除、停用或不可用，请重新选择")
@@ -48,6 +54,7 @@ class ErrorCode(Enum):
     CHAT_FAILED = (50001, "对话执行失败，请稍后重试")
     TOOL_FAILED = (50002, "工具执行失败")
     MODEL_PROVIDER_FAILED = (50003, "模型服务调用失败")
+    FILE_STORAGE_FAILED = (50004, "文件存储暂不可用，请稍后重试")
     MODEL_NOT_CONFIGURED = (50301, "尚未选择可用模型，请选择模型或配置有效默认")
 
     @property

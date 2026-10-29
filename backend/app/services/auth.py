@@ -14,6 +14,7 @@ from app.core.errors.codes import ErrorCode
 from app.core.errors.exceptions import BusinessError, RequestError
 from app.models import User
 from app.repositories import users
+from app.repositories import files as file_repository
 from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
@@ -70,6 +71,8 @@ class AuthService:
                     session, body.username, password_hash
                 )
                 await self.authorization.bind(session, user, "user")
+                # 空间与账号原子创建，注册失败时不会残留孤立空间。
+                await file_repository.create_personal_space(session, user.id)
                 info = await self.authorization.info(session, user)
                 result = RegisteredUser(**info.model_dump(), created_at=user.created_at)
             return result

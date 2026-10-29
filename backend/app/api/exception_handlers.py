@@ -125,6 +125,7 @@ ERROR_RESPONSES = {
         404: ErrorCode.NOT_FOUND,
         405: ErrorCode.METHOD_NOT_ALLOWED,
         409: ErrorCode.CONVERSATION_BUSY,
+        413: ErrorCode.FILE_TOO_LARGE,
         422: ErrorCode.INVALID_ARGUMENT,
         500: ErrorCode.INTERNAL_ERROR,
         503: ErrorCode.MODEL_NOT_CONFIGURED,

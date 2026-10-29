@@ -10,6 +10,7 @@ from app.core.errors.exceptions import RequestError
 from app.db.business import BusinessDatabase
 from app.models import Department, User, UserRole
 from app.repositories import authorization as repository
+from app.repositories import files as file_repository
 from app.schemas.authorization import DepartmentInfo, DepartmentWrite, Page
 from app.services.authorization import AuthorizationService, management_lock
 from app.services.management import member_info, paginate, target_user
@@ -66,6 +67,8 @@ class DepartmentService:
                     row = await department_row(session, department_id, lock=True)
                     row.name = body.name
                 await session.flush()
+                if department_id is None:
+                    await file_repository.create_department_space(session, row.id)
                 return DepartmentInfo.model_validate(row)
         except IntegrityError as error:
             if getattr(error.orig, "sqlstate", None) == "23505":
@@ -73,9 +76,10 @@ class DepartmentService:
             raise
 
     async def delete(self, actor: User, department_id: UUID) -> None:
-        """原子删除部门并解除全部部门归属及授权，保留全局角色、账号和个人内容。"""
+        """原子删除部门及共享资料并解除部门归属授权，保留账号和个人内容。"""
         async with self.authorization.transaction(actor, "department:delete") as session:
             row = await department_row(session, department_id, lock=True)
+            await file_repository.close_department_space(session, department_id)
             await session.execute(delete(UserRole).where(UserRole.department_id == department_id))
             await session.execute(update(User).where(User.department_id == department_id).values(department_id=None))
             await session.delete(row)

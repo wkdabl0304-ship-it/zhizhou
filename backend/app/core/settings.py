@@ -10,6 +10,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+DEFAULT_FILE_STORAGE_ROOT = Path(__file__).resolve().parents[2] / ".data" / "files"
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -26,6 +28,7 @@ class Settings:
     jwt_ttl_seconds: int = 7200
     jwt_issuer: str = "zhizhou"
     jwt_audience: str = "zhizhou-api"
+    file_storage_root: Path = DEFAULT_FILE_STORAGE_ROOT
 
 
 @dataclass(frozen=True)
@@ -137,6 +140,13 @@ def load_settings(env_path: Path | None = None) -> Settings:
     if not host:
         raise ValueError("POSTGRES_HOST 不能为空")
 
+    storage_value = (values.get("FILE_STORAGE_ROOT", str(DEFAULT_FILE_STORAGE_ROOT)) or "").strip()
+    if not storage_value:
+        raise ValueError("FILE_STORAGE_ROOT 不能为空")
+    storage_root = Path(storage_value)
+    if not storage_root.is_absolute():
+        storage_root = Path(__file__).resolve().parents[2] / storage_root
+
     return Settings(
         model_config_encryption_key=values["MODEL_CONFIG_ENCRYPTION_KEY"],
         postgres_user=values["POSTGRES_USER"],
@@ -146,6 +156,7 @@ def load_settings(env_path: Path | None = None) -> Settings:
         postgres_host=host,
         jwt_secret=secret,
         jwt_ttl_seconds=ttl,
+        file_storage_root=storage_root.resolve(),
     )
 
 

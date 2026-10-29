@@ -18,6 +18,9 @@ Desktop.ini
 *.log
 
 # ==================== 后端规则 ====================
+# 私有原文件、未完成上传及其他本地业务数据
+/backend/.data/
+
 # 虚拟环境与 Python 缓存
 /backend/**/.venv/
 /backend/**/__pycache__/

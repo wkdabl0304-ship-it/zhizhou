@@ -18,8 +18,14 @@ from app.services.model_config import ModelConfigService
 from app.services.departments import DepartmentService
 from app.services.users import UserManagementService
 from app.services.model_management import ModelManagementService
+from app.services.files import FileService
 
 bearer = HTTPBearer(auto_error=False)
+
+
+def get_file_service(request: Request) -> FileService:
+    """取得应用生命周期准备的共享文件服务，不在请求期间重建存储资源。"""
+    return request.app.state.file_service
 
 
 def get_model_config_service(request: Request) -> ModelConfigService:

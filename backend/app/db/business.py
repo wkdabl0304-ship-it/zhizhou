@@ -15,7 +15,7 @@ from sqlalchemy.pool import NullPool
 
 from app.core.settings import DatabaseSettings, Settings
 
-SCHEMA_REVISION = "0006_authorization"
+SCHEMA_REVISION = "0007_file_spaces"
 
 
 def database_url(settings: Settings | DatabaseSettings) -> URL:

@@ -6,7 +6,7 @@ from app.api.exception_handlers import ERROR_RESPONSES, register_exception_handl
 from app.api.router import api_router
 
 
-def make_app(*, lifespan=None, agent=None, conversations=None, auth=None, model_config=None) -> FastAPI:
+def make_app(*, lifespan=None, agent=None, conversations=None, auth=None, model_config=None, files=None) -> FastAPI:
     """创建独立应用并注入本例资源，调用方负责管理资源的异步生命周期。
 
     lifespan 测试传入正式 lifespan，由它管理 state；其他测试通过参数提供
@@ -20,6 +20,7 @@ def make_app(*, lifespan=None, agent=None, conversations=None, auth=None, model_
         ("conversation_service", conversations),
         ("auth_service", auth),
         ("model_config_service", model_config),
+        ("file_service", files),
     ):
         if value is not None:
             setattr(app.state, name, value)

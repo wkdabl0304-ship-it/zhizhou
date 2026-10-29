@@ -17,7 +17,7 @@ ENV_VALUES = {
 @pytest.fixture
 def env_file(tmp_path, monkeypatch):
     """清除业务环境覆盖值并写入临时完整配置，供各配置测试独立使用。"""
-    for key in (*ENV_VALUES, "POSTGRES_HOST", "JWT_TTL_SECONDS"):
+    for key in (*ENV_VALUES, "POSTGRES_HOST", "JWT_TTL_SECONDS", "FILE_STORAGE_ROOT"):
         monkeypatch.delenv(key, raising=False)
     path = tmp_path / ".env"
     path.write_text(
@@ -49,6 +49,21 @@ def test_file_settings_and_environment_priority(env_file, monkeypatch):
     settings = load_settings(env_file)
     assert settings.model_config_encryption_key == key
     assert settings.postgres_port == 5433
+
+
+def test_storage_root_is_backend_relative_and_environment_overridable(env_file, monkeypatch, tmp_path):
+    """原文件根目录不依赖启动目录，系统环境可覆盖，并拒绝显式空配置。"""
+    from pathlib import Path
+    backend = Path(__file__).resolve().parents[3]
+    monkeypatch.chdir(tmp_path)
+    assert load_settings(env_file).file_storage_root == backend / ".data" / "files"
+    monkeypatch.setenv("FILE_STORAGE_ROOT", "custom/files")
+    assert load_settings(env_file).file_storage_root == backend / "custom" / "files"
+    monkeypatch.setenv("FILE_STORAGE_ROOT", str(tmp_path / "isolated"))
+    assert load_settings(env_file).file_storage_root == tmp_path / "isolated"
+    monkeypatch.setenv("FILE_STORAGE_ROOT", " ")
+    with pytest.raises(ValueError, match="FILE_STORAGE_ROOT"):
+        load_settings(env_file)
 
 
 @pytest.mark.parametrize("key", ENV_VALUES)

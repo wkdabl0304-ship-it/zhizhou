@@ -22,6 +22,7 @@ from app.services.auth import AuthService
 from app.services.conversations import ConversationService
 from app.services.conversation_titles import ConversationTitleService
 from app.services.model_config import ModelConfigService
+from app.services.files.lifecycle import open_file_service
 
 logger = logging.getLogger(__name__)
 
@@ -30,8 +31,9 @@ logger = logging.getLogger(__name__)
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """初始化 Web 应用的共享服务，并在应用关闭时释放全部数据库资源。
 
-    依次准备业务数据库、认证和配置服务、会话恢复与 checkpoint；全部成功
-    后才接受请求。退出时先撤销 app.state 中的服务，再关闭底层异步资源。
+    依次准备业务数据库、认证和配置服务、会话恢复、checkpoint 与文件服务；
+    文件服务验证磁盘并启动清理。全部成功后才接受请求，退出时先撤销
+    app.state 中的服务，停止清理任务，再关闭底层异步资源。
 
     Args:
         app: 当前 FastAPI 实例，共享 Agent、认证与会话服务存放在 app.state 中。
@@ -55,11 +57,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
                                                        title_generator=ConversationTitleService())
             await conversation_service.recover()
             checkpointer = await resources.enter_async_context(open_checkpointer(settings))
+            file_service = await resources.enter_async_context(open_file_service(database, settings.file_storage_root))
             # 启动不创建供应商客户端，无模型配置时仍可登录和完成首次设置。
             app.state.chat_agent = ConfiguredChatAgent(checkpointer, [get_weather])
             app.state.auth_service = auth_service
             app.state.conversation_service = conversation_service
             app.state.model_config_service = model_config
+            app.state.file_service = file_service
         except Exception:
             logger.exception("应用启动失败")
             raise
@@ -73,6 +77,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             del app.state.auth_service
             del app.state.conversation_service
             del app.state.model_config_service
+            del app.state.file_service
             await resources.aclose()
             logger.info("应用资源已关闭")
 

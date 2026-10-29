@@ -48,8 +48,13 @@ async def test_only_owned_database_is_dropped_once(driver, base):
     database = postgres.TemporaryDatabase(base)
     settings = await database.create()
     assert settings.postgres_db == database.name != base.postgres_db
+    assert settings.file_storage_root.is_dir()
+    assert settings.file_storage_root.name.startswith("zhizhou-test-files-")
+    # 原件目录随本次成功创建的精确目标库一并回收，不依赖开发磁盘路径。
+    (settings.file_storage_root / "test-original").write_bytes(b"test-only")
     await database.drop()
     await database.drop()
+    assert not settings.file_storage_root.exists()
     assert driver.statements == [
         f'CREATE DATABASE "{database.name}"',
         f'DROP DATABASE "{database.name}" WITH (FORCE)',
