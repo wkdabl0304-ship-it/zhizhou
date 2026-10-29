@@ -4,7 +4,15 @@ import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiTag from '@/shared/components/ui/UiTag.vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
 import { computed } from 'vue'
-import { ArrowUpRight, LogOut, PanelLeft, SquarePen, SlidersHorizontal, Users } from '@lucide/vue'
+import {
+  ArrowUpRight,
+  FolderOpen,
+  LogOut,
+  PanelLeft,
+  SquarePen,
+  SlidersHorizontal,
+  Users,
+} from '@lucide/vue'
 import type { Conversation } from '@/features/chat/types'
 import ThemeMenu from '@/shared/components/ThemeMenu.vue'
 import BrandLogo from '@/shared/components/BrandLogo.vue'
@@ -116,6 +124,13 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
       </button>
     </nav>
     <div class="sidebar-bottom">
+      <RouterLink
+        class="model-management-link"
+        to="/files"
+        active-class="is-active"
+        aria-label="资料库"
+        ><FolderOpen :size="17" /><span v-if="!compact">资料库</span></RouterLink
+      >
       <RouterLink
         v-if="auth.can('model:manage')"
         class="model-management-link"

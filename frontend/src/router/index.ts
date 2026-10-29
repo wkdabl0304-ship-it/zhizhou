@@ -22,9 +22,14 @@ export function createAppRouter(
         name: 'workspace',
         component: WorkspaceLayout,
         meta: { requiresAuth: true },
-        // 两个业务页面只替换主内容，共用同一个导航实例。
+        // 业务页面只替换主内容，共用同一个导航实例。
         children: [
           { path: '', name: 'chat', component: ChatView },
+          {
+            path: 'files',
+            name: 'files',
+            component: () => import('@/views/FilesView.vue'),
+          },
           {
             path: 'models',
             name: 'models',

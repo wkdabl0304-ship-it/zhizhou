@@ -45,3 +45,23 @@ it.each(['light', 'dark'])(
     expect(colors['--brand']).not.toBe(colors['--accent'])
   },
 )
+
+it.each(['light', 'dark'])('%s 主题的图标保持同一填充与分类色，格式签达到可读对比度', (theme) => {
+  const [base, dark] = source.split(":root[data-theme='dark']")
+  // 按 CSS 继承关系合并根变量，检查深色没有把纸面换成页面背景或覆盖分类色。
+  const read = (block: string) =>
+    Object.fromEntries(
+      [...block.matchAll(/(--[\w-]+):\s*(#[\da-f]{6});/g)].map((match) => [match[1], match[2]]),
+    )
+  const light = read(base!)
+  const colors = { ...light, ...(theme === 'dark' ? read(dark!) : {}) }
+  expect(colors['--file-icon-paper']).toBe('#ffffff')
+  for (const type of ['blue', 'green', 'violet', 'red', 'warm', 'teal', 'neutral']) {
+    expect(colors[`--file-icon-${type}`]).toBe(light[`--file-icon-${type}`])
+    const ink = luminance(colors[`--file-icon-${type}`]!)
+    const paper = luminance(colors['--file-icon-paper']!)
+    expect((Math.max(ink, paper) + 0.05) / (Math.min(ink, paper) + 0.05)).toBeGreaterThanOrEqual(
+      4.5,
+    )
+  }
+})

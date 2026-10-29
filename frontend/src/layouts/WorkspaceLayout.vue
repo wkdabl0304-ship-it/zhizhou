@@ -41,7 +41,9 @@ const collapsed = ref(false),
   drawerOpen = ref(false),
   headerTitle = ref<InstanceType<typeof UiPageHeader>>()
 const actionRequest = ref<ConversationDialogRequest | null>(null)
-const management = computed(() => route.name === 'models' || route.name === 'organization')
+const management = computed(
+  () => route.name === 'models' || route.name === 'organization' || route.name === 'files',
+)
 const home = computed(() => !management.value && !chat.activeConversation)
 const title = computed(() =>
   management.value ? '工作空间 / 模型管理' : (chat.activeConversation?.title ?? '此刻，思考启程'),
@@ -193,7 +195,7 @@ watch(
         <UiDrawer
           v-model:open="drawerOpen"
           title="会话导航"
-          description="新建对话、浏览会话记录、管理模型或切换外观。"
+          description="新建对话、浏览会话记录、打开资料库、管理模型或切换外观。"
           @close-auto-focus="restoreFocus"
         >
           <template #trigger

@@ -23,6 +23,16 @@
   --accent-hover: #94391e;
   --accent-soft: #fbebe2;
   --accent-contrast: #ffffff;
+  /* 图标使用独立纸色和固定分类色，明暗主题共用，避免页面 surface 使纸面填充消失。 */
+  --file-icon-paper: #ffffff;
+  --file-icon-blue: #38669e;
+  --file-icon-green: #287454;
+  --file-icon-violet: #7660a2;
+  --file-icon-gold: #a7792d;
+  --file-icon-red: #b43f36;
+  --file-icon-warm: #b24c2e;
+  --file-icon-teal: #00717c;
+  --file-icon-neutral: #52666b;
   /* 代码高亮使用主题语义变量，不随第三方高亮样式切换页面背景。 */
   --syntax-keyword: #3155a1;
   --syntax-string: #24694c;
