@@ -1,4 +1,3 @@
-import { selectOption } from '../support/playwright/controls'
 /** 受限模型选择真实浏览器验收：与配置管理共用串行随机库，每例隔离默认、启停及选择版本。 */
 import {
   test,
@@ -40,7 +39,7 @@ async function reopen(page: Page, title: string): Promise<void> {
   await expect(page.getByRole('heading', { level: 1, name: title, exact: true })).toBeVisible()
 }
 
-test('无默认手动选择固定方案，刷新恢复，连接和模型启停互不级联', async ({
+test('无默认手动选择方案，刷新恢复，连接和模型启停互不级联', async ({
   page,
   account,
 }, testInfo) => {
@@ -54,7 +53,7 @@ test('无默认手动选择固定方案，刷新恢复，连接和模型启停�
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
   await choose(page, '固定问答')
   await expect(page.getByRole('switch', { name: '深度思考', exact: true })).toHaveCount(0)
-  await expect(page.getByRole('button', { name: '设置推理强度', exact: true })).toBeDisabled()
+  await expect(page.getByRole('button', { name: '设置推理强度', exact: true })).toBeEnabled()
   await expect(page.locator('[name="chat_reasoning_mode"]')).toHaveCount(0)
   // 单个入口位于输入框工具栏且在发送按钮左边；浮层不挤占聊天正文。
   const trigger = page.getByRole('button', { name: '选择聊天模型', exact: true })
@@ -151,18 +150,8 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   const card = page.getByRole('article', { name: '模型方案：受限问答', exact: true })
   await card.getByRole('button', { name: '高级设置', exact: true }).click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
-  await selectOption(
-    page,
-    editor.locator('[role="combobox"][data-field="reasoning_mode"]'),
-    'effort',
-  )
-  await selectOption(page, editor.locator('[role="combobox"][data-field="effort"]'), 'high')
-  await selectOption(
-    page,
-    editor.locator('[role="combobox"][data-field="reasoning_policy"]'),
-    'selectable',
-  )
-  await editor.locator('[name="allow_off"]').check()
+  await expect(editor.locator('[name="reasoning_mode"], [name="reasoning_policy"]')).toHaveCount(0)
+  await expect(editor.locator('[name="allow_off"]')).toBeChecked()
   await editor.locator('[name="allow_effort_max"]').uncheck()
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
@@ -254,6 +243,21 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   await choose(page, '受限问答')
   await closePicker(page)
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled()
+  // 超管仅保留高档时，以右端满轨道表达开启；只读展示不能增加额外可选档位。
+  await openReasoning(page)
+  const singleSlider = page.getByRole('slider', { name: '推理强度', exact: true })
+  await expect(singleSlider).toBeDisabled()
+  await expect(singleSlider).toHaveValue('1')
+  await expect(singleSlider).toHaveAttribute('max', '1')
+  await expect(singleSlider).toHaveAttribute('aria-valuetext', '高')
+  await expect(page.locator('.reasoning-ticks')).toHaveText('高')
+  await page.screenshot({
+    path: testInfo.outputPath('single-reasoning-strength.png'),
+    fullPage: true,
+  })
+  await closeReasoning(page)
+  await send(page, '单档思考仍可正常续聊')
+  await finished(page)
 })
 
 test('管理预算闭区间，聊天确认有效整数后保存，刷新恢复具体预算', async ({
@@ -273,16 +277,6 @@ test('管理预算闭区间，聊天确认有效整数后保存，刷新恢复�
     .getByRole('button', { name: '高级设置' })
     .click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
-  await selectOption(
-    page,
-    editor.locator('[role="combobox"][data-field="reasoning_mode"]'),
-    'budget',
-  )
-  await selectOption(
-    page,
-    editor.locator('[role="combobox"][data-field="reasoning_policy"]'),
-    'selectable',
-  )
   await editor.locator('[name="policy_budget_max"]').fill('8192')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()

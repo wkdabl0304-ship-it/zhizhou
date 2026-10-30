@@ -39,7 +39,7 @@ async def test_options_activation_default_and_management_test(postgres_settings)
         mid = initial["default_selection"]["model_configuration_id"]
         provider = initial["providers"][0]
         pid = provider["provider_configuration_id"]
-        assert provider["models"][0]["reasoning_control"] == {"mode": "fixed", "default": {"mode": "effort", "effort": "high"}}
+        assert provider["models"][0]["reasoning_control"] == {"mode": "selectable", "allowed_modes": ["off", "effort"], "effort_options": ["low", "high", "max"], "budget": None, "default": {"mode": "effort", "effort": "high"}}
         assert not any(key in str(initial) for key in ("api_key", "endpoint_config", "base_url", "ciphertext"))
         disabled = await client.patch(f"{PREFIX}/provider-configurations/{pid}", headers=headers, json={"version": 1, "enabled": False})
         assert disabled.json()["data"]["version"] == 2
@@ -92,12 +92,12 @@ async def test_new_selection_without_default_is_persisted_and_restored(postgres_
 
 
 async def test_invalid_selection_is_atomic_and_does_not_call_provider(postgres_settings):
-    """首轮固定覆盖、未知方案、预算及禁止字段失败时均不留会话或轮次。"""
+    """首轮未知档位、未知方案、预算及禁止字段失败时均不留会话或轮次。"""
     async with open_runtime(postgres_settings) as runtime:
         _, headers = await account(runtime.auth)
         model = (await runtime.model_config.list_models())[0]
         for chosen, code in (
-            (selection(model.id, {"mode": "off"}), 42202),
+            (selection(model.id, {"mode": "effort", "effort": "invented"}), 42202),
             (selection(uuid4()), 42201),
             (selection(model.id, {"mode": "budget", "budget_tokens": 4096}), 42202),
             (selection(model.id, {"mode": "default"}), 42200),
@@ -157,8 +157,8 @@ async def test_policy_shrink_disable_delete_and_reselection(postgres_settings):
         response = await client.post("/api/chat", headers=headers,
             json={"message": "低档位", "model_selection": selection(model.id, {"mode": "effort", "effort": "low"})})
         cid = parse_events(response)[0].payload["data"]["conversation_id"]
-        # 改为固定 high，使已保存 low 失效，不能自动改成 high 或全局默认。
-        await service.patch_model(model.id, ModelPatch(version=2, reasoning_policy={"mode": "fixed"}))
+        # 超管只允许 high 后，已保存 low 失效，不能静默替换。
+        await service.patch_model(model.id, ModelPatch(version=2, reasoning_policy={"mode": "selectable", "allowed_modes": ["effort"], "effort_options": ["high"]}))
         for issue, action in (
             ("reasoning_not_allowed", None),
             ("provider_disabled", "disable"),

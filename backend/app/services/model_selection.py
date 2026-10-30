@@ -8,7 +8,7 @@ from app.core.errors.codes import ErrorCode
 from app.core.errors.exceptions import RequestError, ServiceError
 from app.db.business import BusinessDatabase, session_scope
 from app.llm.models.policy import resolve_parameters
-from app.llm.models.selection import concrete_reasoning, require_allowed, validate_policy
+from app.llm.models.selection import automatic_configuration, concrete_reasoning, require_allowed, validate_policy
 from app.llm.providers.endpoints import resolve_endpoint
 from app.llm.secrets import SecretBox
 from app.llm.types import ModelSnapshot
@@ -19,9 +19,9 @@ from app.schemas.model_selection import ModelOptions, ModelSelection, Selectable
 
 
 def validate_configuration(provider: ProviderConfiguration, body: ModelCreate):
-    """验证端点和完整模型策略，管理写入与聊天执行共用同一规则。"""
+    """验证端点与可选强度，旧固定方案默认开放原生能力。"""
     resolve_endpoint(provider.provider, provider.api_format, EndpointConfig.model_validate(provider.endpoint_config))
-    return validate_policy(provider.provider, provider.api_format, body)
+    return validate_policy(provider.provider, provider.api_format, automatic_configuration(body, provider.api_format))
 
 
 def selection_issue(selection: ModelSelection | None, pair) -> SelectionIssue | None:
@@ -36,7 +36,7 @@ def selection_issue(selection: ModelSelection | None, pair) -> SelectionIssue | 
     if not model.enabled:
         return "model_disabled"
     try:
-        body = ModelCreate.model_validate(model)
+        body = automatic_configuration(ModelCreate.model_validate(model), provider.api_format)
         validate_configuration(provider, body)
     except ValueError:
         return "model_unavailable"
@@ -73,7 +73,7 @@ class ModelSelectionService:
                 if model is None or not provider.enabled or not model.enabled:
                     continue
                 try:
-                    body = ModelCreate.model_validate(model)
+                    body = automatic_configuration(ModelCreate.model_validate(model), provider.api_format)
                     spec, _ = validate_configuration(provider, body)
                     reasoning = concrete_reasoning(body, provider.api_format)
                 except ValueError:

@@ -13,6 +13,7 @@ from app.core.errors.codes import ErrorCode
 from app.core.errors.exceptions import BusinessError, RequestError
 from app.db.business import BusinessDatabase, session_scope
 from app.llm.models.catalog import CATALOG
+from app.llm.models.selection import validate_policy
 from app.llm.providers.clients import open_model
 from app.llm.providers.endpoints import resolve_endpoint
 from app.llm.providers.failures import ProviderFailure
@@ -45,6 +46,8 @@ def provider_info(row: ProviderConfiguration) -> ProviderConfigurationInfo:
 def validate_model(provider_configuration: ProviderConfiguration, body: ModelCreate):
     """验证供应商配置与模型参数组合，返回可用于客户端的具体参数。"""
     try:
+        # 写入时校验完整范围；旧 fixed 在聊天读取时按模型原生能力开放。
+        validate_policy(provider_configuration.provider, provider_configuration.api_format, body)
         return validate_configuration(provider_configuration, body)
     except ValueError:
         raise RequestError(ErrorCode.INVALID_ARGUMENT) from None
@@ -56,8 +59,8 @@ def model_info(model: ModelConfiguration, provider_configuration: ProviderConfig
     info = ModelInfo.model_validate(model)
     available = True
     try:
-        validate_model(provider_configuration, ModelCreate.model_validate(model))
-    except RequestError:
+        validate_configuration(provider_configuration, ModelCreate.model_validate(model))
+    except ValueError:
         available = False
     return info.model_copy(update={"catalog": CatalogModelInfo.model_validate(spec.describe(provider_configuration.api_format)) if spec else None,
                                    "available": available,

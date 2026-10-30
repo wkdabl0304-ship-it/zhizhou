@@ -1,7 +1,7 @@
 /** 目录行及首次开启默认值：覆盖旧方案引用保留、失效目录和预算边界。 */
 import { expect, it } from 'vitest'
 import { modelConfigData } from '@tests/support/data/model-config'
-import { catalogRows, initialModel } from '../catalog-rows'
+import { catalogRows, initialModel, initialReasoning } from '../catalog-rows'
 import { validateModel } from '../validation'
 
 it('目录补齐未保存模型，同模型多份方案及移除目录的旧方案保留原 ID', () => {
@@ -17,7 +17,14 @@ it('目录补齐未保存模型，同模型多份方案及移除目录的旧方�
   ])
 })
 
-it('首次开启使用目录默认推理、合法输出上限和固定策略，不变更输入目录', () => {
+it('输出上限变化自动适配初始预算，低于原生下限时关闭且不修改目录', () => {
+  const { catalog } = modelConfigData()
+  expect(initialReasoning(catalog, 4096)).toEqual({ mode: 'budget', budget_tokens: 4095 })
+  expect(initialReasoning(catalog, 1024)).toEqual({ mode: 'off' })
+  expect(catalog.reasoning.default).toEqual({ mode: 'budget', budget_tokens: 4096 })
+})
+
+it('首次开启使用目录默认推理、合法输出上限和默认开放范围，不变更输入目录', () => {
   const { catalog } = modelConfigData()
   const bounded = { ...catalog, max_output_tokens: 8192 }
   expect(initialModel('connection', bounded)).toMatchObject({
@@ -26,7 +33,12 @@ it('首次开启使用目录默认推理、合法输出上限和固定策略，�
     enabled: true,
     reasoning: { mode: 'budget', budget_tokens: 4096 },
     max_output_tokens: 8192,
-    reasoning_policy: { mode: 'fixed' },
+    reasoning_policy: {
+      mode: 'selectable',
+      allowed_modes: ['off', 'budget'],
+      effort_options: [],
+      budget: { min: 1024, max: 8191 },
+    },
   })
   const largeBudget = {
     ...catalog,

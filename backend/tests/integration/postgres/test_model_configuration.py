@@ -156,7 +156,7 @@ async def test_model_migration_constraints_and_empty_singleton(postgres_settings
 
 
 async def test_inflight_turn_keeps_snapshot_and_next_turn_sees_update(postgres_settings):
-    """当前轮保持旧快照；固定值变化后续聊先拒绝，用户重选后采用新版本。"""
+    """当前轮保持旧快照；允许范围收紧后续聊先拒绝，用户重选后采用新版本。"""
     entered, release = asyncio.Event(), asyncio.Event()
 
     class WaitingModel(StubChatModel):
@@ -180,7 +180,7 @@ async def test_inflight_turn_keeps_snapshot_and_next_turn_sees_update(postgres_s
             async with asyncio.timeout(10):
                 await entered.wait()
                 first = runtime.snapshots[0]
-                await runtime.model_config.patch_model(first.configuration_id, ModelPatch(version=1, reasoning={"mode": "off"}))
+                await runtime.model_config.patch_model(first.configuration_id, ModelPatch(version=1, reasoning={"mode": "off"}, reasoning_policy={"mode": "selectable", "allowed_modes": ["off"]}))
             release.set()
             conversation_id, _ = await pending
             rejected = await runtime.client.post("/api/chat", headers=headers,

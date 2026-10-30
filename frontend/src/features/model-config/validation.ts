@@ -106,7 +106,7 @@ export function validateModel(body: ModelInput, spec: CatalogModel | undefined) 
       errors.reasoning_policy =
         failure instanceof Error && !failure.message.includes('响应')
           ? failure.message
-          : '请设置非空、不重复且与推理方式一致的允许范围'
+          : '请至少选择一个允许的推理强度，并填写有效的预算范围'
     }
   }
   // 后端先解析 default 再校验实际模式，旧方案的默认引用也遵循相同规则。

@@ -44,14 +44,20 @@ const steps = computed<ConcreteReasoning[]>(() =>
       ]
     : [],
 )
-const sliderMax = computed(() =>
+// 实际可选跨度与展示轨道分开：单一开启档仍显示满轨道，但不产生额外可选值。
+const rangeSpan = computed(() =>
   kind.value === 'budget' && budget.value
     ? budget.value.max - budget.value.min + Number(allowsOff.value)
     : Math.max(0, steps.value.length - 1),
 )
+const sliderMax = computed(() => Math.max(1, rangeSpan.value))
+const singleEnabled = computed(
+  () => rangeSpan.value === 0 && !!draft.value && draft.value.reasoning.mode !== 'off',
+)
 const sliderValue = computed(() => {
   const reasoning = draft.value?.reasoning
   if (!reasoning || reasoning.mode === 'off') return 0
+  if (singleEnabled.value) return sliderMax.value
   if (reasoning.mode === 'budget' && budget.value)
     return Math.max(0, reasoning.budget_tokens - budget.value.min + Number(allowsOff.value))
   if (reasoning.mode === 'effort')
@@ -68,10 +74,12 @@ const progress = computed(() =>
 )
 const tickLabels = computed(() =>
   kind.value === 'budget' && budget.value
-    ? [
-        allowsOff.value ? '关闭' : budget.value.min.toLocaleString(),
-        budget.value.max.toLocaleString(),
-      ]
+    ? rangeSpan.value === 0
+      ? [budget.value.max.toLocaleString()]
+      : [
+          allowsOff.value ? '关闭' : budget.value.min.toLocaleString(),
+          budget.value.max.toLocaleString(),
+        ]
     : steps.value.map((step) => describe(step)),
 )
 const summary = computed(() => describe(chat.effectiveSelection?.reasoning))
@@ -113,7 +121,7 @@ async function apply(): Promise<boolean> {
 }
 /** 滑动仅编辑草稿；释放滑块或键盘确认后才保存，零档不会发送非法零预算。 */
 function slide(event: Event): void {
-  if (!draft.value || locked.value) return
+  if (!draft.value || locked.value || rangeSpan.value === 0) return
   const value = (event.target as HTMLInputElement).valueAsNumber
   if (kind.value === 'budget' && budget.value)
     draft.value.reasoning =
@@ -253,15 +261,22 @@ onBeforeUnmount(() => {
                   step="1"
                   :value="sliderValue"
                   :style="{ '--slider-progress': progress }"
-                  :disabled="sliderMax === 0 || locked"
+                  :disabled="rangeSpan === 0 || locked"
                   @input="slide"
                   @change="apply"
                 />
-                <div class="reasoning-stops" aria-hidden="true">
-                  <i v-for="index in kind === 'budget' ? 5 : steps.length" :key="index" />
+                <div
+                  class="reasoning-stops"
+                  :class="{ 'is-single-on': singleEnabled }"
+                  aria-hidden="true"
+                >
+                  <i
+                    v-for="index in rangeSpan === 0 ? 1 : kind === 'budget' ? 5 : steps.length"
+                    :key="index"
+                  />
                 </div>
               </div>
-              <div class="reasoning-ticks">
+              <div class="reasoning-ticks" :class="{ 'is-single-on': singleEnabled }">
                 <span v-for="label in tickLabels" :key="label">{{ label }}</span>
               </div>
               <template v-if="kind === 'budget' && draft?.reasoning.mode === 'budget' && budget">
@@ -437,6 +452,11 @@ onBeforeUnmount(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 60px;
+}
+/* 单一开启档的刻度与滑块一起靠右，唯一关闭档仍保持左侧语义。 */
+.reasoning-stops.is-single-on,
+.reasoning-ticks.is-single-on {
+  justify-content: flex-end;
 }
 .reasoning-budget {
   display: flex;

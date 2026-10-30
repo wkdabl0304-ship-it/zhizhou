@@ -182,22 +182,27 @@ it('新建百炼提示粘贴地址，切换品牌会清除其他供应商的地�
   wrapper.unmount()
 })
 
-it('目录默认预算超过输出时阻止写入，修改后只发送选中推理分支', async () => {
+it('模型弹窗合并思考设置为单组允许强度，保存时自动适配初始预算', async () => {
   const data = modelConfigData()
   fetchMock.mockResolvedValueOnce(response([data.catalog]))
   const { wrapper } = await editor(ModelEditor, { provider: data.provider })
   await fill('name', '新方案')
-  await fill('max_output_tokens', '4096')
+  expect(document.querySelector('[name="reasoning_mode"]')).toBeNull()
+  expect(document.querySelector('[name="reasoning_policy"]')).toBeNull()
+  expect(document.querySelector<HTMLInputElement>('[name="allow_off"]')!.checked).toBe(true)
+  expect(document.body.textContent).toContain('允许的推理强度')
+  await fill('max_output_tokens', '0')
   await submit()
-  expect(document.querySelector('[role="alert"]')!.textContent).toContain('必须小于')
+  expect(document.querySelector('[role="alert"]')!.textContent).toContain('整数')
   expect(fetchMock).toHaveBeenCalledTimes(1)
-  await fill('max_output_tokens', '8192')
+  await fill('max_output_tokens', '4096')
   fetchMock.mockResolvedValueOnce(
-    response({ ...data.model, name: '新方案', max_output_tokens: 8192 }),
+    response({ ...data.model, name: '新方案', max_output_tokens: 4096 }),
   )
   await submit()
   expect(JSON.parse(String(fetchMock.mock.lastCall?.[1]?.body)).reasoning).toEqual({
-    mode: 'default',
+    mode: 'budget',
+    budget_tokens: 4095,
   })
   expect(useModelConfigStore().models[0]?.name).toBe('新方案')
   wrapper.unmount()
@@ -226,6 +231,55 @@ it('未保存的表单离页先确认，继续编辑保留内容，放弃后才�
   await next
   await flushPromises()
   expect(router.currentRoute.value.path).toBe('/other')
+  wrapper.unmount()
+})
+
+it('编辑旧受限方案保留超管选择，自动收紧预算且保留乐观版本', async () => {
+  const data = modelConfigData(),
+    onClose = vi.fn<() => void>()
+  fetchMock.mockResolvedValueOnce(response([data.catalog]))
+  const { wrapper } = await editor(ModelEditor, {
+    provider: data.provider,
+    managed: true,
+    onClose,
+    previous: {
+      ...data.model,
+      reasoning_policy: {
+        mode: 'selectable',
+        allowed_modes: ['budget'],
+        effort_options: [],
+        budget: { min: 1024, max: 8192 },
+      },
+    },
+  })
+  document.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+  await flushPromises()
+  expect(onClose).toHaveBeenCalledTimes(1)
+  expect(document.body.textContent).not.toContain('放弃未保存的更改？')
+  await fill('max_output_tokens', '2048')
+  expect(document.querySelector<HTMLInputElement>('[name="allow_off"]')!.checked).toBe(false)
+  fetchMock.mockResolvedValueOnce(
+    response({
+      ...data.model,
+      version: 2,
+      max_output_tokens: 2048,
+      reasoning: { mode: 'budget', budget_tokens: 2047 },
+    }),
+  )
+  await submit()
+  expect(JSON.parse(String(fetchMock.mock.lastCall?.[1]?.body))).toMatchObject({
+    version: 1,
+    max_output_tokens: 2048,
+    reasoning: { mode: 'budget', budget_tokens: 2047 },
+    reasoning_policy: {
+      mode: 'selectable',
+      allowed_modes: ['budget'],
+      effort_options: [],
+      budget: { min: 1024, max: 2047 },
+    },
+  })
+  expect(onClose).toHaveBeenCalledTimes(2)
+  expect(document.querySelector('[role="alert"]')).toBeNull()
   wrapper.unmount()
 })
 
@@ -269,4 +323,24 @@ it('目录读取未完成仍允许关闭，卸载后取消请求并忽略迟到�
   pending.resolve(response([data.catalog]))
   await flushPromises()
   expect(useModelConfigStore().models).toHaveLength(1)
+})
+
+it('目录失败重试后仍保护用户已填写的名称，不把重试当作保存', async () => {
+  const data = modelConfigData(),
+    onClose = vi.fn<() => void>()
+  fetchMock.mockResolvedValueOnce(response(null, 500, 50000, '目录暂不可用'))
+  const { wrapper } = await editor(ModelEditor, { provider: data.provider, onClose })
+  await fill('name', '重试前的草稿')
+  fetchMock.mockResolvedValueOnce(response([data.catalog]))
+  const retry = [...document.querySelectorAll('button')].find(
+    (button) => button.textContent === '重试读取目录',
+  )!
+  retry.click()
+  await flushPromises()
+  document.querySelector<HTMLButtonElement>('[aria-label="关闭"]')!.click()
+  await flushPromises()
+  expect(document.body.textContent).toContain('放弃未保存的更改？')
+  expect(document.querySelector<HTMLInputElement>('[name="name"]')!.value).toBe('重试前的草稿')
+  expect(onClose).not.toHaveBeenCalled()
+  wrapper.unmount()
 })

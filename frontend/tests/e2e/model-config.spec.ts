@@ -1,4 +1,3 @@
-import { selectOption } from '../support/playwright/controls'
 /** 模型管理全链路：真实页面与随机库，配置重置及 HTTP 辅助由共用 fixture 负责。 */
 import {
   test,
@@ -142,15 +141,10 @@ test('编辑、切换和清除默认，并按引用顺序删除模型及供应�
   const second = page.getByRole('article', { name: '模型方案：深入思考', exact: true })
   await second.getByRole('button', { name: '高级设置', exact: true }).click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
-  await selectOption(
-    page,
-    editor.locator('[role="combobox"][data-field="reasoning_mode"]'),
-    'effort',
-  )
-  await selectOption(page, editor.locator('[role="combobox"][data-field="effort"]'), 'max')
+  await editor.locator('[name="max_output_tokens"]').fill('32768')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
-  await expect(second).toContainText('推理 · 最高')
+  await expect(second).toContainText('32,768')
   // 保存实际桌面和窄屏界面供人工核对，不将像素截图作为通过标准。
   await page.screenshot({ path: testInfo.outputPath('model-management.png'), fullPage: true })
   await second.getByRole('button', { name: '设为默认' }).click()
@@ -314,7 +308,10 @@ test('另一个客户端修改配置后本地草稿保留，读取最新版本�
   await expect(page.getByRole('region', { name: '供应商连接' })).toContainText('基于新版本保存')
 })
 
-test('目录推理预算与输出约束即时提示，正确参数才能保存', async ({ page, account }) => {
+test('精简模型弹窗校验输出上限，思考能力自动适配且没有重复配置', async ({
+  page,
+  account,
+}, testInfo) => {
   await login(page, account)
   await page.goto('/models')
   await provider(page, 'Claude 配置', 'anthropic')
@@ -324,21 +321,20 @@ test('目录推理预算与输出约束即时提示，正确参数才能保存',
     .getByRole('button', { name: '高级设置' })
     .click()
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
-  await selectOption(
-    page,
-    editor.locator('[role="combobox"][data-field="reasoning_mode"]'),
-    'budget',
-  )
-  await editor.locator('[name="budget_tokens"]').fill('1023')
+  await expect(editor.locator('[name="reasoning_mode"], [name="reasoning_policy"]')).toHaveCount(0)
+  await expect(editor.getByRole('region', { name: '允许的推理强度' })).toContainText('不思考')
+  // 身份、输入和保存均在视口内，窄屏允许内容区滚动且不得横向溢出。
+  await expect(editor.locator('.model-editor-identity')).toBeInViewport()
+  await expect(editor.getByRole('button', { name: '保存配置', exact: true })).toBeInViewport()
+  expect(await editor.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBe(true)
+  await page.screenshot({ path: testInfo.outputPath('model-editor-light.png'), fullPage: true })
+  await editor.locator('[name="max_output_tokens"]').fill('64001')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
-  await expect(editor.getByRole('alert')).toContainText('目录范围')
-  await editor.locator('[name="budget_tokens"]').fill('16384')
-  await editor.getByRole('button', { name: '保存配置', exact: true }).click()
-  await expect(editor.getByRole('alert')).toContainText('必须小于')
-  await editor.locator('[name="budget_tokens"]').fill('4096')
+  await expect(editor.getByRole('alert')).toContainText('整数')
+  await editor.locator('[name="max_output_tokens"]').fill('2048')
   await editor.getByRole('button', { name: '保存配置', exact: true }).click()
   await expect(editor).not.toBeVisible()
-  await expect(page.getByRole('article', { name: '模型方案：手动预算' })).toContainText('4,096')
+  await expect(page.getByRole('article', { name: '模型方案：手动预算' })).toContainText('2,048')
 })
 
 test('上游鉴权测试失败保留登录，更换密钥后可重新测试并设为默认', async ({ page, account }) => {
@@ -572,12 +568,8 @@ test('连接与模型在居中弹窗编辑，长表单独立滚动且焦点逐�
   const editor = page.getByRole('dialog', { name: '编辑模型方案', exact: true })
   await expect(editor.locator('[name="catalog_model_id"]')).toHaveCount(0)
   await expect(editor.getByRole('heading', { name: '模型参数', exact: true })).toBeVisible()
-  await selectOption(
-    page,
-    editor.locator('[role="combobox"][data-field="reasoning_policy"]'),
-    'selectable',
-  )
-  await editor.locator('[name="allow_off"]').check()
+  await editor.locator('[name="name"]').fill('弹窗模型草稿')
+  await expect(editor.locator('[name="reasoning_policy"]')).toHaveCount(0)
   await page.screenshot({ path: testInfo.outputPath('model-editor-dark.png'), fullPage: true })
   const fields = editor.locator('.config-fields')
   // 底栏的保存按钮始终留在编辑弹窗内，字段较长时仅中间区域滚动。
@@ -599,7 +591,7 @@ test('连接与模型在居中弹窗编辑，长表单独立滚动且焦点逐�
   expect(lastLayers[2]).toBeGreaterThan(lastLayers[1]!)
   await page.keyboard.press('Escape')
   await expect(confirmation).not.toBeVisible()
-  await expect(editor.locator('[name="reasoning_policy"]')).toHaveValue('selectable')
+  await expect(editor.locator('[name="name"]')).toHaveValue('弹窗模型草稿')
   await page.keyboard.press('Escape')
   await page.getByRole('button', { name: '放弃更改', exact: true }).click()
   await expect(editor).not.toBeVisible()

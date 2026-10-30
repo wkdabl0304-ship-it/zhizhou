@@ -10,6 +10,7 @@ import { A, B, info } from '@tests/support/data/chat'
 import { useChatStore } from '@/features/chat/store'
 import ChatModelSelector from '../components/ChatModelSelector.vue'
 import ChatReasoningControl from '../components/ChatReasoningControl.vue'
+import type { ConcreteReasoning } from '../types'
 const fetchMock = vi.fn<typeof fetch>()
 beforeEach(async () => {
   fetchMock.mockReset()
@@ -301,6 +302,40 @@ it('推理档位滑块只提供后端允许值，拖动不保存，释放后确�
   expect(useChatStore().effectiveSelection?.reasoning).toEqual({ mode: 'effort', effort: 'high' })
   expect(page.find('.reasoning-popover').exists()).toBe(true)
   expect(useChatStore().selectionReady).toBe(true)
+})
+
+it.each<ConcreteReasoning>([
+  { mode: 'effort', effort: 'high' },
+  { mode: 'budget', budget_tokens: 4096 },
+  { mode: 'off' },
+])('唯一可用值 $mode 保持真实选择，开启时滑块靠右，关闭时靠左', async (selected) => {
+  const data = modelOptionsData()
+  data.default_selection!.reasoning = selected
+  data.providers[0]!.models[0]!.reasoning_control = {
+    mode: 'selectable',
+    default: selected,
+    allowed_modes: [selected.mode],
+    effort_options: selected.mode === 'effort' ? [selected.effort] : [],
+    budget:
+      selected.mode === 'budget'
+        ? { min: selected.budget_tokens, max: selected.budget_tokens }
+        : null,
+  }
+  fetchMock.mockImplementation(async () => response(data))
+  const page = await picker('reasoning')
+  const slider = page.get<HTMLInputElement>('input[type="range"]')
+  const enabled = selected.mode !== 'off'
+  expect(slider.element.value).toBe(enabled ? slider.element.max : slider.element.min)
+  expect(slider.element.disabled).toBe(true)
+  expect(slider.attributes('style')).toContain(`--slider-progress: ${enabled ? 100 : 0}%`)
+  expect(page.get('.reasoning-ticks').classes().includes('is-single-on')).toBe(enabled)
+  expect(page.findAll('.reasoning-ticks > span')).toHaveLength(1)
+  expect(useChatStore().effectiveSelection?.reasoning).toEqual(selected)
+  expect(useChatStore().selectionReady).toBe(true)
+  // 打开只读滑块不应写会话，也不能把显示轨道的端点当成新的业务档位。
+  expect(
+    fetchMock.mock.calls.every(([, options]) => !options?.method || options.method === 'GET'),
+  ).toBe(true)
 })
 
 // 首段 start 将本地临时 ID 换成服务端 ID，仍是同一会话，不能因此关闭用户刚打开的模型菜单。

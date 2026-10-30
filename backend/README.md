@@ -6,7 +6,7 @@
 
 共享文件后端已提供全局、部门、个人空间、目录新建和浏览、原文件上传下载、重命名和递归删除，以及可在线配置的范围上传上限。[前端资料库](../frontend/README.md#资料库)已接入上述能力；聊天附件、预览和 RAG 尚未实现。接口、数据字典和运维说明统一见[共享文件接口](docs/files-api.md)。
 
-项目定位和功能规划见[根 README](../README.md)。前后端已接通供应商连接/模型启停、受限推理策略和按会话保存选择；界面状态恢复见[前端文档](../frontend/README.md#模型管理)，后端契约见[模型配置接口](#模型配置接口与两层适配)。
+项目定位和功能规划见[根 README](../README.md)。前后端已接通供应商连接/模型启停、超管允许的思考强度范围和按会话保存选择；界面状态恢复见[前端文档](../frontend/README.md#模型管理)，后端契约见[模型配置接口](#模型配置接口与两层适配)。
 
 ## 开发命令
 
@@ -159,7 +159,7 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 
 实体位于 `app/models/model_config.py`，模型选择迁移为 `0004_model_selection`；`0005_conversation_titles` 增加[标题来源](#自动标题与手动改名)，`0006_authorization` 增加权限表和用户凭据版本，当前最新迁移 `0007_file_spaces` 增加文件空间与原件生命周期。模型目录不入库，用户保存的模型方案才入库。
 
-供应商配置保存品牌、API 格式、官方端点及 API Key；模型方案引用供应商配置，再选择具体模型和推理设置。升级执行 `uv run alembic upgrade head`，迁移保留已有配置、默认引用和轮次快照；原方案默认启用且推理固定，旧会话选择为空。接口统一使用 `/provider-configurations`，引用字段为 `provider_configuration_id`。
+供应商配置保存品牌、API 格式、官方端点及 API Key；模型方案引用供应商配置，再选择具体模型和推理设置。升级执行 `uv run alembic upgrade head`，迁移保留已有配置、默认引用和轮次快照；原方案默认启用，旧会话选择为空；迁移保留的 fixed 策略当前仅作兼容存储，不再限制聊天。接口统一使用 `/provider-configurations`，引用字段为 `provider_configuration_id`。
 
 | 表 | 字段与约束 |
 | --- | --- |
@@ -173,7 +173,7 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 
 所有配置写事务先锁定单例设置行，随后校验目标资源版本与引用，防止检查后被其他写请求插入关联；网络调用不持这个锁。模型快照用单条联表查询取得，业务事务在访问供应商前结束。已有会话保存独立选择，不跟随全局默认切换；供应商及方案配置在下一轮重新验证，失效时要求重选，不影响已接受轮次及工具后续步骤。
 
-推理策略由 `app/llm/models/selection.py` 验证，选项、批量失效判断和快照装配由 `app/services/model_selection.py` 承担，配置 CRUD 留在原模型配置服务。会话的选择保存、版本和跨进程锁由会话服务负责，避免继续将运行装配堆入配置管理。目录/详情响应增加选择、选择版本和动态失效原因，切换选择不改变最近消息时间。接口结构见下节，界面状态恢复见[前端文档](../frontend/README.md#模型管理)。
+聊天范围复用 `reasoning_policy` 的 selectable 结构：超管配置允许方式（off 为“不思考”、effort 为原生强度、budget 为预算）、原生档位及预算闭区间，后端校验目录／协议能力、输出上限和方案初始值；至少允许一项。界面不再单独配置方案初始开关，保存时自动从允许范围选择初始值。`app/llm/models/selection.py` 的 `automatic_configuration` 仅为旧 fixed 方案默认开放原生能力，预算自动裁剪至输出上限减一；已有 selectable 范围原样保留，不能被聊天绕过。读取不改写历史配置或版本，无需数据库结构变更或数据迁移。选项、批量失效判断和快照装配由 `app/services/model_selection.py` 承担，配置 CRUD 留在原模型配置服务。会话的选择保存、版本和跨进程锁由会话服务负责，避免继续将运行装配堆入配置管理。目录/详情响应增加选择、选择版本和动态失效原因，切换选择不改变最近消息时间。接口结构见下节，界面状态恢复见[前端文档](../frontend/README.md#模型管理)。
 
 ### 接口契约
 
@@ -183,7 +183,7 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 | --- | --- | --- |
 | `GET /catalog/providers` | 无 | 供应商数组，含格式、官方端点；旧地域及业务空间选项仅作接口兼容 |
 | `GET /catalog/models` | 可选 `provider`、`api_format` | 模型数组，含 `catalog_model_id`、格式、能力、推理控件、允许输出上限 |
-| `GET /options` | 无 | 同一查询快照下有效默认和按连接分组的受限聊天选项，不含端点及凭据 |
+| `GET /options` | 无 | 同一查询快照下有效默认和按连接分组的原生聊天选项，不含端点及凭据 |
 | `GET /provider-configurations` | 无 | 全局供应商配置数组 |
 | `POST /provider-configurations` | 创建供应商配置体，见下例 | 新供应商配置详情及 `version=1` |
 | `GET /provider-configurations/{id}` | UUID | 安全供应商配置详情 |
@@ -533,7 +533,7 @@ CLI 子进程的标准输出和错误输出通过两条管道并发读取，再�
 
 集成测试覆盖注册竞争、JWT 声明与账号状态、ORM 约束和索引、Alembic 排除 checkpoint 表、角色与部门范围、个人内容隔离、游标边界、公开工具历史、软删除、跨连接锁、取消清理、遗留状态恢复及最终提交失败。权限专项覆盖凭据撤销、最后超管保护、跨部门加入竞争、撤权后事务复查及历史身份迁移。模型仍使用本地替身，不访问真实模型。其他测试覆盖配置优先级、资源释放、接口协议、导入无外部副作用，以及真实 LangChain 图的多轮对话和工具调用；日志配置在独立子进程中验证。
 
-受限模型选择专项位于 `tests/unit/llm/test_selection.py`、`tests/integration/postgres/test_model_selection.py` 和 `test_model_selection_migration.py`：覆盖固定/自选范围、预算边界、启停与默认、立即保存、版本竞争、所有权、执行锁、目录批量查询、配置失效、无效输入无副作用和迁移往返。已有供应商协议测试继续验证跨模型历史与凭据轮换兼容。
+受限模型选择专项位于 `tests/unit/llm/test_selection.py`、`tests/unit/llm/test_automatic_selection.py`、`tests/integration/postgres/test_model_selection.py` 和 `test_model_selection_migration.py`：覆盖旧策略兼容、自动原生范围、预算边界、启停与默认、立即保存、版本竞争、所有权、执行锁、目录批量查询、配置失效、无效输入无副作用和迁移往返。已有供应商协议测试继续验证跨模型历史与凭据轮换兼容。
 
 路由测试验证 `/api/chat` 的 SSE 事件、响应头、校验及流内错误、旧路径 `404`、错误方法 `405` 及 `Allow` 头、实例复用、依赖覆盖和 OpenAPI 示例。Agent 测试用可控异步事件验证首段先于完成、同会话 FIFO、跨会话并发、取消与异常后恢复、锁回收、最终落库边界，以及真实图取消时保留用户输入但不保存半段助手回复。
 

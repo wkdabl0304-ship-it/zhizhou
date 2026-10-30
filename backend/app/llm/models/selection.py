@@ -4,10 +4,39 @@ from pydantic import TypeAdapter
 
 from app.llm.models.catalog import CATALOG
 from app.llm.models.policy import resolve_parameters
-from app.schemas.model_config import ApiFormat, ModelCreate, Provider
+from app.schemas.model_config import ApiFormat, ModelCreate, Provider, SelectableReasoningPolicy
 from app.schemas.model_selection import ConcreteReasoning
 
 _concrete = TypeAdapter(ConcreteReasoning)
+
+
+def automatic_configuration(body: ModelCreate, api_format: ApiFormat) -> ModelCreate:
+    """为旧固定方案开放原生选择，保留超管明确配置的强度白名单。
+
+    不改写存储数据；预算上限受本轮输出限制约束，无可用预算时只保留其余
+    原生模式。旧默认值继续作为初始值，用户可通过聊天滑块修改；
+    selectable 的允许范围由超管管理，仍需经过完整策略校验。
+    """
+    if body.reasoning_policy.mode == "selectable":
+        return body
+    spec = CATALOG.get(body.catalog_model_id)
+    if spec is None:
+        raise ValueError("模型不受支持")
+    capabilities = spec.describe(api_format)["reasoning"]
+    modes = [mode for mode in capabilities["allowed_modes"] if mode != "default"]
+    budget = capabilities.get("budget")
+    if budget is not None:
+        budget = dict(budget)
+        if capabilities.get("budget_must_fit_output"):
+            budget["max"] = min(budget["max"], body.max_output_tokens - 1)
+        if budget["max"] < budget["min"]:
+            modes.remove("budget")
+            budget = None
+    policy = SelectableReasoningPolicy(
+        mode="selectable", allowed_modes=modes,
+        effort_options=capabilities["effort_options"], budget=budget,
+    )
+    return body.model_copy(update={"reasoning_policy": policy})
 
 
 def concrete_reasoning(body: ModelCreate, api_format: ApiFormat) -> ConcreteReasoning:
