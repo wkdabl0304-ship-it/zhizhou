@@ -18,6 +18,22 @@ function turn(overrides: Partial<HistoryTurn> = {}): HistoryTurn {
 }
 
 describe('历史轮次到展示消息', () => {
+  it('未产生输出的失败轮次不显示模型切换，已有正文或完成的历史保留切换依据', () => {
+    expect(
+      turnMessages(turn({ status: 'failed', assistant_content: null, events: [] }))[0]!
+        .modelReplyStarted,
+    ).toBe(false)
+    expect(
+      turnMessages(
+        turn({
+          status: 'failed',
+          assistant_content: null,
+          events: [{ type: 'delta', messageId: 'partial', text: '已有正文' }],
+        }),
+      )[0]!.modelReplyStarted,
+    ).toBe(true)
+    expect(turnMessages(turn())[0]!.modelReplyStarted).toBe(true)
+  })
   it('使用稳定轮次 ID，最终正文按标识分离而非按内容删除', () => {
     const source = turn({
       events: [

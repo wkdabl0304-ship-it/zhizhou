@@ -73,7 +73,7 @@ SQLAlchemy 业务引擎和 Session 工厂在生命周期中创建，短事务独
 | `GET /api/conversations/{conversation_id}` | `limit=20&cursor=...` | `{conversation,items,next_cursor}` |
 | `DELETE /api/conversations/{conversation_id}` | 无请求体 | `null` |
 | `PATCH /api/conversations/{conversation_id}/title` | `{title}`，规范化后 1–100 字符 | 更新后的会话信息，允许生成中改名 |
-| `PATCH /api/conversations/{conversation_id}/model-selection` | `{model_selection_version,model_selection}` | 更新后的会话信息 |
+| `PATCH /api/conversations/{conversation_id}/model-selection` | `{model_selection_version,model_selection}`，显式 null 请求自动恢复 | 更新后的会话信息，合法选择自动恢复为幂等操作 |
 | `POST /api/chat` | `{message,conversation_id?,model_selection?,model_selection_version?}` | SSE，首轮选择与续聊版本不能混用，见[聊天接口](#启动与聊天接口) |
 
 注册成功后单独登录。用户名去除首尾空白并转小写，限定 3～32 位 ASCII 字母、数字或下划线；密码 8～128 个字符，不去除空格，使用 Argon2 摘要，哈希与校验在线程池执行。公开注册只创建无部门普通用户，拒绝指定管理角色。所有身份只能操作自己的个人会话。部门、用户管理和角色任免接口、逐字段数据库说明见[权限对接文档](docs/authorization-api.md)。
@@ -90,7 +90,7 @@ JWT 使用 HS256，必需声明为 `sub / iat / exp / iss / aud / token_version`
 
 目录 `items` 每项含 `conversation_id / title / created_at / last_message_at`，按 `(last_message_at DESC, id DESC)` 排序，同时间使用 UUID 次键。最近消息时间在接受用户输入时更新，标题变更不改变排序。标题生命周期见[自动标题与手动改名](#自动标题与手动改名)。游标限定用户，查询始终过滤当前用户和软删除状态；Base64 不是授权或加密机制。目录为实时视图，向前读取期间收到新消息的旧会话可能前移，刷新后重新同步，不提供跨请求快照。
 
-内容 `items` 为问答轮次，每项含 `turn_id / seq / user_content / assistant_content / assistant_message_id / public_events / status / error_code / created_at / updated_at / finished_at`。首次返回最近轮次，再携带游标读取更小的 `seq`；每批按 `seq` 正序返回，游标限定当前用户和当前会话。一个轮次包含一次用户输入、其公开行动与工具过程、最终回答。`status` 为 `running / completed / failed / interrupted`；部分回答保存在公开过程里，不冒充最终回答。
+内容 `items` 为问答轮次，每项含 `turn_id / seq / user_content / assistant_content / assistant_message_id / public_events / status / error_code / created_at / updated_at / finished_at`。轮次另含可空的 `model`：仅公开 `model_configuration_id`（原方案 UUID）、`catalog_model_id`（实际目录模型标识）和 `display_name`（模型展示名），从已有 `model_snapshot` 投影，不公开供应商地址、凭据或 SDK 参数。旧轮次缺失有效快照时为 null，目录移除后用快照中的原生模型 ID 显示。首次返回最近轮次，再携带游标读取更小的 `seq`；每批按 `seq` 正序返回，游标限定当前用户和当前会话。一个轮次包含一次用户输入、其公开行动与工具过程、最终回答。`status` 为 `running / completed / failed / interrupted`；部分回答保存在公开过程里，不冒充最终回答。
 
 软删除只设置 `deleted_at`，保留轮次和 checkpoint；之后列表隐藏，内容及续聊返回 404。自己的已删除会话重复删除仍成功，他人的会话始终返回 404。生成期间拒绝删除，不自动取消；本期没有恢复、永久清理或单独创建会话接口。
 
@@ -171,9 +171,21 @@ SSE 事件及字段保持现状，标题处理结束后才发送 `done`；收到
 
 供应商配置的供应商、模型方案的供应商配置归属创建后固定；需要更换时新建配置。`credential_revision` 仅在替换 API Key 时递增，普通名称修改只递增 `version`。API Key 使用 Fernet 认证加密，接口只返回 `api_key_configured`；PATCH 省略密钥表示保留，null 或空白被拒绝。
 
-所有配置写事务先锁定单例设置行，随后校验目标资源版本与引用，防止检查后被其他写请求插入关联；网络调用不持这个锁。模型快照用单条联表查询取得，业务事务在访问供应商前结束。已有会话保存独立选择，不跟随全局默认切换；供应商及方案配置在下一轮重新验证，失效时要求重选，不影响已接受轮次及工具后续步骤。
+所有配置写事务先锁定单例设置行，随后校验目标资源版本与引用，防止检查后被其他写请求插入关联；网络调用不持这个锁。模型快照用单条联表查询取得，业务事务在访问供应商前结束。已有会话保存独立选择，不跟随全局默认切换；供应商及方案配置在下一轮重新验证；聊天界面发现失效后自动恢复可用选择，不影响已接受轮次及工具后续步骤。
 
 聊天范围复用 `reasoning_policy` 的 selectable 结构：超管配置允许方式（off 为“不思考”、effort 为原生强度、budget 为预算）、原生档位及预算闭区间，后端校验目录／协议能力、输出上限和方案初始值；至少允许一项。界面不再单独配置方案初始开关，保存时自动从允许范围选择初始值。`app/llm/models/selection.py` 的 `automatic_configuration` 仅为旧 fixed 方案默认开放原生能力，预算自动裁剪至输出上限减一；已有 selectable 范围原样保留，不能被聊天绕过。读取不改写历史配置或版本，无需数据库结构变更或数据迁移。选项、批量失效判断和快照装配由 `app/services/model_selection.py` 承担，配置 CRUD 留在原模型配置服务。会话的选择保存、版本和跨进程锁由会话服务负责，避免继续将运行装配堆入配置管理。目录/详情响应增加选择、选择版本和动态失效原因，切换选择不改变最近消息时间。接口结构见下节，界面状态恢复见[前端文档](../frontend/README.md#模型管理)。
+
+### 模型选择自动恢复与切换记录
+
+无需数据库变更或历史数据迁移，继续使用会话选择 JSON、独立版本和轮次快照。GET 目录／历史只读，不隐式修改会话。界面发现当前模型或推理值失效时，自动调用 `PATCH /api/conversations/{conversation_id}/model-selection`：
+
+```json
+{"model_selection_version": 3, "model_selection": null}
+```
+
+该操作要求 Bearer JWT、本人会话的 `conversation:update` 和 `model:use` 权限，复用会话执行锁及管理共享锁。选择已合法则返回当前 `ConversationInfo`，不增加版本；否则依次选择同一可用方案的合法默认、有效全局默认、首个可用模型，保存并递增版本，不改变最近消息时间、不创建轮次、不调用供应商。没有有效模型返回 `503 / 50301` 且不改写原选择；过期版本为 `409 / 40904`，正在生成为 `409 / 40901`，不存在或越权为 `404 / 40401`。非 null 仍表示显式选模，并沿用原范围校验。前端对恢复时的版本竞争重读一次，以其他窗口已确认的合法选择为准；不自动重发聊天。
+
+SSE `start` 新增可空 `model`，与历史轮次的 `model` 使用相同三字段白名单，取自本轮已确认的执行快照。前端在发送前确认模型变化，收到首段模型输出后才按相邻实际回复轮次的目录模型展示分界线，收到 `start` 本身不展示；刷新／分页由已有 `public_events`、轮次状态及安全模型身份重建，无需额外提示记录表。没有身份的旧历史不猜测模型，推理强度或同一原生模型的方案变化不生成模型切换提示。
 
 ### 接口契约
 

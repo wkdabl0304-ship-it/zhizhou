@@ -1,10 +1,33 @@
 <!-- 消息列表：限制阅读宽度，在会话变化后定位末尾；尺寸变化只跟随原本处于末尾的阅读位置。 -->
 <script setup lang="ts">
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type { ChatMessage } from '@/features/chat/types'
 import MessageItem from './MessageItem.vue'
+import ModelChangeNotice from './ModelChangeNotice.vue'
+import type { ModelIdentity } from '@/features/model-selection/types'
 
-const props = defineProps<{ messages: ChatMessage[]; conversationId: string }>()
+const props = defineProps<{
+  messages: ChatMessage[]
+  conversationId: string
+}>()
+// 只比较已经开始输出的轮次；未发送、等待 start 或尚无模型输出时不展示分界线。
+const timeline = computed(() => {
+  let previous: ModelIdentity | null = null
+  const items = props.messages.map((message) => {
+    const change =
+      message.role === 'user' &&
+      message.modelReplyStarted !== false &&
+      previous &&
+      message.model &&
+      previous.catalog_model_id !== message.model.catalog_model_id
+        ? { from: previous, to: message.model }
+        : null
+    if (message.role === 'user' && message.modelReplyStarted !== false)
+      previous = message.model ?? null
+    return { message, change }
+  })
+  return items
+})
 const end = ref<HTMLDivElement>()
 const list = ref<HTMLDivElement>()
 let observer: ResizeObserver | undefined
@@ -71,7 +94,10 @@ onBeforeUnmount(() => {
 
 <template>
   <div ref="list" class="message-list">
-    <MessageItem v-for="message in messages" :key="message.id" :message="message" />
+    <template v-for="item in timeline" :key="item.message.id">
+      <ModelChangeNotice v-if="item.change" :from="item.change.from" :to="item.change.to" />
+      <MessageItem :message="item.message" />
+    </template>
     <div ref="end" class="message-end" aria-hidden="true" />
   </div>
 </template>

@@ -218,21 +218,23 @@ it('键盘浏览只移动焦点，不隐式保存模型选择', async () => {
   expect(fetchMock.mock.calls.every(([, init]) => init?.method !== 'PATCH')).toBe(true)
 })
 
-it('旧的冲突提醒不能遮住后来出现的推理范围失效原因', async () => {
+it('自动恢复失败时保留失效原因与重试错误，旧冲突提醒不能遮住真实问题', async () => {
   const data = modelOptionsData()
-  fetchMock.mockImplementation(async (url) =>
-    response(
-      String(url).endsWith('/options')
-        ? data
-        : {
-            conversation: {
-              ...info(),
-              model_selection: data.default_selection,
-              model_selection_version: 3,
-              model_selection_issue: 'reasoning_not_allowed',
-            },
-          },
-    ),
+  fetchMock.mockImplementation(async (url, init) =>
+    init?.method === 'PATCH'
+      ? response(null, 503, 50301, '自动恢复暂不可用')
+      : response(
+          String(url).endsWith('/options')
+            ? data
+            : {
+                conversation: {
+                  ...info(),
+                  model_selection: data.default_selection,
+                  model_selection_version: 3,
+                  model_selection_issue: 'reasoning_not_allowed',
+                },
+              },
+        ),
   )
   const page = await picker()
   const chat = useChatStore()

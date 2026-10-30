@@ -2,7 +2,8 @@
 <script setup lang="ts">
 import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
-import { nextTick, ref } from 'vue'
+import { nextTick, onBeforeUnmount, ref } from 'vue'
+import UiConfirmDialog from '@/shared/components/ui/UiConfirmDialog.vue'
 import { storeToRefs } from 'pinia'
 import { useChatStore } from '@/features/chat/store'
 import ChatModelSelector from '@/features/model-selection/components/ChatModelSelector.vue'
@@ -13,12 +14,14 @@ import MessageList from '@/features/chat/components/MessageList.vue'
 const chat = useChatStore()
 const { draft } = storeToRefs(chat)
 const composer = ref<InstanceType<typeof ChatComposer> | InstanceType<typeof ChatWelcome>>()
-/** 在模型选择已确认时发送消息并恢复输入焦点，选择错误恢复由聊天 store 负责。 */
+// 离开聊天页撤销待确认发送，返回时由用户重新发起。
+onBeforeUnmount(() => chat.cancelModelChange())
+/** 发起发送或模型变化确认；仅实际发送时恢复输入焦点，让确认弹窗保持键盘焦点。 */
 async function send(text: string): Promise<void> {
   if (!chat.selectionReady) return
   void chat.send(text)
   await nextTick()
-  composer.value?.focus()
+  if (!chat.modelChangeConfirmation) composer.value?.focus()
 }
 </script>
 <template>
@@ -77,6 +80,17 @@ async function send(text: string): Promise<void> {
       </div>
     </footer>
   </template>
+  <UiConfirmDialog
+    v-if="chat.modelChangeConfirmation"
+    :open="true"
+    title="使用新模型继续对话？"
+    :description="`此对话上次使用 ${chat.modelChangeConfirmation.from.display_name}，本次将使用 ${chat.modelChangeConfirmation.to.display_name}。是否继续发送？`"
+    confirm-label="使用新模型发送"
+    cancel-label="取消发送"
+    :danger="false"
+    @update:open="chat.cancelModelChange()"
+    @confirm="chat.confirmModelChange()"
+  />
 </template>
 <style scoped>
 .history-controls {

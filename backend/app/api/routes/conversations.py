@@ -33,7 +33,7 @@ async def update_model_selection(
     user: Annotated[User, Depends(get_current_user)],
     service: Annotated[ConversationService, Depends(get_conversation_service)],
 ):
-    """按版本立即保存自己的会话模型选择，生成期间拒绝切换。"""
+    """按版本保存模型选择；model_selection 为 null 时自动恢复，生成期间拒绝切换。"""
     return success(await service.update_model_selection(user.id, conversation_id, body))
 
 

@@ -1,7 +1,14 @@
 /** 资料库真实后端验收：桌面和窄屏验证上传下载、目录、版本冲突、权限与策略。 */
 import { readFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
-import { test, expect, login, sidebar, closeSidebar } from '../support/playwright/fixtures'
+import {
+  accountAppearance,
+  test,
+  expect,
+  login,
+  sidebar,
+  closeSidebar,
+} from '../support/playwright/fixtures'
 import { apiUrl, grantAdmin, identity } from '../support/playwright/authorization'
 import type { Locator, Page } from '@playwright/test'
 import { selectOption } from '../support/playwright/controls'
@@ -80,8 +87,7 @@ test('个人资料完整流程：目录、同名另存、原件下载、重命�
   await expect(page.getByRole('button', { name: '下载 归档手记.txt', exact: true })).toBeVisible()
   await page.reload()
   await expect(page.getByRole('button', { name: '下载 归档手记.txt', exact: true })).toBeVisible()
-  const nav = await sidebar(page)
-  await nav.getByRole('button', { name: /外观.*浅色/ }).click()
+  await accountAppearance(page)
   await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
   await closeSidebar(page)
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
@@ -329,7 +335,7 @@ test('单击文件夹整行进入，格式图标随真实目录及重命名同�
   await expect(dialog).not.toBeVisible()
   await expect(page.locator('.file-type-icon[data-kind="word"]')).toHaveCount(0)
   await expect(page.locator('.file-type-icon[data-kind="text"]')).toBeVisible()
-  await (await sidebar(page)).getByRole('button', { name: /外观.*浅色/ }).click()
+  await accountAppearance(page)
   await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
   await closeSidebar(page)
   // 深色仍使用同一 SVG 和专用填充色，不能再次回退到透明纸面或另一套图案。

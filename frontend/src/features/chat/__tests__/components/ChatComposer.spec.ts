@@ -26,8 +26,8 @@ afterEach(() => {
 })
 
 describe('聊天输入区', () => {
-  // 空白与 Shift+Enter 保留编辑，普通 Enter 才发送并清空。
-  it('阻止空白发送，保留换行意图，发送后清空草稿', async () => {
+  // 输入区只报告发送意图，父级业务接受后再清空，发送前确认可以保留完整草稿。
+  it('阻止空白发送，保留换行意图，发送意图不提前清空草稿', async () => {
     const composer = createComposer()
     const textarea = composer.get('textarea')
     expect(composer.get('button[type="submit"]').attributes('disabled')).toBeDefined()
@@ -39,7 +39,7 @@ describe('聊天输入区', () => {
     expect(composer.emitted('send')).toBeUndefined()
     await textarea.trigger('keydown', { key: 'Enter' })
     expect(composer.emitted('send')).toEqual([['工作计划']])
-    expect((textarea.element as HTMLTextAreaElement).value).toBe('')
+    expect((textarea.element as HTMLTextAreaElement).value).toBe('  工作计划  ')
   })
 
   // 覆盖组合生命周期及浏览器兼容分支，防止选词回车意外发送。

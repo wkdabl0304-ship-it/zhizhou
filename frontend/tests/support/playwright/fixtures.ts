@@ -112,6 +112,25 @@ export async function sidebar(page: Page): Promise<Locator> {
   return page.getByRole('complementary', { name: '知舟导航', exact: true })
 }
 
+/** 通过头像入口展开账号菜单，Portal 中的外观与退出操作共用这一层。 */
+export async function accountMenu(page: Page): Promise<Locator> {
+  const navigation = await sidebar(page)
+  const menu = page.getByRole('menu')
+  if (!(await menu.isVisible()))
+    await navigation.getByRole('button', { name: '账号菜单', exact: true }).click()
+  await expect(menu).toBeVisible()
+  return menu
+}
+
+/** 打开账号菜单中的外观选项，保持实际的点击展开流程。 */
+export async function accountAppearance(page: Page): Promise<Locator> {
+  const menu = await accountMenu(page)
+  const entry = menu.getByRole('menuitem', { name: '外观', exact: true })
+  if ((await entry.getAttribute('aria-expanded')) !== 'true') await entry.click()
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(2)
+  return menu
+}
+
 /** 关闭当前窄屏导航，防止模态层遮挡正文或输入区。 */
 export async function closeSidebar(page: Page): Promise<void> {
   // 等待用户已经触发的选中和子弹窗关闭完成，不用 Esc 抢先取消双击判定中的单击。

@@ -10,7 +10,14 @@ import {
   returnToChat,
 } from '../support/playwright/model-config'
 import { openPicker, refreshModels } from '../support/playwright/model-selection'
-import { expect, login, send, finished, closeSidebar } from '../support/playwright/fixtures'
+import {
+  accountAppearance,
+  expect,
+  login,
+  send,
+  finished,
+  closeSidebar,
+} from '../support/playwright/fixtures'
 
 test('首次配置、主动测试、设默认后返回聊天保留草稿，刷新仍可使用', async ({
   page,
@@ -53,7 +60,7 @@ test('首次配置、主动测试、设默认后返回聊天保留草稿，刷�
   // 通过真实外观菜单切换主题，留存暗色卡片及后续模型弹窗供视觉检查。
   const navigationTrigger = page.getByRole('button', { name: '打开侧栏', exact: true })
   if (await navigationTrigger.isVisible()) await navigationTrigger.click()
-  await page.getByRole('button', { name: /外观.*浅色/ }).click()
+  await accountAppearance(page)
   await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
   await closeSidebar(page)
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
@@ -559,7 +566,7 @@ test('连接与模型在居中弹窗编辑，长表单独立滚动且焦点逐�
   // 从真实外观菜单切换主题后复用模型，覆盖居中编辑器的暗色状态。
   const navigationTrigger = page.getByRole('button', { name: '打开侧栏', exact: true })
   if (await navigationTrigger.isVisible()) await navigationTrigger.click()
-  await page.getByRole('button', { name: /外观.*浅色/ }).click()
+  await accountAppearance(page)
   await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
   await closeSidebar(page)
   await openProvider(page)

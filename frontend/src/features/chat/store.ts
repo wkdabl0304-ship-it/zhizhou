@@ -11,7 +11,8 @@ import {
   type ConversationInfo,
 } from '@/features/chat/api/conversations'
 import { turnMessages } from '@/features/chat/history'
-import type { ChatMessage, Conversation } from '@/features/chat/types'
+import type { ChatMessage, Conversation, ModelChangeConfirmation } from '@/features/chat/types'
+import { lastReplyModel } from './model-changes'
 import { finishActivities, updateActivity } from '@/features/chat/activity'
 import { useModelSelectionStore } from '@/features/model-selection/store'
 import {
@@ -19,11 +20,13 @@ import {
   selectionIssueLabels,
   validateSelection,
 } from '@/features/model-selection/contract'
-import type { ModelSelection } from '@/features/model-selection/types'
+import type { ModelIdentity, ModelSelection } from '@/features/model-selection/types'
+import { replacementSelection, useModelRecovery } from './useModelRecovery'
 import {
   getConversationInfo,
   patchConversationTitle,
   patchModelSelection,
+  recoverModelSelection,
 } from '@/features/chat/api/conversations'
 import { normalizeTitle, titleIssue } from './titles'
 
@@ -47,6 +50,7 @@ export const useChatStore = defineStore('chat', () => {
   const newSelection = ref<ModelSelection | null>(null)
   const selectionNotice = ref('')
   const selectionEditing = ref(false)
+  const modelChangeConfirmation = ref<ModelChangeConfirmation | null>(null)
   const conversations: Ref<Conversation[]> = ref([])
   const activeId = ref<string | null>(null)
   const listing = ref(false)
@@ -69,12 +73,29 @@ export const useChatStore = defineStore('chat', () => {
           : newSelection.value))
       : newSelection.value,
   )
+  // 当前身份仅用于待发送的切换提示，已接受轮次始终由后端快照确认。
+  const currentModel = computed<ModelIdentity | null>(() => {
+    const model = choices.models.find(
+      (item) => item.model_configuration_id === effectiveSelection.value?.model_configuration_id,
+    )
+    return model
+      ? {
+          model_configuration_id: model.model_configuration_id,
+          catalog_model_id: model.catalog_model_id,
+          display_name: model.display_name,
+        }
+      : null
+  })
   const selectionProblem = computed(() => {
     const row = activeConversation.value,
       choice = effectiveSelection.value
     if (choices.error) return choices.error
     if (!choices.options) return '正在读取模型选项…'
-    if (row?.selectionError) return row.selectionError
+    if (row?.selectionRecovering) return ''
+    if (row?.selectionError)
+      return row.modelSelectionIssue
+        ? `${selectionIssueLabels[row.modelSelectionIssue]}；${row.selectionError}`
+        : row.selectionError
     if (row?.modelSelectionIssue) return selectionIssueLabels[row.modelSelectionIssue]
     return validateSelection(
       choice,
@@ -102,6 +123,14 @@ export const useChatStore = defineStore('chat', () => {
     draft.value = ''
     selectionEditing.value = false
   })
+  // 确认只属于打开它的聊天，切换上下文立即撤销，不能把旧消息发到新会话。
+  watch(
+    activeId,
+    () => {
+      modelChangeConfirmation.value = null
+    },
+    { flush: 'sync' },
+  )
   const inputBlocked = computed(() => {
     const row = activeConversation.value
     return (
@@ -120,6 +149,87 @@ export const useChatStore = defineStore('chat', () => {
   let mutation = 0
   let selectionRead = 0
   let titleRead = 0
+
+  useModelRecovery(
+    () => ({
+      row: activeConversation.value,
+      selection: effectiveSelection.value,
+      options: choices.options,
+      loading: choices.loading,
+      error: choices.error,
+      editing: selectionEditing.value,
+    }),
+    recoverSelection,
+  )
+
+  /** 恢复活动上下文的失效模型，后端按版本裁决，草稿和消息不参与本次写入。 */
+  async function recoverSelection(): Promise<void> {
+    const row = activeConversation.value,
+      selected = effectiveSelection.value
+    if (!selected || !choices.options) return
+    if (!row?.persisted) {
+      const replacement = replacementSelection(choices.options, selected)
+      if (replacement) await chooseSelection(replacement)
+      return
+    }
+    const version = epoch,
+      request = controller()
+    row.selectionSaving = true
+    row.selectionRecovering = true
+    row.selectionError = ''
+    try {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        try {
+          const info = await recoverModelSelection(
+            row.id,
+            row.modelSelectionVersion ?? 1,
+            request.signal,
+          )
+          if (!current(version, row) || request.signal.aborted) return
+          selectionMetadata(row, info, ++selectionRead)
+          if (activeId.value === row.id) selectionNotice.value = ''
+          if (
+            !choices.models.some(
+              (model) =>
+                model.model_configuration_id === info.model_selection?.model_configuration_id,
+            )
+          )
+            await choices.load()
+          return
+        } catch (error) {
+          if (!current(version, row) || request.signal.aborted) return
+          if (!(error instanceof ApiError && error.code === 40904 && attempt === 0)) throw error
+          // 只在确认前发生版本竞争时重读一次；合法的远端选择优先，不覆盖另一窗口的决定。
+          await refreshSelection(row, true)
+          if (!current(version, row) || request.signal.aborted || row.selectionError) return
+          if (
+            !row.modelSelectionIssue &&
+            !validateSelection(
+              row.modelSelection ?? null,
+              choices.models.find(
+                (model) =>
+                  model.model_configuration_id === row.modelSelection?.model_configuration_id,
+              ),
+            )
+          ) {
+            if (activeId.value === row.id) selectionNotice.value = ''
+            return
+          }
+        }
+      }
+    } catch (error) {
+      if (!current(version, row) || request.signal.aborted) return
+      row.selectionError = explain(error)
+      if (error instanceof ApiError && error.code === 40901) row.remoteRunning = true
+      if (error instanceof ApiError && error.code === 40401) row.unavailable = true
+    } finally {
+      controllers.delete(request)
+      if (current(version, row)) {
+        row.selectionSaving = false
+        row.selectionRecovering = false
+      }
+    }
+  }
 
   /** 接受尚未过期的标题快照，编辑写入期间和手动保存以前发出的读取均不能覆盖新标题。 */
   function titleMetadata(row: Conversation, info: ConversationInfo, stamp: number): void {
@@ -209,7 +319,7 @@ export const useChatStore = defineStore('chat', () => {
       controllers.delete(request)
     }
   }
-  /** 从管理页返回或窗口恢复时同步允许范围与活动会话，只刷新有效性，不自动重选。 */
+  /** 从管理页返回或窗口恢复时同步允许范围，失效选择由恢复协调器自动处理。 */
   async function refreshChoices(): Promise<void> {
     await Promise.all([choices.load(), refreshSelection()])
   }
@@ -332,6 +442,7 @@ export const useChatStore = defineStore('chat', () => {
     epoch += 1
     draft.value = ''
     newSelection.value = null
+    modelChangeConfirmation.value = null
     selectionEditing.value = false
     selectionNotice.value = ''
     lastErrorCode.value = undefined
@@ -501,12 +612,33 @@ export const useChatStore = defineStore('chat', () => {
    * 每个会话允许一个在途请求；切换会话继续更新原对象，退出账号取消流并丢弃迟到结果。
    * 不自动重试可能已落库的输入；HTTP 冲突或不存在明确提示，部分回复保留为未完成。
    */
-  async function send(text: string): Promise<boolean> {
+  async function send(text: string, acceptedChange?: ModelChangeConfirmation): Promise<boolean> {
     const content = text.trim()
     lastErrorCode.value = undefined
     if (!content || isSending.value || inputBlocked.value || !auth.isAuthenticated) return false
     if (activeConversation.value?.selectionSaving || (choices.options && !selectionReady.value))
       return false
+    const from = lastReplyModel(activeConversation.value?.messages ?? []),
+      to = currentModel.value
+    if (
+      from &&
+      to &&
+      from.catalog_model_id !== to.catalog_model_id &&
+      !(
+        acceptedChange?.conversationId === activeId.value &&
+        acceptedChange.from.catalog_model_id === from.catalog_model_id &&
+        acceptedChange.to.catalog_model_id === to.catalog_model_id
+      )
+    ) {
+      modelChangeConfirmation.value = {
+        conversationId: activeId.value!,
+        content,
+        from: { ...from },
+        to: { ...to },
+      }
+      return false
+    }
+    modelChangeConfirmation.value = null
     if (
       activeConversation.value?.persisted &&
       !activeConversation.value.modelSelection &&
@@ -544,17 +676,23 @@ export const useChatStore = defineStore('chat', () => {
     const version = epoch
     const request = controller()
     const before = row.id
-    const user: ChatMessage = {
+    const userMessage: ChatMessage = {
       id: `user-${++sequence}`,
       role: 'user',
+      model: currentModel.value,
+      modelReplyStarted: false,
       blocks: [{ type: 'paragraph', text: content }],
     }
-    row.messages.push(user, {
+    // 用户确认且本轮实际开始提交后才清空对应草稿，后续输入不随旧请求被清除。
+    if (draft.value.trim() === content) draft.value = ''
+    row.messages.push(userMessage, {
       id: `assistant-${sequence}`,
       role: 'assistant',
       status: 'pending',
       blocks: [],
     })
+    // 流事件必须写入缓存中的响应式对象，临时原对象上的修改不会触发分界线重新计算。
+    const user = row.messages[row.messages.length - 2]!
     const assistant = row.messages[row.messages.length - 1]!
     row.running = true
     row.rejectedDraft = ''
@@ -581,6 +719,7 @@ export const useChatStore = defineStore('chat', () => {
           row.modelSelectionVersion = event.modelSelectionVersion
           row.modelSelectionIssue = null
           row.selectionRead = ++selectionRead
+          if (event.model) user.model = event.model
           // 目录可能先于 SSE 返回同一条会话；绑定时移除重复条目，保留当前流的对象。
           conversations.value = conversations.value.filter(
             (item) => item === row || item.id !== event.conversationId,
@@ -598,6 +737,12 @@ export const useChatStore = defineStore('chat', () => {
           continue
         }
         updateActivity(assistant, event)
+        if (
+          (event.type === 'delta' && event.text.length > 0) ||
+          event.type === 'tool_call' ||
+          event.type === 'done'
+        )
+          user.modelReplyStarted = true
         assistant.status = 'streaming'
         if (event.type === 'delta') {
           segments.set(event.messageId, (segments.get(event.messageId) ?? '') + event.text)
@@ -655,9 +800,24 @@ export const useChatStore = defineStore('chat', () => {
       if (current(version, row)) row.running = false
     }
   }
+  /** 撤销尚未发送的模型变化确认，消息仍保留在输入区。 */
+  function cancelModelChange(): void {
+    modelChangeConfirmation.value = null
+  }
+  /** 按已展示的模型身份确认发送；目标变化时重新询问，切换会话后不继续旧发送。 */
+  async function confirmModelChange(): Promise<boolean> {
+    const confirmation = modelChangeConfirmation.value
+    if (!confirmation || confirmation.conversationId !== activeId.value) return false
+    modelChangeConfirmation.value = null
+    return send(confirmation.content, confirmation)
+  }
   return {
     draft,
     effectiveSelection,
+    currentModel,
+    modelChangeConfirmation,
+    cancelModelChange,
+    confirmModelChange,
     selectionEditing,
     selectionProblem,
     selectionReady,

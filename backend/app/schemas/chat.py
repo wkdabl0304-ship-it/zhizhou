@@ -4,7 +4,7 @@ from typing import ClassVar, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, field_validator, model_validator
-from app.schemas.model_selection import ModelSelection
+from app.schemas.model_selection import ModelIdentity, ModelSelection
 
 
 class ChatRequest(BaseModel):
@@ -52,6 +52,7 @@ class ChatStart(ChatEvent):
     is_new: bool
     model_selection: ModelSelection | None = None
     model_selection_version: int = 1
+    model: ModelIdentity | None = None
 
 
 class ChatDelta(ChatEvent):

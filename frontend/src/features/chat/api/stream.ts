@@ -4,6 +4,7 @@ import type { ChatStreamEvent } from '@/features/chat/chat-events'
 import { authenticatedFetch, readEnvelope, ApiError } from '@/features/auth/authenticated'
 import { decodeEvent } from './events'
 import { decodeSelectionFields } from '@/features/model-selection/contract'
+import { decodeModelIdentity } from '@/features/model-selection/identity'
 import type { ModelSelection } from '@/features/model-selection/types'
 export type { ChatStreamEvent } from '@/features/chat/chat-events'
 
@@ -171,6 +172,7 @@ export async function* streamChatMessage(
         isNew: data.is_new,
         modelSelection: choice.model_selection,
         modelSelectionVersion: choice.model_selection_version,
+        ...('model' in data ? { model: decodeModelIdentity(data.model) } : {}),
       }
       continue
     }

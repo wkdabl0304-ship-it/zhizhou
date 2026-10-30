@@ -1,19 +1,10 @@
 <!-- 聊天侧栏：共用于桌面导航与窄屏抽屉，向上报告选择、新建和折叠事件。 -->
 <script setup lang="ts">
 import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
-import UiButton from '@/shared/components/ui/UiButton.vue'
 import { computed } from 'vue'
-import {
-  ArrowUpRight,
-  FolderOpen,
-  LogOut,
-  PanelLeft,
-  SquarePen,
-  SlidersHorizontal,
-  Users,
-} from '@lucide/vue'
+import { FolderOpen, PanelLeft, SquarePen, SlidersHorizontal, Users } from '@lucide/vue'
 import type { Conversation } from '@/features/chat/types'
-import ThemeMenu from '@/shared/components/ThemeMenu.vue'
+import AccountMenu from '@/features/auth/components/AccountMenu.vue'
 import BrandLogo from '@/shared/components/BrandLogo.vue'
 import UiIconButton from '@/shared/components/ui/UiIconButton.vue'
 import UiTooltip from '@/shared/components/ui/UiTooltip.vue'
@@ -43,7 +34,6 @@ defineEmits<{
   delete: [id: string, trigger: HTMLElement]
   rename: [id: string, trigger: HTMLElement]
 }>()
-const isDev = import.meta.env.DEV
 // 根据本页会话自身分组，新增会话自动进入“今天”。
 const groups = computed(() => [...new Set(props.conversations.map((item) => item.group))])
 </script>
@@ -144,27 +134,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
         aria-label="组织与权限"
         ><Users :size="17" /><span v-if="!compact">组织与权限</span></RouterLink
       >
-      <ThemeMenu :compact="compact" />
-      <UiButton
-        v-if="auth.user"
-        class="logout-button"
-        variant="ghost"
-        size="sm"
-        aria-label="退出登录"
-        @click="auth.logout"
-      >
-        <LogOut :size="17" /><span v-if="!compact">退出登录</span>
-      </UiButton>
-      <RouterLink v-if="isDev && !compact" class="preview-link" to="/dev/ui"
-        >组件预览<ArrowUpRight :size="14"
-      /></RouterLink>
-      <div v-if="!compact" class="sidebar-profile">
-        <span class="profile-avatar"><BrandLogo :size="22" /></span>
-        <div>
-          <span>{{ auth.user?.username ?? '知舟工作空间' }}</span
-          ><small v-if="auth.user?.department">{{ auth.user.department.name }}</small>
-        </div>
-      </div>
+      <AccountMenu :compact="compact" />
     </div>
   </div>
 </template>
@@ -197,7 +167,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   font-size: 12px;
   color: var(--text-muted);
 }
-/* 导航占满宿主高度，只有会话列表滚动，底部外观与工作空间入口始终可达。 */
+/* 导航占满宿主高度，只有会话列表滚动，底部业务入口与账号菜单始终可达。 */
 .chat-sidebar {
   display: flex;
   height: 100%;
@@ -301,60 +271,6 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   flex-shrink: 0;
   margin-top: auto;
   padding-top: 20px;
-}
-.logout-button {
-  width: 100%;
-  justify-content: flex-start;
-  margin-top: 8px;
-}
-.preview-link {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 7px 10px;
-  border-radius: var(--radius-sm);
-  text-decoration: none;
-  font-size: 12px;
-  color: var(--text-muted);
-}
-.preview-link:hover {
-  background: var(--surface-hover);
-  color: var(--text);
-}
-.sidebar-profile {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  margin-top: 14px;
-  padding: 16px 6px 4px;
-  border-top: 1px solid var(--border);
-}
-.profile-avatar {
-  display: grid;
-  flex-shrink: 0;
-  place-items: center;
-  width: 33px;
-  height: 33px;
-  border-radius: 50%;
-  background: var(--brand-soft);
-  color: var(--brand);
-  font-size: 14px;
-}
-.sidebar-profile > div {
-  display: flex;
-  flex-direction: column;
-  font-size: 12px;
-  min-width: 0;
-}
-.sidebar-profile > div > span,
-.sidebar-profile small {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.sidebar-profile small {
-  color: var(--text-muted);
-  font-size: 10px;
 }
 .is-compact {
   align-items: center;

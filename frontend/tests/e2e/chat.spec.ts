@@ -1,5 +1,7 @@
 /** 聊天全链路：真实 SSE、业务历史与 checkpoint，只有模型供应商被本地替身替换。 */
 import {
+  accountAppearance,
+  accountMenu,
   test,
   expect,
   login,
@@ -153,8 +155,7 @@ test('生成中改名支持校验、取消和失败重试，自动标题不会�
 }, testInfo) => {
   const gate = await modelGate()
   await login(page, account)
-  const appearance = await sidebar(page)
-  await appearance.getByRole('button', { name: /外观.*浅色/ }).click()
+  await accountAppearance(page)
   await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
   await closeSidebar(page)
   await send(page, gate.prompt)
@@ -248,7 +249,7 @@ test('切换会话保持生成归属，退出取消模型，另一账号不读�
   await expect(page.getByRole('article', { name: '知舟的回复', exact: true })).toContainText(
     '已收到部分回答',
   )
-  await (await sidebar(page)).getByRole('button', { name: '退出登录', exact: true }).click()
+  await (await accountMenu(page)).getByRole('menuitem', { name: '退出登录', exact: true }).click()
   await expect(page).toHaveURL(/\/login/)
   await expect.poll(gate.closed).toBe(true)
   const other = await createAccount(request)

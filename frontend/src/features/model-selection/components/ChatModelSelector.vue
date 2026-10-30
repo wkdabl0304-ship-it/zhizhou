@@ -20,8 +20,10 @@ const confirmed = computed(() =>
 const locked = computed(
   () => chat.isSending || chat.inputBlocked || !!chat.activeConversation?.selectionSaving,
 )
-const summary = computed(
-  () => confirmed.value?.name ?? (chat.effectiveSelection ? '原方案不可选' : '选择模型'),
+const summary = computed(() =>
+  chat.activeConversation?.selectionRecovering
+    ? '正在恢复模型…'
+    : (confirmed.value?.name ?? (chat.effectiveSelection ? '原方案不可选' : '选择模型')),
 )
 const feedback = computed(() =>
   [
@@ -48,7 +50,7 @@ async function changeModel(id: string): Promise<void> {
     open.value = false
   }
 }
-/** 自动同步当前允许范围，不替换已经确认的选择或重发聊天。 */
+/** 自动同步当前允许范围，失效选择交给恢复协调器处理，不重发聊天。 */
 function refresh(): void {
   if (!document.hidden) void chat.refreshChoices()
 }

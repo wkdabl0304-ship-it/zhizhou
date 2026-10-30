@@ -226,7 +226,7 @@ svg {
   border-radius: 7px;
   font-size: 14px;
   user-select: none;
-  cursor: default;
+  cursor: pointer;
 }
 .ui-menu-item[data-highlighted] {
   background: var(--surface-hover);

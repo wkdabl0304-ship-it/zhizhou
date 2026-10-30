@@ -36,7 +36,7 @@ function existing() {
   chat.activeId = A
   return { chat, choices, data }
 }
-it('保存只更新原会话，旧读取不能覆盖新版本，同版本最新失效原因仍生效', async () => {
+it('保存只更新原会话，旧读取不能覆盖新版本，同版本最新失效会触发自动恢复', async () => {
   const { chat, data } = existing(),
     old = deferredResponse()
   fetchMock.mockImplementation((url, init) => {
@@ -73,21 +73,34 @@ it('保存只更新原会话，旧读取不能覆盖新版本，同版本最新�
   await chat.select(B)
   expect(chat.effectiveSelection?.reasoning).toEqual({ mode: 'budget', budget_tokens: 4096 })
   await chat.select(A)
-  fetchMock.mockImplementation(async (url) =>
-    String(url).endsWith('/options')
-      ? response(data)
-      : response({
-          conversation: {
-            ...info(),
-            model_selection: chat.effectiveSelection,
-            model_selection_version: 4,
-            model_selection_issue: 'model_disabled',
-          },
-        }),
+  fetchMock.mockImplementation(async (url, init) =>
+    init?.method === 'PATCH'
+      ? response({
+          ...info(),
+          model_selection: data.default_selection,
+          model_selection_version: 5,
+          model_selection_issue: null,
+        })
+      : String(url).endsWith('/options')
+        ? response(data)
+        : response({
+            conversation: {
+              ...info(),
+              model_selection: chat.effectiveSelection,
+              model_selection_version: 4,
+              model_selection_issue: 'model_disabled',
+            },
+          }),
   )
   await chat.refreshChoices()
-  expect(chat.selectionProblem).toContain('已停用')
-  expect(chat.selectionReady).toBe(false)
+  await vi.waitFor(() => expect(chat.activeConversation?.modelSelectionVersion).toBe(5))
+  expect(chat.selectionProblem).toBe('')
+  expect(chat.selectionReady).toBe(true)
+  const recovery = fetchMock.mock.calls.filter(([, init]) => init?.method === 'PATCH').at(-1)!
+  expect(JSON.parse(String(recovery[1]?.body))).toEqual({
+    model_selection_version: 4,
+    model_selection: null,
+  })
 })
 it('选择版本冲突不伪装为正在生成，保留消息草稿且不自动重发', async () => {
   const { chat, data } = existing()

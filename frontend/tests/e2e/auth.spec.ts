@@ -1,6 +1,6 @@
 /** 认证全链路：真实页面、接口与随机测试库共同验证注册、刷新和退出。 */
 import { randomUUID } from 'node:crypto'
-import { test, expect, login, sidebar } from '../support/playwright/fixtures'
+import { accountMenu, test, expect, login, sidebar } from '../support/playwright/fixtures'
 
 test('注册后登录，刷新恢复身份，退出后工作区重新受保护', async ({ page }) => {
   const account = {
@@ -23,7 +23,7 @@ test('注册后登录，刷新恢复身份，退出后工作区重新受保护',
   await page.reload()
   const navigation = await sidebar(page)
   await expect(navigation.getByText(account.username, { exact: true })).toBeVisible()
-  await navigation.getByRole('button', { name: '退出登录', exact: true }).click()
+  await (await accountMenu(page)).getByRole('menuitem', { name: '退出登录', exact: true }).click()
   await expect(page).toHaveURL(/\/login/)
   await page.goto('/')
   await expect(page).toHaveURL(/\/login/)

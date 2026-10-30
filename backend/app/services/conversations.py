@@ -40,6 +40,7 @@ from app.services.cursors import (
 from app.llm.types import ModelSnapshot
 from app.llm.runtime import ConfiguredChatAgent
 from app.services.model_config import ModelConfigService
+from app.services.model_selection import model_identity
 from app.services.conversation_titles import ConversationTitleService
 from app.services.authorization import AuthorizationService, management_lock
 from app.schemas.model_selection import ModelSelection, ModelSelectionUpdate
@@ -150,8 +151,17 @@ class ConversationService:
                     raise RequestError(ErrorCode.MODEL_SELECTION_VERSION_CONFLICT)
                 if self.model_config is None:
                     raise RuntimeError("模型选择服务尚未装配")
-                await self.model_config.selections.validate(session, body.model_selection)
-                conversation.model_selection = body.model_selection.model_dump(mode="json")
+                selected = body.model_selection
+                if selected is None:
+                    await self.authorization.require(session, user_id, "model:use")
+                    previous = ModelSelection.model_validate(conversation.model_selection) if conversation.model_selection else None
+                    selected = await self.model_config.selections.recover(session, previous)
+                    # 并行窗口已经恢复或原选择仍合法时不制造新的版本与写入。
+                    if selected == previous:
+                        return ConversationInfo.model_validate(conversation)
+                else:
+                    await self.model_config.selections.validate(session, selected)
+                conversation.model_selection = selected.model_dump(mode="json")
                 conversation.model_selection_version += 1
                 conversation.updated_at = datetime.now(UTC)
                 await session.flush()
@@ -233,7 +243,7 @@ class ConversationService:
                 )
             return ConversationContent(
                 conversation=(await self._conversation_infos(session, [conversation]))[0],
-                items=[TurnInfo.model_validate(row) for row in reversed(selected)],
+                items=[TurnInfo.model_validate(row).model_copy(update={"model": model_identity(row.model_snapshot)}) for row in reversed(selected)],
                 next_cursor=next_cursor,
             )
 
@@ -431,6 +441,7 @@ class ConversationService:
             is_new=prepared.is_new,
             model_selection=prepared.model_selection,
             model_selection_version=prepared.model_selection_version,
+            model=model_identity(prepared.model_runtime.public_snapshot()) if prepared.model_runtime else None,
         )
         saved_at = monotonic()
         buffered_bytes = 0

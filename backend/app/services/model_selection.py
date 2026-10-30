@@ -8,6 +8,7 @@ from app.core.errors.codes import ErrorCode
 from app.core.errors.exceptions import RequestError, ServiceError
 from app.db.business import BusinessDatabase, session_scope
 from app.llm.models.policy import resolve_parameters
+from app.llm.models.catalog import CATALOG
 from app.llm.models.selection import automatic_configuration, concrete_reasoning, require_allowed, validate_policy
 from app.llm.providers.endpoints import resolve_endpoint
 from app.llm.secrets import SecretBox
@@ -15,7 +16,23 @@ from app.llm.types import ModelSnapshot
 from app.models import ModelConfiguration, ProviderConfiguration
 from app.repositories import model_config as repository
 from app.schemas.model_config import EndpointConfig, ModelCreate
-from app.schemas.model_selection import ModelOptions, ModelSelection, SelectableModel, SelectableProvider, SelectionIssue
+from app.schemas.model_selection import ModelIdentity, ModelOptions, ModelSelection, SelectableModel, SelectableProvider, SelectionIssue
+
+
+def model_identity(snapshot: dict | None) -> ModelIdentity | None:
+    """从执行快照投影安全模型身份，旧快照缺失或损坏时保留历史可读性。"""
+    if not isinstance(snapshot, dict) or not isinstance(snapshot.get("catalog_model_id"), str):
+        return None
+    catalog_id = snapshot["catalog_model_id"]
+    if not catalog_id:
+        return None
+    spec = CATALOG.get(catalog_id)
+    try:
+        return ModelIdentity(model_configuration_id=snapshot.get("model_configuration_id"),
+                             catalog_model_id=catalog_id,
+                             display_name=spec.display_name if spec else catalog_id.split(":", 1)[-1])
+    except ValueError:
+        return None
 
 
 def validate_configuration(provider: ProviderConfiguration, body: ModelCreate):
@@ -100,6 +117,24 @@ class ModelSelectionService:
     async def validate(self, session: AsyncSession, selection: ModelSelection) -> None:
         """验证待保存的具体选择，不解密凭据，也不发起模型调用。"""
         require_selection(selection, await repository.model_row(session, selection.model_configuration_id))
+
+    async def recover(self, session: AsyncSession, selection: ModelSelection | None) -> ModelSelection:
+        """自动恢复合法选择，依次复用原方案、全局默认和首个可用模型，不调用供应商。"""
+        if selection is not None:
+            pair = await repository.model_row(session, selection.model_configuration_id)
+            if selection_issue(selection, pair) is None:
+                return selection
+        options = await self.options(session=session)
+        models = [model for provider in options.providers for model in provider.models]
+        same = next((model for model in models if selection and model.model_configuration_id == selection.model_configuration_id), None)
+        if same is not None:
+            return ModelSelection(model_configuration_id=same.model_configuration_id, reasoning=same.reasoning_control.default)
+        if options.default_selection is not None:
+            return options.default_selection
+        if not models:
+            raise ServiceError(ErrorCode.MODEL_NOT_CONFIGURED)
+        first = models[0]
+        return ModelSelection(model_configuration_id=first.model_configuration_id, reasoning=first.reasoning_control.default)
 
     async def snapshot(self, session: AsyncSession, selection: ModelSelection | None = None, *,
                        model_id: UUID | None = None, allow_disabled: bool = False) -> ModelSnapshot:

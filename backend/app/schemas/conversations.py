@@ -5,7 +5,7 @@ from typing import Any, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from app.schemas.model_selection import ModelSelection, SelectionIssue
+from app.schemas.model_selection import ModelIdentity, ModelSelection, SelectionIssue
 
 
 def normalize_title(value: str) -> str:
@@ -52,6 +52,7 @@ class TurnInfo(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     turn_id: UUID = Field(validation_alias="id")
     seq: int
+    model: ModelIdentity | None = None
     user_content: str
     assistant_content: str | None
     assistant_message_id: str | None

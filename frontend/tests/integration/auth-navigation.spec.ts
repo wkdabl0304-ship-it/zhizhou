@@ -1,7 +1,7 @@
 /** 认证页面集成：使用真实路由、根组件和状态，验证注册登录与退出，网络仅使用契约替身。 */
 import { createTestPinia as createPinia } from '@tests/support/vitest/mount'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { disposePinia, setActivePinia, type Pinia } from 'pinia'
 import { createMemoryHistory, type Router } from 'vue-router'
 import App from '@/App.vue'
@@ -121,17 +121,25 @@ describe('认证页面与工作区边界', () => {
       { id: 'local-conversation', title: '上一账号的临时内容', group: '今天', messages: [] },
     ]
     chat.activeId = 'local-conversation'
-    await page.get('[aria-label="退出登录"]').trigger('click')
+    // 切换到正文会挂载模型选择器并同步选项；先等既有读取结束，再单独验证账号菜单不发业务请求。
+    await flushPromises()
+    const requestsBeforeMenu = fetchMock.mock.calls.length
+    expect(page.find('[aria-label="退出登录"]').exists()).toBe(false)
+    await page.get('[aria-label="账号菜单"]').trigger('click')
+    await flushPromises()
+    await new DOMWrapper(document.body).get('.account-menu-item:last-child').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('login')
     expect(chat.conversations).toHaveLength(0)
     expect(chat.activeId).toBeNull()
     expect(sessionStorage.getItem(AUTH_STORAGE_KEY)).toBeNull()
+    expect(fetchMock).toHaveBeenCalledTimes(requestsBeforeMenu)
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/auth/register',
       '/api/auth/login',
       '/api/model-config/options',
       '/api/conversations?limit=20',
+      '/api/model-config/options',
     ])
   })
 

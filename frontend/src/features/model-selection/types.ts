@@ -5,6 +5,12 @@ export interface ModelSelection {
   model_configuration_id: string
   reasoning: ConcreteReasoning
 }
+/** 每轮实际使用的安全模型身份，刷新后仍可展示切换位置。 */
+export interface ModelIdentity {
+  model_configuration_id: string
+  catalog_model_id: string
+  display_name: string
+}
 export type SelectablePolicy = {
   mode: 'selectable'
   allowed_modes: ConcreteReasoning['mode'][]

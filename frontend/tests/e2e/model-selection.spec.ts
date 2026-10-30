@@ -10,6 +10,7 @@ import {
   returnToChat,
 } from '../support/playwright/model-config'
 import {
+  accountAppearance,
   expect,
   login,
   send,
@@ -216,7 +217,7 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   await expect(page.getByRole('button', { name: '设置推理强度', exact: true })).toContainText(
     '关闭',
   )
-  // 收紧后台范围后，保存的关闭思考选择必须失效，不能静默替换成高档。
+  // 收紧后台范围后自动保存同一方案的新合法档位，无需用户手动重选。
   const configs = await (
     await request.get(`${base}/api/model-config/models`, { headers: auth })
   ).json()
@@ -236,12 +237,9 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   })
   expect((await narrowed.json()).code).toBe(0)
   await refreshModels(page)
-  await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText(
+  await expect(page.getByRole('region', { name: '聊天模型状态' })).not.toContainText(
     '原推理设置超出当前限制',
   )
-  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeDisabled()
-  await choose(page, '受限问答')
-  await closePicker(page)
   await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled()
   // 超管仅保留高档时，以右端满轨道表达开启；只读展示不能增加额外可选档位。
   await openReasoning(page)
@@ -260,14 +258,136 @@ test('管理开放档位白名单，会话切换立即保存，多端冲突保�
   await finished(page)
 })
 
+test('切换模型在发送前确认，模型开始回复才显示分隔提示，刷新后仍只保留一条', async ({
+  page,
+  account,
+}, testInfo) => {
+  await login(page, account)
+  await page.goto('/models')
+  await provider(page)
+  await model(page, '模型甲', 'DeepSeek Flash')
+  await model(page, '模型乙', 'DeepSeek V4 Pro')
+  await closeProvider(page)
+  await returnToChat(page)
+  await choose(page, '模型甲')
+  await send(page, '切换提示第一轮')
+  await finished(page)
+  await choose(page, '模型乙')
+  const confirmation = page.getByRole('dialog', { name: '使用新模型继续对话？', exact: true })
+  await expect(confirmation).not.toBeVisible()
+  await expect(page.locator('.model-change-notice')).toHaveCount(0)
+  await send(page, '切换提示第二轮')
+  await expect(confirmation).toBeVisible()
+  await expect(confirmation).toContainText('DeepSeek Flash')
+  await expect(confirmation).toContainText('DeepSeek V4 Pro')
+  await expect(confirmation.getByRole('button', { name: '取消发送', exact: true })).toBeFocused()
+  await page.screenshot({
+    path: testInfo.outputPath('model-change-confirmation.png'),
+    fullPage: true,
+  })
+  await confirmation.getByRole('button', { name: '取消发送', exact: true }).click()
+  await expect(page.getByRole('textbox', { name: '消息内容' })).toHaveValue('切换提示第二轮')
+  await expect(page.getByRole('textbox', { name: '消息内容' })).toBeFocused()
+  await expect(page.getByRole('article')).toHaveCount(2)
+  await expect(page.locator('.model-change-notice')).toHaveCount(0)
+  // 仅延迟真实请求的放行，不伪造协议；确认后尚未输出时也不能出现分界线。
+  let releaseRequest!: () => void,
+    requestHeld = false
+  const requestGate = new Promise<void>((resolve) => {
+    releaseRequest = resolve
+  })
+  await page.route(
+    '**/api/chat',
+    async (route) => {
+      requestHeld = true
+      await requestGate
+      await route.continue()
+    },
+    { times: 1 },
+  )
+  try {
+    await page.getByRole('button', { name: '发送消息', exact: true }).click()
+    await expect(confirmation).toBeVisible()
+    expect(requestHeld).toBe(false)
+    await confirmation.getByRole('button', { name: '使用新模型发送', exact: true }).click()
+    await expect.poll(() => requestHeld).toBe(true)
+    await expect(page.getByRole('article')).toHaveCount(4)
+    await expect(page.locator('.model-change-notice')).toHaveCount(0)
+  } finally {
+    releaseRequest()
+  }
+  await finished(page)
+  await expect(page.locator('.model-change-notice')).toHaveCount(1)
+  await page.reload()
+  await reopen(page, '切换提示第一轮')
+  await expect(page.locator('.model-change-notice')).toHaveCount(1)
+  await expect(page.locator('.model-change-notice')).toContainText('DeepSeek V4 Pro')
+  await page.screenshot({ path: testInfo.outputPath('model-change-history.png'), fullPage: true })
+  await page.getByRole('button', { name: '模型切换说明', exact: true }).focus()
+  await expect(page.getByRole('tooltip')).toContainText('已有消息保持不变')
+  await page.keyboard.press('Escape')
+  await accountAppearance(page)
+  await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
+  await closeSidebar(page)
+  await expect(page.locator('.model-change-notice')).toHaveCount(1)
+  await page.screenshot({
+    path: testInfo.outputPath('model-change-history-dark.png'),
+    fullPage: true,
+  })
+})
+
+test('原模型删除后自动选择可用替代，保留草稿并在发送前确认', async ({
+  page,
+  account,
+}, testInfo) => {
+  await login(page, account)
+  await page.goto('/models')
+  await provider(page)
+  await model(page, '将删除的模型', 'DeepSeek Flash')
+  await model(page, '自动替代模型', 'DeepSeek V4 Pro')
+  const original = page.getByRole('article', { name: '模型方案：将删除的模型', exact: true })
+  await original.getByRole('button', { name: '设为默认', exact: true }).click()
+  await closeProvider(page)
+  await returnToChat(page)
+  await send(page, '自动恢复第一轮')
+  await finished(page)
+  await page.getByRole('textbox', { name: '消息内容' }).fill('自动恢复后保留的草稿')
+  await openPicker(page)
+  await page.getByRole('link', { name: '前往模型管理', exact: true }).click()
+  await openProvider(page)
+  await original.getByRole('button', { name: '删除', exact: true }).click()
+  await page.getByRole('button', { name: '确认删除', exact: true }).click()
+  await expect(original).toHaveCount(0)
+  await closeProvider(page)
+  await returnToChat(page)
+  await expect(page.getByRole('region', { name: '聊天模型状态' })).toContainText('自动替代模型')
+  await expect(page.getByRole('textbox', { name: '消息内容' })).toHaveValue('自动恢复后保留的草稿')
+  await expect(page.getByRole('button', { name: '发送消息', exact: true })).toBeEnabled()
+  await expect(page.getByRole('article')).toHaveCount(2)
+  await expect(page.locator('.model-change-notice')).toHaveCount(0)
+  const confirmation = page.getByRole('dialog', { name: '使用新模型继续对话？', exact: true })
+  await expect(confirmation).not.toBeVisible()
+  await page.getByRole('button', { name: '发送消息', exact: true }).click()
+  await expect(confirmation).toContainText('DeepSeek Flash')
+  await expect(confirmation).toContainText('DeepSeek V4 Pro')
+  // 模态期间后台被 aria-hidden 隔离，仍核对其消息数量，确保确认前未提交新消息。
+  await expect(page.getByRole('article', { includeHidden: true })).toHaveCount(2)
+  await confirmation.getByRole('button', { name: '使用新模型发送', exact: true }).click()
+  await finished(page)
+  await page.reload()
+  await reopen(page, '自动恢复第一轮')
+  await expect(page.locator('.model-change-notice')).toHaveCount(1)
+  await expect(page.getByRole('article')).toHaveCount(4)
+  await page.screenshot({ path: testInfo.outputPath('model-auto-recovery.png'), fullPage: true })
+})
+
 test('管理预算闭区间，聊天确认有效整数后保存，刷新恢复具体预算', async ({
   page,
   account,
 }, testInfo) => {
   await login(page, account)
   await page.goto('/models')
-  const navigation = await sidebar(page)
-  await navigation.getByRole('button', { name: /外观.*浅色/ }).click()
+  await accountAppearance(page)
   await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
   await closeSidebar(page)
   await provider(page, '预算连接', 'anthropic')

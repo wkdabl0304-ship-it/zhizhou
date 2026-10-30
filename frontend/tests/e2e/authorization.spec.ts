@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto'
 import type { Page } from '@playwright/test'
 import { test, apiUrl, identity, grantAdmin } from '../support/playwright/authorization'
 import {
+  accountAppearance,
   test as ordinaryTest,
   expect,
   login,
@@ -83,7 +84,7 @@ test('创建与改名部门，加入成员、授予和撤销部门管理员，�
   row = page.getByRole('listitem').filter({ hasText: member.username })
   await expect(row).toContainText('部门管理员')
   await page.screenshot({ path: testInfo.outputPath('organization-light.png'), fullPage: true })
-  await (await sidebar(page)).getByRole('button', { name: '外观 浅色', exact: true }).click()
+  await accountAppearance(page)
   await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
   await closeSidebar(page)
   await page.screenshot({ path: testInfo.outputPath('organization-dark.png'), fullPage: true })

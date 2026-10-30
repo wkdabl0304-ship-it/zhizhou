@@ -34,6 +34,13 @@ export function turnMessages(turn: HistoryTurn): ChatMessage[] {
     {
       id: `${turn.turn_id}-user`,
       role: 'user',
+      model: turn.model,
+      modelReplyStarted:
+        completed ||
+        turn.events.some(
+          (event) =>
+            (event.type === 'delta' && event.text.length > 0) || event.type === 'tool_call',
+        ),
       blocks: [{ type: 'paragraph', text: turn.user_content }],
     },
     assistant,

@@ -23,13 +23,12 @@ const canSend = computed(
 
 /**
  * 提交当前输入，通知父页面开始发送聊天。
- * 仅在 canSend 允许时同步发出去空白后的正文，再清空草稿并聚焦输入框；
- * 本组件不等待或判断后端执行结果，业务状态由父页面和 store 管理。
+ * 仅在 canSend 允许时交出正文并聚焦输入框；父级业务接受发送后才清空草稿，
+ * 发送前可能需要确认，组件不能先丢弃用户输入。
  */
 function submit(): void {
   if (!canSend.value) return
   emit('send', model.value.trim())
-  model.value = ''
   input.value?.focus()
 }
 

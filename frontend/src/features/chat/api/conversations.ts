@@ -2,7 +2,12 @@
 import { authenticatedFetch, readEnvelope, ApiError } from '@/features/auth/authenticated'
 import { decodeEvent } from './events'
 import { decodeSelectionFields } from '@/features/model-selection/contract'
-import type { ModelSelection, SelectionFields } from '@/features/model-selection/types'
+import { decodeModelIdentity } from '@/features/model-selection/identity'
+import type {
+  ModelIdentity,
+  ModelSelection,
+  SelectionFields,
+} from '@/features/model-selection/types'
 import type { ChatStreamEvent } from '@/features/chat/chat-events'
 
 /** 服务端会话元数据，用于排序与侧栏展示。 */
@@ -16,6 +21,7 @@ export interface ConversationInfo extends SelectionFields {
 export interface HistoryTurn {
   turn_id: string
   seq: number
+  model?: ModelIdentity | null
   user_content: string
   assistant_content: string | null
   assistant_message_id: string | null
@@ -119,6 +125,7 @@ export async function conversationHistory(id: string, signal: AbortSignal, curso
     return {
       turn_id: value.turn_id,
       seq: value.seq,
+      ...('model' in value ? { model: decodeModelIdentity(value.model) } : {}),
       user_content: value.user_content,
       assistant_content: value.assistant_content,
       assistant_message_id: value.assistant_message_id,
@@ -157,6 +164,32 @@ export async function patchModelSelection(
     !result.model_selection
   )
     throw new ApiError('会话选择确认无效')
+  return result
+}
+
+/** 请求后端自动恢复自己的失效选择；合法选择为幂等操作，不要求版本递增。 */
+export async function recoverModelSelection(
+  id: string,
+  version: number,
+  signal: AbortSignal,
+): Promise<ConversationInfo> {
+  const result = info(
+    await readEnvelope(
+      await authenticatedFetch(`/api/conversations/${encodeURIComponent(id)}/model-selection`, {
+        method: 'PATCH',
+        signal,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model_selection_version: version, model_selection: null }),
+      }),
+    ),
+  )
+  if (
+    result.conversation_id !== id ||
+    result.model_selection_version < version ||
+    !result.model_selection ||
+    result.model_selection_issue
+  )
+    throw new ApiError('自动恢复模型选择确认无效')
   return result
 }
 

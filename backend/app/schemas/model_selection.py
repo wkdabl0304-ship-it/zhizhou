@@ -26,10 +26,18 @@ class ModelSelection(StrictModel):
 
 
 class ModelSelectionUpdate(StrictModel):
-    """以读取版本替换会话的完整选择，空选择不属于可写状态。"""
+    """按版本替换选择；显式 null 请求自动恢复失效选择，合法选择保持不变。"""
 
     model_selection_version: int = Field(gt=0, strict=True)
-    model_selection: ModelSelection
+    model_selection: ModelSelection | None
+
+
+class ModelIdentity(StrictModel):
+    """公开实际使用的模型身份，仅包含方案引用、目录标识及展示名称。"""
+
+    model_configuration_id: UUID
+    catalog_model_id: str
+    display_name: str
 
 
 class FixedReasoningControl(FixedReasoningPolicy):

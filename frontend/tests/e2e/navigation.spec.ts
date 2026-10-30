@@ -1,6 +1,8 @@
 /** 浏览器导航：真实删除、主题持久化与响应式模态焦点，不依赖截图像素比较。 */
 import { test } from '../support/playwright/authorization'
 import {
+  accountAppearance,
+  accountMenu,
   expect,
   login,
   sidebar,
@@ -8,6 +10,83 @@ import {
   send,
   finished,
 } from '../support/playwright/fixtures'
+
+// 账号入口在完整侧栏、收起侧栏和手机抽屉中都保持同一层菜单，Esc 先退出菜单。
+test('头像菜单保持紧凑，点击外观才展开，手形光标与键盘在收起侧栏及窄屏均可用', async ({
+  page,
+  account,
+}, testInfo) => {
+  await login(page, account)
+  const navigation = await sidebar(page)
+  const trigger = navigation.getByRole('button', { name: '账号菜单', exact: true })
+  await expect(navigation.getByRole('button', { name: /外观/ })).toHaveCount(0)
+  await expect(navigation.getByRole('button', { name: '退出登录', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('menu')).toHaveCount(0)
+  await trigger.focus()
+  await page.keyboard.press('Enter')
+  const menu = page.getByRole('menu')
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(0)
+  const appearanceEntry = menu.getByRole('menuitem', { name: '外观', exact: true })
+  await appearanceEntry.hover()
+  await expect(appearanceEntry).toHaveAttribute('aria-expanded', 'false')
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(0)
+  // 检查浏览器实际样式，防止全局菜单样式覆盖业务组件里的手形光标。
+  for (const item of await menu.getByRole('menuitem').all()) {
+    await item.hover()
+    expect(await item.evaluate((element) => getComputedStyle(element).cursor)).toBe('pointer')
+  }
+  await expect(menu.getByRole('menuitem', { name: '退出登录', exact: true })).toBeVisible()
+  // 生产包继续隐藏开发组件预览，不能因入口迁移而开放开发路由。
+  await expect(menu.getByRole('menuitem', { name: '组件预览', exact: true })).toHaveCount(0)
+  const box = await menu.boundingBox()
+  expect(box!.height).toBeLessThan(190)
+  expect(box!.x).toBeGreaterThanOrEqual(0)
+  expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width)
+  expect(box!.y).toBeGreaterThanOrEqual(0)
+  expect(box!.y + box!.height).toBeLessThanOrEqual(page.viewportSize()!.height)
+  await page.screenshot({ path: testInfo.outputPath('account-menu-light.png'), fullPage: true })
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  await expect(navigation).toBeVisible()
+  // 点击导航内的空白关闭浮层，不能穿透成页面导航或同时关闭手机抽屉。
+  const navigationBox = await navigation.boundingBox()
+  await accountMenu(page)
+  await page.mouse.click(navigationBox!.x + 8, navigationBox!.y + 8)
+  await expect(menu).toHaveCount(0)
+  await expect(navigation).toBeVisible()
+  await accountMenu(page)
+  await appearanceEntry.focus()
+  await page.keyboard.press('Enter')
+  await expect(appearanceEntry).toHaveAttribute('aria-expanded', 'true')
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(2)
+  expect(
+    await menu
+      .getByRole('menuitemradio')
+      .first()
+      .evaluate((element) => getComputedStyle(element).cursor),
+  ).toBe('pointer')
+  await menu.getByRole('menuitemradio', { name: '深色', exact: true }).click()
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
+  await expect(menu).toHaveCount(0)
+  await expect(trigger).toBeFocused()
+  if (page.viewportSize()!.width > 760) {
+    await navigation.getByRole('button', { name: '收起侧栏', exact: true }).click()
+    await expect(trigger).toBeVisible()
+    await expect(trigger.locator('.profile-details')).not.toBeVisible()
+  }
+  await accountMenu(page)
+  await expect(menu.getByRole('menuitemradio')).toHaveCount(0)
+  await accountAppearance(page)
+  await expect(menu.getByRole('menuitemradio', { name: '深色', exact: true })).toHaveAttribute(
+    'aria-checked',
+    'true',
+  )
+  await page.screenshot({ path: testInfo.outputPath('account-menu-dark.png'), fullPage: true })
+  await page.keyboard.press('Escape')
+  await expect(trigger).toBeFocused()
+})
 
 // 同一侧栏在两个业务页面间保持尺寸、会话和折叠状态，手机继续使用原导航抽屉。
 test('进入模型管理保留侧栏，选中入口并能从会话目录返回聊天', async ({ page, account }) => {
@@ -110,8 +189,7 @@ test('主题切换后刷新保持选择，Portal 菜单同步当前主题', asyn
   await expect(artwork).toHaveClass(/is-loaded/)
   const day = await artwork.getAttribute('src')
   await page.screenshot({ path: testInfo.outputPath('appearance-light-home.png'), fullPage: true })
-  const navigation = await sidebar(page)
-  await navigation.getByRole('button', { name: /外观.*浅色/ }).click()
+  await accountAppearance(page)
   const light = page.getByRole('menuitemradio', { name: '浅色', exact: true })
   const dark = page.getByRole('menuitemradio', { name: '深色', exact: true })
   await expect(light).toHaveAttribute('aria-checked', 'true')
@@ -137,8 +215,8 @@ test('主题切换后刷新保持选择，Portal 菜单同步当前主题', asyn
   await page.reload()
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await expect(artwork).toHaveAttribute('src', /indigo-night/)
-  const appearance = (await sidebar(page)).getByRole('button', { name: /外观.*深色/ })
-  await appearance.click()
+  const appearance = (await sidebar(page)).getByRole('button', { name: '账号菜单', exact: true })
+  await accountAppearance(page)
   await expect(page.getByRole('menuitemradio', { name: '深色', exact: true })).toHaveAttribute(
     'aria-checked',
     'true',

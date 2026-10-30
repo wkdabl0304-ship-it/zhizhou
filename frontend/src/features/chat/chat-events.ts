@@ -1,5 +1,5 @@
 /** 聊天流事件契约：描述 API 校验后交给状态层的事件，字段统一使用前端命名。 */
-import type { ModelSelection } from '@/features/model-selection/types'
+import type { ModelIdentity, ModelSelection } from '@/features/model-selection/types'
 
 /** 后端公开的 JSON 值；工具参数与结果可为结构化数据，不包含可执行对象。 */
 export type JsonValue =
@@ -17,6 +17,7 @@ export type ChatStreamEvent =
       isNew: boolean
       modelSelection: ModelSelection | null
       modelSelectionVersion: number
+      model?: ModelIdentity | null
     }
   | { type: 'delta'; messageId: string; text: string }
   | { type: 'done'; messageId: string; reply: string }
