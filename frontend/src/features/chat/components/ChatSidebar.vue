@@ -1,7 +1,6 @@
 <!-- 聊天侧栏：共用于桌面导航与窄屏抽屉，向上报告选择、新建和折叠事件。 -->
 <script setup lang="ts">
 import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
-import UiTag from '@/shared/components/ui/UiTag.vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
 import { computed } from 'vue'
 import {
@@ -92,9 +91,7 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
       />
       <UiFeedback v-if="actionError">{{ actionError }}</UiFeedback>
       <p v-if="loading" class="directory-hint" role="status">正在加载会话…</p>
-      <p v-else-if="!conversations.length && !error" class="directory-hint">
-        还没有对话，开启一次新的思考。
-      </p>
+      <p v-else-if="!conversations.length && !error" class="directory-hint">暂无对话</p>
       <section v-for="group in groups" :key="group" class="conversation-group" :aria-label="group">
         <h2>{{ group }}</h2>
         <template v-for="conversation in conversations" :key="conversation.id"
@@ -147,9 +144,6 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
         aria-label="组织与权限"
         ><Users :size="17" /><span v-if="!compact">组织与权限</span></RouterLink
       >
-      <div v-if="!compact" class="workspace-note">
-        <span class="workspace-note-dot" />为每一个好想法，找到方向。
-      </div>
       <ThemeMenu :compact="compact" />
       <UiButton
         v-if="auth.user"
@@ -168,9 +162,8 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
         <span class="profile-avatar"><BrandLogo :size="22" /></span>
         <div>
           <span>{{ auth.user?.username ?? '知舟工作空间' }}</span
-          ><small>{{ auth.user?.department?.name ?? '让工作，始于一句话' }}</small>
+          ><small v-if="auth.user?.department">{{ auth.user.department.name }}</small>
         </div>
-        <UiTag size="xs" v-if="auth.user" tone="brand" dot>已登录</UiTag>
       </div>
     </div>
   </div>
@@ -314,21 +307,6 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   justify-content: flex-start;
   margin-top: 8px;
 }
-.workspace-note {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 12px 8px 19px;
-  font-size: 11px;
-  color: var(--text-muted);
-}
-.workspace-note-dot {
-  width: 5px;
-  height: 5px;
-  background: var(--accent);
-  border-radius: 50%;
-  opacity: 0.7;
-}
 .preview-link {
   display: flex;
   justify-content: space-between;
@@ -367,10 +345,6 @@ const groups = computed(() => [...new Set(props.conversations.map((item) => item
   flex-direction: column;
   font-size: 12px;
   min-width: 0;
-}
-.sidebar-profile > .ui-tag {
-  flex-shrink: 0;
-  margin-left: auto;
 }
 .sidebar-profile > div > span,
 .sidebar-profile small {

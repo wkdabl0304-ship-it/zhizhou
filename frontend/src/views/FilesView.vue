@@ -4,7 +4,6 @@ import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeft,
-  ArrowUpRight,
   Building2,
   ChevronRight,
   FolderOpen,
@@ -14,7 +13,6 @@ import {
   Settings2,
 } from '@lucide/vue'
 import { useAuthStore } from '@/features/auth/store'
-import RiverBackdrop from '@/shared/components/RiverBackdrop.vue'
 import UiPageHeader from '@/shared/components/ui/UiPageHeader.vue'
 import UiButton from '@/shared/components/ui/UiButton.vue'
 import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
@@ -260,23 +258,11 @@ onBeforeUnmount(() => {
 </script>
 <template>
   <div class="files-page">
-    <UiPageHeader class="files-header" title="资料库" eyebrow="WORKSPACE / FILES" size="sm" />
+    <UiPageHeader class="files-header" title="资料库" size="sm" />
     <div class="files-scroll">
-      <section class="files-hero" aria-label="资料库概览">
-        <RiverBackdrop :motion="false" />
-        <div class="files-hero-copy">
-          <span class="files-eyebrow">知舟 · 藏与共</span>
-          <h2>积累有处<span>分享有舟。</span></h2>
-          <p>个人珍藏，团队共阅。让每一份积累各有所属。</p>
-        </div>
-        <span class="files-hero-seal" aria-hidden="true">藏<br />知</span>
-        <div class="files-hero-caption" aria-hidden="true">
-          <span>COLLECT · CONNECT</span><span>山海之间，自有归处 <ArrowUpRight :size="15" /></span>
-        </div>
-      </section>
       <div class="files-workbench">
         <aside class="file-spaces" aria-label="资料空间">
-          <div class="file-section-label"><span>空间索引</span><small>SPACES</small></div>
+          <div class="file-section-label"><span>资料空间</span></div>
           <nav aria-label="选择资料空间">
             <button
               v-for="item in spaces"
@@ -299,7 +285,9 @@ onBeforeUnmount(() => {
               />
               <span
                 ><strong>{{ item.name }}</strong
-                ><small>{{ SPACE_LABELS[item.kind] }}</small></span
+                ><small>{{
+                  item.kind === 'personal' ? '仅自己可见' : SPACE_LABELS[item.kind]
+                }}</small></span
               ><ChevronRight :size="14" />
             </button>
           </nav>
@@ -319,11 +307,6 @@ onBeforeUnmount(() => {
             @click="directory.loadSpaces(true)"
             >更多空间</UiButton
           >
-          <div class="file-space-note">
-            <span class="file-note-line" />
-            <p>个人珍藏，团队共阅。</p>
-            <small>个人空间仅自己可见；共享空间的可用操作由当前授权决定。</small>
-          </div>
         </aside>
         <section class="file-directory" aria-label="文件目录" :aria-busy="loading">
           <nav v-if="space" class="file-address-bar" aria-label="目录路径">
@@ -431,14 +414,8 @@ onBeforeUnmount(() => {
             />
             <div v-else-if="!loading && !error && space" class="file-empty">
               <FolderOpen :size="40" :stroke-width="1" />
-              <h3>这个文件夹还是空的</h3>
-              <p>
-                {{
-                  space.capabilities.includes('upload')
-                    ? '点击「上传文件」，或直接将文件拖进当前目录。'
-                    : '这里还没有资料，稍后再来看看。'
-                }}
-              </p>
+              <h3>暂无文件</h3>
+              <p v-if="space.capabilities.includes('upload')">上传文件或拖入此目录</p>
             </div>
             <p
               v-if="!spaceId && !spacesLoading && !spacesError && !spaces.length"

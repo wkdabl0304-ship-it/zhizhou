@@ -16,29 +16,23 @@ const { enabled, visible } = useMotionPreference()
       <RouterLink to="/login" class="auth-brand" aria-label="知舟登录首页">
         <BrandLogo :size="41" /><span>知舟<small>ZHIZHOU</small></span>
       </RouterLink>
-      <div class="auth-header-end"><span>AI 工作空间</span><ThemeMenu compact /></div>
+      <div class="auth-header-end"><ThemeMenu compact /></div>
     </header>
     <main class="auth-main">
       <section class="auth-scene" aria-label="心有山海，自有知舟">
         <div class="auth-editorial">
-          <span class="auth-eyebrow">KNOWLEDGE IN FLOW</span>
           <h1>
             <span class="auth-title-line">心有山海，</span><br />
             <span class="auth-title-line auth-title-line--second"
               >自有<span class="auth-title-brand">知舟。</span></span
             >
           </h1>
-          <p>让思考启程，<br />让好想法有处生长。</p>
         </div>
-        <p class="auth-scene-foot">让工作，始于一句话。</p>
       </section>
       <section class="auth-panel" aria-label="账号认证">
         <div class="auth-panel-inner"><slot /></div>
       </section>
     </main>
-    <footer class="auth-footer">
-      <span>知舟 · 让想法，有处启航</span><span>专注每一次思考</span>
-    </footer>
   </div>
 </template>
 
@@ -127,14 +121,8 @@ const { enabled, visible } = useMotionPreference()
   position: relative;
   animation: auth-arrive 1100ms cubic-bezier(0.16, 1, 0.3, 1) 80ms both;
 }
-.auth-eyebrow {
-  color: var(--accent);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 2px;
-}
 .auth-editorial h1 {
-  margin: 32px 0 24px;
+  margin: 0;
   font-family: 'Songti SC', 'STSong', 'SimSun', serif;
   font-size: clamp(42px, 4vw, 68px);
   font-weight: 400;
@@ -163,18 +151,6 @@ const { enabled, visible } = useMotionPreference()
   background: linear-gradient(90deg, transparent, var(--brand), transparent);
   animation: auth-waterline 4s ease-in-out -2s infinite alternate;
 }
-.auth-editorial p {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-  line-height: 2;
-}
-.auth-scene-foot {
-  margin: 36px 0 0;
-  color: var(--text-muted);
-  font-size: 11px;
-  letter-spacing: 1px;
-}
 .auth-panel {
   display: flex;
   align-items: center;
@@ -185,15 +161,6 @@ const { enabled, visible } = useMotionPreference()
   width: 100%;
   max-width: 380px;
   animation: auth-arrive 1000ms cubic-bezier(0.16, 1, 0.3, 1) 160ms both;
-}
-.auth-footer {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 10px;
-  padding: 20px clamp(24px, 4vw, 64px);
-  color: var(--text-muted);
-  font-size: 11px;
 }
 @keyframes auth-arrive {
   from {
@@ -239,9 +206,6 @@ const { enabled, visible } = useMotionPreference()
   .auth-header {
     padding: 22px 24px;
   }
-  .auth-header-end > span {
-    display: none;
-  }
   .auth-main {
     display: flex;
     flex-direction: column;
@@ -263,21 +227,11 @@ const { enabled, visible } = useMotionPreference()
   .auth-editorial h1 br {
     display: none;
   }
-  .auth-editorial p,
-  .auth-scene-foot {
-    display: none;
-  }
   .auth-panel {
     flex: 1;
   }
   .auth-panel-inner {
     max-width: 400px;
-  }
-  .auth-footer {
-    padding: 18px 24px;
-  }
-  .auth-footer span:last-child {
-    display: none;
   }
 }
 </style>

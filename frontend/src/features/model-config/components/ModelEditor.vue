@@ -175,7 +175,7 @@ void load()
     :loading="loading"
     :error="error"
     :conflict="conflict"
-    description="设置模型参数与可选强度，让每次提问都有合适的思考空间。"
+    description="设置模型参数与思考强度"
     :return-focus="returnFocus"
     @submit="save"
     @close="emit('close')"

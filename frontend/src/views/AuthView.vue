@@ -71,13 +71,7 @@ onBeforeUnmount(() => controller?.abort())
 <template>
   <AuthLayout>
     <div class="auth-content">
-      <span class="form-eyebrow">YOUR NEXT CHAPTER</span>
-      <h2>{{ mode === 'register' ? '开启你的知舟' : '欢迎回来' }}</h2>
-      <p class="form-intro">
-        {{
-          mode === 'register' ? '创建账号，让每一次思考都有归处。' : '登录，继续你的思考与工作。'
-        }}
-      </p>
+      <h2>{{ mode === 'register' ? '创建账号' : '欢迎回来' }}</h2>
       <UiFeedback
         v-if="auth.restoreError"
         :message="auth.restoreError"
@@ -112,24 +106,12 @@ onBeforeUnmount(() => controller?.abort())
 </template>
 
 <style scoped>
-.form-eyebrow {
-  display: block;
-  margin-bottom: 18px;
-  color: var(--accent);
-  font-size: 10px;
-  letter-spacing: 1.7px;
-}
 h2 {
-  margin: 0 0 10px;
+  margin: 0 0 28px;
   font-family: 'Songti SC', 'STSong', 'SimSun', serif;
   font-size: 31px;
   font-weight: 400;
   letter-spacing: 1px;
-}
-.form-intro {
-  margin: 0 0 30px;
-  color: var(--text-secondary);
-  font-size: 13px;
 }
 .auth-switch {
   display: flex;
@@ -154,9 +136,6 @@ h2 {
   text-underline-offset: 3px;
 }
 @media (max-width: 760px) {
-  .form-eyebrow {
-    display: none;
-  }
   h2 {
     font-size: 28px;
   }

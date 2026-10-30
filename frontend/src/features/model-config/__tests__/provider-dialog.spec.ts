@@ -132,9 +132,10 @@ it('首页四个品牌均展示，未配置供应商也能打开弹窗查看目�
   expect(document.querySelector('[aria-label="全局默认模型"]')).toBeNull()
   expect(document.querySelector('h1')?.textContent).toBe('模型管理')
   expect(document.querySelector('h2')?.textContent).toContain('模型供应商')
-  expect(document.querySelector('.model-management-title-row')?.textContent).toContain(
-    'MODEL PROVIDERS',
-  )
+  expect(document.querySelector('.model-management-title-row')?.textContent).toBe('模型管理')
+  expect(document.body.textContent).toContain('所有登录用户共享配置')
+  expect(document.body.textContent).not.toContain('选择供应商卡片配置连接')
+  expect(document.querySelector('.provider-brand-card p')).toBeNull()
   expect(document.body.textContent).not.toContain('连接你的供应商，开启适合自己的模型。')
   expect(document.body.textContent).not.toContain('返回聊天')
   expect(document.body.textContent).not.toContain('刷新配置')
@@ -156,6 +157,9 @@ it('首页四个品牌均展示，未配置供应商也能打开弹窗查看目�
   )!
   expect(toggle.disabled).toBe(true)
   expect(document.body.textContent).toContain('还没有连接')
+  expect(document.body.textContent).toContain('请先保存连接信息，再开启模型')
+  expect(document.body.textContent).toContain('按需开启，即刻保存')
+  expect(document.querySelector('.config-eyebrow')).toBeNull()
   expect(document.querySelector('[name="name"]')).toBeNull()
   await click('添加连接')
   expect(document.querySelectorAll('[role="dialog"]')).toHaveLength(2)
@@ -165,6 +169,8 @@ it('首页四个品牌均展示，未配置供应商也能打开弹窗查看目�
 
 it('首次开关只创建一次配置且不设默认，等待保存时保留关闭状态并禁止重复点击', async () => {
   await page()
+  // 正常连接由选中卡片标识，不额外重复说明；连接缺失和停用仍有就近提示。
+  expect(document.querySelector('.provider-models .provider-panel-caption')).toBeNull()
   const pending = deferredResponse()
   fetchMock.mockReturnValueOnce(pending.promise)
   const toggle = document.querySelector<HTMLButtonElement>(

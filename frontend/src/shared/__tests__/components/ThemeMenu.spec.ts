@@ -27,6 +27,7 @@ async function open(compact = false, dark = false) {
 it('显示两张独立配色预览，选择后应用并保存主题且关闭菜单', async () => {
   const { page, theme, trigger } = await open()
   expect(page.findAll('[role="menuitemradio"]')).toHaveLength(2)
+  expect(page.get('.appearance-heading').text()).toBe('外观')
   expect(page.text()).toContain('青碧 · 朱砂')
   expect(page.text()).toContain('靛夜 · 月金')
   expect(page.get('[aria-label="浅色"]').attributes('aria-checked')).toBe('true')

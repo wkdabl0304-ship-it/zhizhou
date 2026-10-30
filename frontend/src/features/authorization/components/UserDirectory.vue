@@ -57,7 +57,6 @@ defineExpose({ reload })
     <div class="section-heading">
       <div>
         <h2>全站账号</h2>
-        <p class="quiet-label">管理登录状态、部门归属与角色；个人会话始终归账号本人。</p>
       </div>
     </div>
     <form

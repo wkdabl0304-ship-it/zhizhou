@@ -42,8 +42,8 @@ const validation = computed(() =>
 )
 const description = computed(() =>
   props.space.kind === 'personal'
-    ? '此设置对所有用户的个人空间生效，仅限制之后发布的新文件。'
-    : `此设置对${props.space.name}生效，仅限制之后发布的新文件。`,
+    ? '适用于所有用户的个人空间，仅影响新上传文件。'
+    : `适用于${props.space.name}，仅影响新上传文件。`,
 )
 
 /** 获取最新策略版本，读取失败只提供显式重试入口。 */
@@ -133,9 +133,7 @@ onBeforeUnmount(() => controller.abort())
           />
         </label>
       </div>
-      <p id="upload-limit-help" class="file-hint">
-        支持小数，最大 1 TB。容量按 1024 换算，已保存文件不受影响。
-      </p>
+      <p id="upload-limit-help" class="file-hint">支持小数，最大 1 TB（1 KB = 1024 B）。</p>
     </form>
     <UiFeedback
       v-if="error || (attempted && validation)"

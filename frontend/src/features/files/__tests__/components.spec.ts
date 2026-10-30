@@ -189,6 +189,8 @@ it('个人上传策略默认显示 MB，可选择单位和输入小数，并精�
   await flushPromises()
   const body = new DOMWrapper(document.body)
   expect(body.text()).toContain('所有用户的个人空间')
+  expect(body.text()).toContain('仅影响新上传文件')
+  expect(body.get('#upload-limit-help').text()).toBe('支持小数，最大 1 TB（1 KB = 1024 B）。')
   expect((body.get('#upload-limit-amount').element as HTMLInputElement).value).toBe('100')
   expect(body.get('[role=combobox]').text()).toContain('MB')
   for (const invalid of ['0', '-1', '1e3', '1048577', '0.0000001']) {

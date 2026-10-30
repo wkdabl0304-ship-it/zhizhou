@@ -25,13 +25,7 @@ onBeforeUnmount(() => store.cancelManagement())
 <template>
   <section class="model-management-main" aria-label="模型管理工作区">
     <div class="config-page">
-      <UiPageHeader
-        class="model-management-title-row"
-        title="模型管理"
-        eyebrow="MODEL PROVIDERS"
-        size="lg"
-        serif
-      />
+      <UiPageHeader class="model-management-title-row" title="模型管理" size="lg" serif />
       <section aria-label="供应商配置列表">
         <div class="config-section-heading provider-grid-heading">
           <h2>
@@ -54,9 +48,6 @@ onBeforeUnmount(() => store.cancelManagement())
           />
         </div>
       </section>
-      <p class="config-hint provider-page-footnote">
-        选择供应商卡片配置连接。模型已内置，按需开启即可。
-      </p>
       <ProviderDialog
         v-if="activeBrand"
         :key="activeBrand.provider"

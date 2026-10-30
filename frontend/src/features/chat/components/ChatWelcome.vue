@@ -1,7 +1,6 @@
 <!-- 首页组合：青蓝水墨标题区、适中尺寸的真实输入区；通过事件交出用户输入，不直接依赖聊天 store。 -->
 <script setup lang="ts">
 import { ref } from 'vue'
-import BrandLogo from '@/shared/components/BrandLogo.vue'
 import ChatComposer from './ChatComposer.vue'
 import RiverWelcomeHero from './RiverWelcomeHero.vue'
 const model = defineModel<string>({ default: '' })
@@ -18,9 +17,6 @@ defineExpose({ focus })
   <section class="welcome" aria-label="开启新对话">
     <RiverWelcomeHero />
     <div class="welcome-controls">
-      <div class="welcome-composer-label">
-        <BrandLogo :size="20" /><span>把你的想法，交给知舟</span>
-      </div>
       <ChatComposer
         ref="composer"
         v-model="model"
@@ -30,7 +26,7 @@ defineExpose({ focus })
         ><template #reasoning-controls><slot name="reasoning-controls" /></template
         ><template #model-selector><slot name="model-selector" /></template
       ></ChatComposer>
-      <div class="welcome-foot"><span>让工作，始于一句话。</span><span>AI 回复仅供参考</span></div>
+      <p class="welcome-foot">AI 回复仅供参考</p>
     </div>
   </section>
 </template>
@@ -46,25 +42,9 @@ defineExpose({ focus })
   max-width: 860px;
   margin: 0 auto;
 }
-.welcome-composer-label {
-  display: flex;
-  width: fit-content;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  padding: 4px 12px;
-  margin: 0 auto 11px;
-  border: 1px solid var(--border);
-  border-radius: 30px;
-  background: var(--bg);
-  color: var(--text);
-  font-size: 11px;
-}
 .welcome-foot {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  padding-top: 19px;
+  margin: 14px 0 0;
+  text-align: center;
   color: var(--text-muted);
   font-size: 10px;
 }

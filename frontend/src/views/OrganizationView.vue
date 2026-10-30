@@ -2,7 +2,7 @@
 <script setup lang="ts">
 import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
-import { Building2, Users, ShieldCheck, ArrowUpRight } from '@lucide/vue'
+import { Building2, Users, ShieldCheck } from '@lucide/vue'
 import { useAuthStore } from '@/features/auth/store'
 import UiPageHeader from '@/shared/components/ui/UiPageHeader.vue'
 import DepartmentDirectory from '@/features/authorization/components/DepartmentDirectory.vue'
@@ -77,34 +77,15 @@ onBeforeUnmount(() => {
 
 <template>
   <div class="organization-page">
-    <UiPageHeader
-      title="组织与权限"
-      eyebrow="WORKSPACE / ORGANIZATION"
-      description="让协作有归属，让权限有边界。"
-      class="organization-header"
-    />
+    <UiPageHeader title="组织与权限" class="organization-header" />
     <div class="organization-scroll">
       <section class="organization-intro" aria-label="管理范围">
-        <div class="intro-copy">
-          <span class="section-number">知舟 · 同行</span>
-          <h2>聚人成舟<span>各有所属</span></h2>
-          <p>
-            {{
-              auth.can('user:read')
-                ? '连接团队与成员，以清晰的组织和恰当的授权，让每一份协作有序展开。'
-                : '在自己的部门里，邀请同行者，管理成员，共同向前。'
-            }}
-          </p>
-        </div>
         <div class="scope-summary">
           <ShieldCheck :size="26" /><span>当前管理范围</span
           ><strong>{{
             auth.can('user:read') ? '全站组织与账号' : auth.user?.department?.name
           }}</strong>
           <p>管理权限不包含他人的个人会话。</p>
-          <RouterLink v-if="auth.can('model:manage')" to="/models"
-            >前往模型管理 <ArrowUpRight :size="14"
-          /></RouterLink>
         </div>
       </section>
       <nav class="organization-tabs" aria-label="组织管理视图">
@@ -131,9 +112,6 @@ onBeforeUnmount(() => {
         @action="openAction"
       />
       <UserDirectory v-else-if="auth.can('user:read')" ref="users" @action="openAction" />
-      <footer class="organization-footnote">
-        <span>ZHIZHOU / 与人同行</span><span>权限以当前授权为准，变更后即时生效。</span>
-      </footer>
     </div>
     <ManagementDialog
       v-if="action"

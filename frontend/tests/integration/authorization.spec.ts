@@ -71,6 +71,11 @@ it('普通账号通过兼容角色也不能进入模型或组织管理，两个�
 
 it('超管从创建部门到加入成员使用正式表单，成功后重新读取身份和目录', async () => {
   const { page, data } = await open()
+  expect(page.get('h1').text()).toBe('组织与权限')
+  expect(page.get('[aria-label="管理范围"]').text()).toContain('全站组织与账号')
+  expect(page.text()).toContain('管理权限不包含他人的个人会话')
+  expect(page.text()).not.toContain('聚人成舟')
+  expect(page.text()).not.toContain('归属清晰 · 权限有界')
   const body = new DOMWrapper(document.body)
   await page
     .findAll('button')

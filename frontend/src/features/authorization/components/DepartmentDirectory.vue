@@ -101,11 +101,7 @@ defineExpose({ reload })
         v-else-if="!departments.loading.value && !departments.items.value.length"
         class="directory-empty"
       >
-        尚无可见部门。{{
-          auth.can('department:create')
-            ? '创建第一个部门，开始组织协作。'
-            : '部门或权限可能已发生变化。'
-        }}
+        暂无可见部门
       </p>
       <nav aria-label="选择部门" class="department-options">
         <button
@@ -126,16 +122,11 @@ defineExpose({ reload })
         @click="departments.load(true)"
         >加载更多部门</UiButton
       >
-      <div class="scope-note">
-        <span>归属清晰 · 权限有界</span>
-        <p>一个账号归属一个部门。部门管理员仅管理本部门成员。</p>
-      </div>
     </section>
     <section class="member-panel" aria-label="部门成员">
       <template v-if="department">
         <div class="member-heading">
           <div>
-            <span class="quiet-label">DEPARTMENT / 部门</span>
             <h2>{{ department.name }}</h2>
           </div>
           <div class="inline-actions">
@@ -177,7 +168,6 @@ defineExpose({ reload })
             ><Plus :size="16" />加入成员</UiButton
           >
         </div>
-        <p class="quiet-label">成员身份仅展示当前部门的角色。</p>
         <p v-if="members.loading.value" role="status">正在加载成员…</p>
         <UiFeedback v-if="members.error.value">
           {{ members.error.value }}
@@ -190,13 +180,9 @@ defineExpose({ reload })
           class="directory-empty"
         >
           <Users :size="30" />
-          <h3>{{ search ? '没有匹配的成员' : '团队，始于第一位同行者' }}</h3>
+          <h3>{{ search ? '没有匹配的成员' : '暂无成员' }}</h3>
           <p>
-            {{
-              search
-                ? '试试其他用户名，或清空搜索。'
-                : '按完整用户名加入已有账号，再为团队设置部门管理员。'
-            }}
+            {{ search ? '试试其他用户名，或清空搜索。' : '按用户名加入已有账号。' }}
           </p>
         </div>
         <ul class="people-list">
@@ -257,8 +243,8 @@ defineExpose({ reload })
       </template>
       <div v-else class="directory-empty department-placeholder">
         <Building2 :size="36" />
-        <h2>让同行的人，各有所属</h2>
-        <p>从左侧选择一个部门，查看成员与管理权限。</p>
+        <h2>选择部门</h2>
+        <p>查看和管理部门成员。</p>
       </div>
     </section>
   </div>

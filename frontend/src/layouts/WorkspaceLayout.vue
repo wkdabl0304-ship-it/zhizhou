@@ -1,7 +1,6 @@
 <!-- 登录工作区共用布局：聊天与模型管理保留同一侧栏、折叠状态和移动抽屉，子页面只维护内容。 -->
 <script setup lang="ts">
 import UiFeedback from '@/shared/components/ui/UiFeedback.vue'
-import UiTag from '@/shared/components/ui/UiTag.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { PanelLeft, SquarePen } from '@lucide/vue'
@@ -46,7 +45,7 @@ const management = computed(
 )
 const home = computed(() => !management.value && !chat.activeConversation)
 const title = computed(() =>
-  management.value ? '工作空间 / 模型管理' : (chat.activeConversation?.title ?? '此刻，思考启程'),
+  management.value ? '工作空间 / 模型管理' : (chat.activeConversation?.title ?? '新对话'),
 )
 
 /** 从任一工作区页面打开会话；离页被取消时不清空草稿或更改当前会话。 */
@@ -172,9 +171,7 @@ watch(
       >
         <template #actions
           ><div class="header-end">
-            <span class="header-edition">KNOWLEDGE IN FLOW</span
-            ><UiTag size="sm" tone="brand" dot>知舟 AI</UiTag
-            ><UiTooltip v-if="!management && chat.activeConversation" text="新建对话"
+            <UiTooltip v-if="chat.activeConversation" text="新建对话"
               ><UiIconButton label="新建对话" @click="navigate()"
                 ><SquarePen :size="18" /></UiIconButton
             ></UiTooltip></div
@@ -195,7 +192,7 @@ watch(
         <UiDrawer
           v-model:open="drawerOpen"
           title="会话导航"
-          description="新建对话、浏览会话记录、打开资料库、管理模型或切换外观。"
+          description="会话与工作区导航"
           @close-auto-focus="restoreFocus"
         >
           <template #trigger
@@ -297,11 +294,6 @@ watch(
 .header-title:focus {
   outline: none;
 }
-.header-edition {
-  color: var(--accent);
-  font-size: 9px;
-  letter-spacing: 1.5px;
-}
 .chat-shell[data-visible='false'] :deep(*),
 .chat-shell[data-visible='false'] :deep(*::before),
 .chat-shell[data-visible='false'] :deep(*::after) {
@@ -316,9 +308,6 @@ watch(
 @media (max-width: 1024px) {
   .chat-header {
     padding-inline: 24px;
-  }
-  .header-edition {
-    display: none;
   }
 }
 @media (max-width: 760px) {

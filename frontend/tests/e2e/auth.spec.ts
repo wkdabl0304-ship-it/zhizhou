@@ -9,7 +9,11 @@ test('注册后登录，刷新恢复身份，退出后工作区重新受保护',
   }
   await page.goto('/')
   await expect(page).toHaveURL(/\/login/)
+  await expect(page.getByRole('heading', { level: 2, name: '欢迎回来', exact: true })).toBeVisible()
+  await expect(page.locator('.auth-scene p, .auth-footer, .form-eyebrow')).toHaveCount(0)
   await page.getByRole('link', { name: '创建账号', exact: true }).click()
+  await expect(page.getByRole('heading', { level: 2, name: '创建账号', exact: true })).toBeVisible()
+  await expect(page.getByText('3–32 位字母、数字或下划线，不区分大小写')).toBeVisible()
   await page.getByLabel('用户名', { exact: true }).fill(account.username)
   await page.getByLabel('密码', { exact: true }).fill(account.password)
   await page.getByLabel('确认密码', { exact: true }).fill(account.password)

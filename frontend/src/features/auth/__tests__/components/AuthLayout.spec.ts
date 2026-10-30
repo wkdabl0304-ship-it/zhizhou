@@ -48,6 +48,11 @@ describe('认证背景与动效生命周期', () => {
     expect(page.get('.river-backdrop').attributes('aria-hidden')).toBe('true')
     expect(page.get('.river-backdrop').attributes('data-motion')).toBe('on')
     expect(page.get('.auth-page').attributes('data-visible')).toBe('true')
+    expect(page.get('h1').text()).toContain('心有山海')
+    expect(page.findAll('.auth-scene h1')).toHaveLength(1)
+    expect(page.find('.auth-scene p').exists()).toBe(false)
+    expect(page.text()).not.toContain('KNOWLEDGE IN FLOW')
+    expect(page.text()).not.toContain('让工作，始于一句话')
   })
 
   // 收拢内容和移除面板只改变构图，两种表单仍能先展示字段错误，再提交有效凭据。
@@ -64,6 +69,15 @@ describe('认证背景与动效生命周期', () => {
       [{ username: 'lin_zhou', password: ' password ' }],
     ])
     expect(page.get('[name="username"]').attributes('aria-invalid')).toBe('false')
+  })
+
+  // 精简宣传文案仍保留注册前就能看到的用户名与密码规则。
+  it('注册页就近说明必要的输入规则', () => {
+    const page = renderLayout('register')
+    expect(page.text()).toContain('3–32 位字母、数字或下划线')
+    expect(page.text()).toContain('8–128 个字符')
+    expect(page.get('[name="username"]').attributes('aria-describedby')).toContain('username-hint')
+    expect(page.get('[name="password"]').attributes('aria-describedby')).toContain('password-hint')
   })
 
   // 系统请求减少动态效果时，根容器与背景必须同步静止，恢复时不丢失正在填写的数据。

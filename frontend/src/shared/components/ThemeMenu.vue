@@ -50,8 +50,7 @@ function navigate(event: KeyboardEvent): void {
       </button>
     </template>
     <DropdownMenuLabel class="appearance-heading"
-      ><span><Palette :size="15" aria-hidden="true" />外观</span
-      ><small>APPEARANCE</small></DropdownMenuLabel
+      ><span><Palette :size="15" aria-hidden="true" />外观</span></DropdownMenuLabel
     >
     <DropdownMenuRadioGroup
       class="appearance-options"
@@ -115,11 +114,6 @@ function navigate(event: KeyboardEvent): void {
 }
 .appearance-heading svg {
   color: var(--accent);
-}
-.appearance-heading small {
-  color: var(--text-muted);
-  font-size: 8px;
-  letter-spacing: 1.4px;
 }
 .appearance-options {
   display: grid;

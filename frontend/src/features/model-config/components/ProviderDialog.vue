@@ -225,7 +225,6 @@ onBeforeUnmount(() => store.cancelManagement())
   <UiModal
     :open="true"
     :title="brand.display_name"
-    description="配置连接，开启你需要的模型。"
     wide
     :close-disabled="locked"
     @update:open="close"
@@ -234,7 +233,6 @@ onBeforeUnmount(() => store.cancelManagement())
       <section class="provider-connection-panel" aria-label="供应商连接">
         <div class="config-section-heading">
           <div>
-            <p class="config-eyebrow">CONNECTIONS</p>
             <h2>
               供应商连接 <small>{{ connections.length }}</small>
             </h2>
@@ -248,7 +246,6 @@ onBeforeUnmount(() => store.cancelManagement())
             <Plus :size="14" aria-hidden="true" />添加连接
           </UiButton>
         </div>
-        <p class="provider-panel-caption">选择连接，管理对应的模型。</p>
         <div class="provider-connection-list">
           <ProviderConnectionCard
             v-for="connection in connections"
@@ -273,26 +270,21 @@ onBeforeUnmount(() => store.cancelManagement())
         >
           <Plus :size="24" aria-hidden="true" />
           <strong>还没有连接</strong>
-          <span>点击添加连接，配置接口与密钥后即可开启模型。</span>
+          <span>添加接口与密钥</span>
         </button>
       </section>
       <section class="provider-models" aria-label="关联模型方案">
         <div class="config-section-heading">
           <div>
-            <p class="config-eyebrow">MODELS</p>
             <h2>
               模型 <small>{{ rows.length }}</small>
             </h2>
           </div>
           <span class="config-hint">按需开启，即刻保存</span>
         </div>
-        <p class="provider-panel-caption">
+        <p v-if="!current || !current.enabled" class="provider-panel-caption">
           {{
-            !current
-              ? '请先保存连接信息，再开启模型。'
-              : !current.enabled
-                ? '连接已停用；模型各自的启用状态会保留。'
-                : current.name + ' · 启停自动保存，停用不影响已有历史。'
+            !current ? '请先保存连接信息，再开启模型。' : '连接已停用；模型各自的启用状态会保留。'
           }}
         </p>
         <UiFeedback v-if="store.loadError && !error">

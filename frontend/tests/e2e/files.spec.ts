@@ -51,6 +51,10 @@ test('个人资料完整流程：目录、同名另存、原件下载、重命�
 }, testInfo) => {
   await login(page, account)
   await openFiles(page)
+  await expect(page.locator('.files-hero')).toHaveCount(0)
+  await expect(page.getByText('上传文件或拖入此目录', { exact: true })).toBeVisible()
+  await expect(page.locator('.file-footnote')).toContainText('单文件上限')
+  await expect(page.getByRole('complementary', { name: '资料空间' })).toContainText('仅自己可见')
   await createFolder(page, '项目手记')
   await page.getByRole('button', { name: '项目手记', exact: true }).click()
   await expect(page).toHaveURL(/folder=/)
@@ -62,7 +66,6 @@ test('个人资料完整流程：目录、同名另存、原件下载、重命�
   await expect(
     page.getByRole('button', { name: '下载 山海手记 (1).txt', exact: true }),
   ).toBeVisible()
-  await expect(page.locator('.river-landscape-art')).toHaveClass(/is-loaded/)
   await page.screenshot({ path: testInfo.outputPath('files-light.png'), fullPage: true })
   const downloaded = page.waitForEvent('download')
   await page.getByRole('button', { name: '下载 山海手记.txt', exact: true }).click()
@@ -81,8 +84,7 @@ test('个人资料完整流程：目录、同名另存、原件下载、重命�
   await nav.getByRole('button', { name: /外观.*浅色/ }).click()
   await page.getByRole('menuitemradio', { name: '深色', exact: true }).click()
   await closeSidebar(page)
-  await expect(page.locator('.river-landscape-art')).toHaveAttribute('src', /indigo-night/)
-  await expect(page.locator('.river-landscape-art')).toHaveClass(/is-loaded/)
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark')
   await page.screenshot({ path: testInfo.outputPath('files-dark.png'), fullPage: true })
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
   await page.getByRole('button', { name: '上一级', exact: true }).click()
@@ -98,7 +100,7 @@ test('个人资料完整流程：目录、同名另存、原件下载、重命�
   await expect(deletion).not.toBeVisible()
   await expect(page.getByRole('button', { name: '项目手记', exact: true })).toHaveCount(0)
   await page.reload()
-  await expect(page.getByText('这个文件夹还是空的', { exact: true })).toBeVisible()
+  await expect(page.getByText('暂无文件', { exact: true })).toBeVisible()
   await expect(page.getByRole('alert')).toHaveCount(0)
 })
 
@@ -281,6 +283,9 @@ test('单击文件夹整行进入，格式图标随真实目录及重命名同�
 }, testInfo) => {
   await login(page, account)
   await openFiles(page)
+  await expect(page.locator('.files-hero')).toHaveCount(0)
+  await expect(page.getByText('上传文件或拖入此目录', { exact: true })).toBeVisible()
+  await expect(page.locator('.file-footnote')).toContainText('单文件上限')
   await createFolder(page, '项目资料')
   const folder = page
     .locator('tr[data-folder-id]')

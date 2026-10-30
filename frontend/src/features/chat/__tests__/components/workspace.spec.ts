@@ -76,6 +76,14 @@ describe('聊天工作空间', () => {
     const wrapper = await renderWorkspace()
     // 首页使用独立的现代宋体组件，正文与输入区继续使用公共无衬线字体。
     expect(wrapper.findComponent(WelcomeHeading).exists()).toBe(true)
+    // 品牌标题后直接进入输入区，只保留一次回复参考说明，侧栏不再重复标语。
+    expect(wrapper.get('.river-hero').text()).toBe('心有山海，自有知舟。山海')
+    expect(wrapper.findAll('.welcome-foot').map((note) => note.text())).toEqual(['AI 回复仅供参考'])
+    expect(wrapper.find('.chat-composer').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('为每一个好想法')
+    expect(wrapper.get('.sidebar-profile').text()).not.toContain('已登录')
+    expect(wrapper.get('.chat-header h1').text()).toBe('新对话')
+    expect(wrapper.get('.chat-header').text()).toBe('新对话')
     // 装饰跟随首页生命周期，进入正文后应释放背景，保持阅读区稳定。
     expect(wrapper.find('.river-backdrop').exists()).toBe(true)
     expect(wrapper.find('.suggestion').exists()).toBe(false)

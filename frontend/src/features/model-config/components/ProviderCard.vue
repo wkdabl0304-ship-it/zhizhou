@@ -20,12 +20,6 @@ const enabledCount = computed(
     ).length,
 )
 const connected = computed(() => props.connections.some((connection) => connection.enabled))
-const descriptions = {
-  openai: 'GPT 系列 · 通用对话与推理',
-  anthropic: 'Claude 系列 · 深度思考与创作',
-  deepseek: 'DeepSeek 系列 · 高效推理',
-  bailian: '通义千问 · 阿里云百炼',
-}
 </script>
 <template>
   <button
@@ -42,7 +36,6 @@ const descriptions = {
       }}</UiTag>
     </div>
     <h3>{{ brand.display_name }}</h3>
-    <p>{{ descriptions[brand.provider] }}</p>
     <div class="provider-card-bottom">
       <span
         >{{ enabledCount }} 个模型已启用<span v-if="connections.length > 1">

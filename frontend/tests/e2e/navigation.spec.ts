@@ -98,10 +98,10 @@ test('删除必须确认，取消保留数据，确认后刷新目录仍不显�
   await expect(navigation.getByRole('button', { name: '待删除会话', exact: true })).toHaveCount(0)
   await closeSidebar(page)
   await expect(page.getByRole('article')).toHaveCount(0)
-  await expect(page.getByRole('heading', { name: '此刻，思考启程', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: '新对话', exact: true })).toBeVisible()
   await page.reload()
   navigation = await sidebar(page)
-  await expect(navigation).toContainText('还没有对话')
+  await expect(navigation).toContainText('暂无对话')
 })
 
 test('主题切换后刷新保持选择，Portal 菜单同步当前主题', async ({ page, account }, testInfo) => {

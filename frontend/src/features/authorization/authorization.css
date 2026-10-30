@@ -15,81 +15,33 @@
   overflow: auto;
   padding: 24px 36px;
 }
+/* 紧凑展示管理范围，目录与操作成为页面主体。 */
 .organization-intro {
-  position: relative;
-  overflow: hidden;
-  display: flex;
-  justify-content: space-between;
-  gap: 32px;
-  padding: 30px 36px;
-  background: linear-gradient(115deg, var(--surface-soft), var(--bg));
+  padding: 14px 18px;
   border: 1px solid var(--border);
-  border-radius: 4px 24px 4px 4px;
-}
-.organization-intro::before {
-  content: '';
-  pointer-events: none;
-  position: absolute;
-  inset: 0;
-  opacity: 0.12;
-  background: url('../../assets/brand/indigo-ink.png') center 64% / cover;
-  mask-image: linear-gradient(90deg, transparent 20%, #000);
-}
-.intro-copy,
-.scope-summary {
-  position: relative;
-}
-.section-number {
-  color: var(--accent);
-  font-size: 11px;
-  letter-spacing: 3px;
-}
-.intro-copy h2 {
-  font-family: 'STSong', 'SimSun', serif;
-  font-size: clamp(28px, 3vw, 42px);
-  font-weight: 500;
-  letter-spacing: 5px;
-  margin: 14px 0;
-}
-.intro-copy h2 span {
-  color: var(--brand);
-  margin-left: 24px;
-}
-.intro-copy p {
-  max-width: 480px;
-  line-height: 1.8;
-  font-size: 13px;
-  color: var(--text-secondary);
-  margin: 0;
+  border-radius: var(--radius-sm);
+  background: var(--surface-soft);
 }
 .scope-summary {
-  display: grid;
-  align-content: center;
-  gap: 8px;
-  min-width: 200px;
-  padding-left: 30px;
-  border-left: 1px solid var(--border-strong);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
 }
 .scope-summary > svg {
   color: var(--brand);
 }
 .scope-summary > span,
 .scope-summary p {
+  margin: 0;
   color: var(--text-muted);
   font-size: 11px;
-  margin: 0;
 }
 .scope-summary strong {
-  font-size: 16px;
+  font-size: 14px;
 }
-.scope-summary a {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--brand);
-  font-size: 12px;
-  text-decoration: none;
-  margin-top: 4px;
+.scope-summary p {
+  margin-left: auto;
 }
 .organization-tabs {
   display: flex;
@@ -175,18 +127,6 @@
 .department-options button:hover,
 .organization-tabs button:hover {
   background: var(--surface-hover);
-}
-.scope-note {
-  border-top: 1px solid var(--border);
-  margin-top: 28px;
-  padding-top: 18px;
-  font-size: 11px;
-  color: var(--text-muted);
-  line-height: 1.8;
-}
-.scope-note > span {
-  color: var(--accent);
-  letter-spacing: 1px;
 }
 .member-panel {
   min-width: 0;
@@ -324,31 +264,12 @@
 .department-placeholder {
   padding-block: 80px;
 }
-.organization-footnote {
-  display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 32px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  color: var(--text-muted);
-  font-size: 10px;
-  letter-spacing: 1px;
-}
 @media (max-width: 1100px) {
   .organization-header {
     padding-inline: 24px;
   }
   .organization-scroll {
     padding: 20px 24px;
-  }
-  .organization-intro {
-    padding: 24px;
-  }
-  .intro-copy h2 span {
-    display: block;
-    margin: 8px 0 0 36px;
   }
   .department-workbench {
     grid-template-columns: 190px minmax(0, 1fr);
@@ -373,25 +294,9 @@
   .organization-scroll {
     padding: 16px;
   }
-  .organization-intro {
-    display: block;
-    padding: 22px;
-  }
-  .intro-copy h2 {
-    font-size: 30px;
-  }
-  .intro-copy h2 span {
-    display: inline;
-    margin-left: 12px;
-  }
-  .scope-summary {
-    margin-top: 22px;
-    padding: 14px 0 0;
-    border-left: 0;
-    border-top: 1px solid var(--border-strong);
-  }
-  .scope-summary > svg {
-    display: none;
+  .scope-summary p {
+    flex-basis: 100%;
+    margin-left: 0;
   }
   .department-workbench {
     grid-template-columns: minmax(0, 1fr);
@@ -410,9 +315,6 @@
     flex-shrink: 0;
     width: auto;
     max-width: 240px;
-  }
-  .scope-note {
-    display: none;
   }
   .create-department {
     width: auto;
@@ -439,10 +341,6 @@
   }
   .person-row {
     padding-block: 16px;
-  }
-  .intro-copy h2 span {
-    display: block;
-    margin-left: 30px;
   }
 }
 @media (prefers-reduced-motion: no-preference) {

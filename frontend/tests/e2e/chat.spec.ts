@@ -253,7 +253,7 @@ test('切换会话保持生成归属，退出取消模型，另一账号不读�
   await expect.poll(gate.closed).toBe(true)
   const other = await createAccount(request)
   await login(page, other)
-  await expect(await sidebar(page)).toContainText('还没有对话')
+  await expect(await sidebar(page)).toContainText('暂无对话')
   await closeSidebar(page)
   await expect(page.getByRole('article')).toHaveCount(0)
 })

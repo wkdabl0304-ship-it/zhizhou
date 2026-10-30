@@ -16,6 +16,9 @@ import {
 async function openOrganization(page: Page): Promise<void> {
   await (await sidebar(page)).getByRole('link', { name: '组织与权限', exact: true }).click()
   await expect(page.getByRole('heading', { name: '组织与权限', exact: true })).toBeVisible()
+  await expect(page.getByRole('region', { name: '管理范围' })).toContainText('当前管理范围')
+  await expect(page.getByText('管理权限不包含他人的个人会话。', { exact: true })).toBeVisible()
+  await expect(page.getByText('聚人成舟', { exact: false })).toHaveCount(0)
 }
 
 /** 提交当前操作弹窗，使用可访问名称避免与背景行按钮混淆。 */

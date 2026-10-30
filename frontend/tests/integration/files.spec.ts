@@ -101,6 +101,12 @@ async function open(path = '/files') {
 it('普通账号可从导航进入资料库，创建目录、打开目录并通过历史返回', async () => {
   const { wrapper, router, body } = await open()
   expect(router.currentRoute.value.query.space).toBe('space-personal')
+  expect(wrapper.get('h1').text()).toBe('资料库')
+  expect(wrapper.find('.files-hero').exists()).toBe(false)
+  expect(wrapper.get('.file-empty').text()).toContain('上传文件或拖入此目录')
+  expect(wrapper.text()).toContain('单文件上限')
+  expect(wrapper.get('[aria-label="资料空间"]').text()).toContain('仅自己可见')
+  expect(wrapper.text()).not.toContain('个人珍藏，团队共阅')
   expect(wrapper.get('a[aria-label="资料库"]').attributes('aria-current')).toBe('page')
   expect(wrapper.find('.chat-header').exists()).toBe(false)
   await wrapper
@@ -142,7 +148,7 @@ it('深链接直接恢复目录，改名与删除完成后列表和弹窗同步'
   await body.get('form').trigger('submit')
   await flushPromises()
   expect(wrapper.find('.file-table').exists()).toBe(false)
-  expect(wrapper.text()).toContain('这个文件夹还是空的')
+  expect(wrapper.text()).toContain('暂无文件')
   expect(body.find('[role=alert]').exists()).toBe(false)
 })
 
